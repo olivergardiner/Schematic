@@ -8,10 +8,13 @@ The intended editor should provide a sensible configurable grid, standard symbol
 
 ## Current technical direction
 
-- The user selected C++ and is leaning toward Qt 6.
+- The user selected C++ and Qt 6 Widgets / Graphics View is the project direction.
 - The repository currently uses CMake and Qt 6 Widgets, with `QGraphicsScene`/`QGraphicsView`-style scene and view classes (`schematicscene.*`, `schematicview.*`). Preserve the existing project conventions unless inspection gives a concrete reason to change them.
 - Keep the schematic document model independent of Qt rendering items and input handling. The scene/view should display and edit the model, not be the source of truth.
-- Represent components, terminals, nets, and wire routes as structured objects. Model electrical connectivity separately from wire geometry so rerouting does not change which terminals are connected.
+- Represent components, terminals, and wire routes as structured objects. Electrical connectivity must be separate from route coordinates: use explicit terminal references and shared node identities for branches, and compute net groups from that identity graph rather than inferring connection from coincident coordinates. Crossings do not connect unless the user explicitly joins them.
+- Use world/scene units for symbol geometry, component positions, and terminal positions. Grid spacing controls snapping and grid-line spacing; it does not scale symbols. Right-angle rotations preserve axis-aligned symbol geometry, but do not imply that every terminal lies on a grid intersection.
+- Milestone-1 wire routes are orthogonal. The wire tool should insert deterministic corners for diagonal pointer movement. When loading, derive route endpoint coordinates from their terminal or node identities; warn on stale serialized endpoint coordinates and validate the resulting route geometry.
+- Net groups and junction dots are derived from explicit topology; persistent net IDs and a separately persisted junction list are not required for milestone 1.
 - Treat undo/redo as a later decision unless the user explicitly brings it into the first milestone.
 
 ## First usable milestone
@@ -19,6 +22,7 @@ The intended editor should provide a sensible configurable grid, standard symbol
 Keep the initial milestone focused on:
 
 - A canvas with pan, zoom, and grid snapping.
+- Configurable grid spacing, stored with the document and changeable through a simple UI control.
 - Selection, moving, and deletion.
 - Built-in symbols: resistor, capacitor, diode, ground, op-amp, potentiometer, and input/output jack.
 - Editable component reference and value labels.
@@ -34,9 +38,15 @@ No PCB features, simulation, automatic routing, or user-authored symbol editor a
 - Keep changes aligned with the approved scope. Prefer focused tests for connectivity, moving connected components, and save/load when implementing the model and persistence; do not expand into unrelated test infrastructure.
 - Explain what changed and how it was checked when reporting completed work. Do not imply tests were run if they were not.
 
+## Build and test choices
+
+- The project uses C++17 and CMake. The `schematiccore` target should depend on Qt Core, not Qt Gui or Widgets.
+- `BUILD_TESTING` defaults to `ON`, so the standard presets include the headless Qt Test suite and require the Qt Test component. An app-only configuration can set `-DBUILD_TESTING=OFF`; keep this option documented for users who do not have Qt Test installed.
+- Step 1 currently establishes the `schematiccore` target, built-in symbol definitions, component terminal-position math, and focused tests. Review findings have been addressed in the coordinate-unit documentation and test-build gating; do not claim a build or test run unless one is actually performed.
+
 ## Repository notes
 
 - The project is currently named `Schematic`; the product name is not settled.
-- Build system: CMake. Qt requirement currently specified as Qt 6.5 with Core, Gui, and Widgets.
+- Build system: CMake. Qt requirement currently specified as Qt 6.5 with Core, Gui, and Widgets for the app; Qt Test is required only when `BUILD_TESTING` is enabled.
 - Existing source includes `main.cpp`, `mainwindow.*`, `schematicscene.*`, and `schematicview.*`.
 - README build instructions use the CMake `default` preset; a `mingw` preset is also mentioned.
