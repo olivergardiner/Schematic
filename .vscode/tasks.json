@@ -1,0 +1,62 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build Debug",
+            "type": "shell",
+            "command": "cmake --build build --config Debug",
+            "group": "build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "Build Release",
+            "type": "shell",
+            "command": "cmake --build build --config Release",
+            "group": "build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "Build & Deploy Release",
+            "dependsOrder": "sequence",
+            "dependsOn": [
+                "Build Release",
+                "Deploy Qt (Release)"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Deploy Qt (Debug)",
+            "type": "shell",
+            "command": "D:/Qt/6.11.1/msvc2022_64/bin/windeployqt6.exe --debug build/Debug/Schematic.exe; if (Test-Path \"$env:SystemRoot\\System32\\icu.dll\") { Copy-Item \"$env:SystemRoot\\System32\\icu.dll\" build\\Debug -Force }",
+            "group": "build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Deploy Qt (Release)",
+            "type": "shell",
+            "command": "D:/Qt/6.11.1/msvc2022_64/bin/windeployqt6.exe --release build/Release/Schematic.exe; if (Test-Path \"$env:SystemRoot\\System32\\icu.dll\") { Copy-Item \"$env:SystemRoot\\System32\\icu.dll\" build\\Release -Force }",
+            "group": "build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        }
+    ]
+}

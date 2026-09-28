@@ -1,0 +1,31 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Launch Schematic (MSVC Debug)",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "D:/Perspective/Software/Schematic/build/Debug/Schematic.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "D:/Perspective/Software/Schematic/build/Debug",
+            "environment": [
+                { "name": "PATH", "value": "D:/Qt/6.11.1/msvc2022_64/bin;${env:PATH}" }
+            ],
+            "console": "internalConsole"
+        },
+        {
+            "name": "Launch Schematic (MSVC Release)",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "D:/Perspective/Software/Schematic/build/Release/Schematic.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "D:/Perspective/Software/Schematic/build/Release",
+            "environment": [
+                { "name": "PATH", "value": "D:/Qt/6.11.1/msvc2022_64/bin;${env:PATH}" }
+            ],
+            "console": "internalConsole"
+        }
+    ]
+}
