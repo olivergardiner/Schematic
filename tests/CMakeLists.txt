@@ -8,6 +8,10 @@ qt_add_executable(schematiccore_tests
     tst_symboldefinition.cpp
     tst_component.h
     tst_component.cpp
+    tst_document.h
+    tst_document.cpp
+    tst_documentjson.h
+    tst_documentjson.cpp
 )
 
 target_link_libraries(schematiccore_tests

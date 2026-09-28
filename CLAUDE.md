@@ -77,10 +77,18 @@ This is the single most important, hardest-to-change decision in the model.
   `Document::junctionPoints()` tallies how many route-ends reference each
   identity; **3 or more** references gets a dot (2 is a plain pass-
   through/corner; 1 is a plain lead end).
-- Moving a component only ever updates `Component::position` (and the
-  derived coordinates of routes anchored to its terminals) — it never
-  touches an identity reference, so net membership is trivially undisturbed
-  by moves.
+- Moving a component updates `Component::position` and the derived
+  coordinates of routes anchored to its terminals, without changing any
+  identity reference. `Document::moveComponent` is transactional and can
+  reject a candidate position. For each affected endpoint, it removes
+  redundant adjacent vertices when the endpoint coincides with them; if
+  that would collapse a direct 2-vertex route to zero length, the entire
+  move is rejected with no document changes. Otherwise, a diagonal segment
+  introduced at the moved endpoint gets one horizontal-first corner at
+  `(newEndpoint.x, adjacentVertex.y)`. The untouched portion of the route
+  remains unchanged, and the candidate route is checked by the shared route
+  geometry validator before the component move commits. Net membership is
+  undisturbed because endpoint identities never change.
 - **Tradeoff accepted**: this is more bookkeeping than pure coordinate
   flood-fill (needs a `NodeId` type, a real split-and-relink operation for
   branching, and the wire tool must distinguish "click on a terminal/node"
@@ -107,8 +115,9 @@ reject. Specifically:
 
 ### Route geometry rules (validated at both creation time and load time)
 
-Applied via one shared `Document`-internal helper so interactive mutators
-(`addWire`, `branchWireAt`) and `fromJson()` enforce identical rules:
+Applied via the shared `validateRouteGeometry()` helper so interactive
+mutators (`addWire`, `branchWireAt`, and `moveComponent`) and `fromJson()`
+enforce identical rules:
 - At least 2 vertices.
 - Every coordinate finite (`std::isfinite`) — rejects NaN/Inf from a
   corrupted/hand-edited file.
@@ -197,7 +206,7 @@ specifics: something like
 - Undo/redo, arbitrary rotation/mirroring, net naming, and a user-authored
   symbol editor remain explicitly out of scope (per `AGENTS.md`).
 
-## File format (planned shape, not yet implemented)
+## File format (version 1)
 
 Versioned JSON via `QJsonDocument`, Core-only:
 ```json
@@ -217,9 +226,12 @@ Versioned JSON via `QJsonDocument`, Core-only:
 }
 ```
 Nets and junctions are **never serialized** — both are recomputed from the
-endpoint-identity graph on load, so there's nothing to keep in sync in the
-file. `symbolKindName()`/`symbolKindFromName()` (in `core/symbolkind.*`) are
-the serialization contract for `SymbolKind`.
+endpoint-identity graph on load. The Core-only `Document::toJson()` and
+`Document::fromJson()` APIs implement this schema. Loads reject unsupported
+versions and invalid topology/geometry; stale endpoint coordinates are
+recomputed from identities with warnings, and unreferenced nodes are dropped
+with warnings. `symbolKindName()`/`symbolKindFromName()` are the stable
+serialization contract for `SymbolKind`.
 
 ## Testing conventions established
 
@@ -322,8 +334,42 @@ the serialization contract for `SymbolKind`.
 - The existing `Schematic` app links `schematiccore` but does not yet use
   it — no behavior change to the running app in this step.
 
-**Not yet started**: `WireEndpoint`/`NodeId`/`WireRoute` + `Document`
-mutators/queries (step 2), JSON serialization + validation (step 3),
+**Step 2 — complete.** `WireEndpoint`/`NodeId`/`WireRoute` and the
+Core-only `Document` model are implemented in `core/`. The document owns
+component, wire, and node identities; routes use explicit terminal or node
+endpoints; branching splits a route at an explicit point; nets and junction
+points are derived from endpoint identities; and component moves update
+attached route geometry transactionally while preserving orthogonality.
+Focused document and route-geometry tests cover connectivity, crossings,
+branching, movement, deletion, invalid input, and grid spacing. The changed
+model and test sources were verified with a successful Debug build of all
+three targets (`schematiccore`, `Schematic`, and `schematiccore_tests`) and a
+passing CTest run (`ctest --test-dir build -C Debug --output-on-failure`:
+1/1 CTest entries passed; all three QObject test classes passed when the test
+binary was run directly with `-v2`). An earlier agent session saw an MSBuild
+`Path`/`PATH` environment error, but it did not reproduce in the verified
+build session and is not a current project issue.
+
+**Step 3 — complete.** Core-only version-1 JSON serialization and
+validated loading are provided by `Document::toJson()`/`fromJson()` in
+`core/documentjson.cpp`. Loading validates ids, kinds, rotations, references,
+coordinates, and orthogonal routes; derives endpoint coordinates from
+identities; reports stale-coordinate and orphan-node warnings; and returns no
+document when errors occur. Focused round-trip and load-validation tests are
+in `tests/tst_documentjson.*`.
+
+**Review round found and fixed**: the initial
+`rejectsInvalidIdsReferencesAndGeometry()` diagonal-geometry test case
+corrupted only a 2-vertex wire's two endpoint coordinates, which get
+unconditionally overwritten by derived identity positions on load - so the
+corruption could never survive to fail revalidation. Fixed by introducing an
+off-axis *interior* vertex instead, which derivation leaves untouched.
+Verified with a Debug build of all three targets and a passing CTest run
+(`ctest --test-dir build -C Debug --output-on-failure`: 1/1 CTest entries
+passed; all four QObject test classes, including `TstDocumentJson`, passed
+when the test binary was run directly with `-v2`).
+
+**Not yet started**:
 read-only scene rendering (step 4), interactive editing — select/move/
 delete/place/draw-wire, plus `SchematicView` pan and grid-spacing control
 (step 5), and `MainWindow` file I/O + symbol palette + label editing

@@ -35,6 +35,15 @@ add_library(schematiccore STATIC
     core/symboldefinition.cpp
     core/component.h
     core/component.cpp
+    core/terminalref.h
+    core/wireendpoint.h
+    core/wireroute.h
+    core/routegeometry.h
+    core/routegeometry.cpp
+    core/document.h
+    core/document.cpp
+    core/documentloadresult.h
+    core/documentjson.cpp
 )
 
 target_include_directories(schematiccore PUBLIC core)

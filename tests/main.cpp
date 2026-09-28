@@ -8,6 +8,8 @@
 
 #include "tst_symboldefinition.h"
 #include "tst_component.h"
+#include "tst_document.h"
+#include "tst_documentjson.h"
 
 #include <QTest>
 
@@ -21,6 +23,14 @@ int main(int argc, char *argv[])
     }
     {
         TstComponent test;
+        status |= QTest::qExec(&test, argc, argv);
+    }
+    {
+        TstDocument test;
+        status |= QTest::qExec(&test, argc, argv);
+    }
+    {
+        TstDocumentJson test;
         status |= QTest::qExec(&test, argc, argv);
     }
 
