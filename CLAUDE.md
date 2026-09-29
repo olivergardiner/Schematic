@@ -369,8 +369,46 @@ Verified with a Debug build of all three targets and a passing CTest run
 passed; all four QObject test classes, including `TstDocumentJson`, passed
 when the test binary was run directly with `-v2`).
 
-**Not yet started**:
-read-only scene rendering (step 4), interactive editing — select/move/
+**Step 4 — complete.** `SchematicScene::setDocument(const Document &)` does a
+full clear-and-rebuild of graphics items from a `Document` snapshot; the
+`Document` stays the sole source of truth (no signals, no back-references)
+and the scene never mutates it. Explicit stacking order: wires (z=0) below
+junction dots (z=1) below symbol artwork (z=2) below reference/value labels
+(z=3). Symbols are rendered directly from `SymbolDefinition` primitives as
+one rotated/translated `QGraphicsItemGroup` per component (`Line`/`Polyline`
+open paths, `Polygon` closed and filled white, `Circle` as an ellipse), using
+`Component::rotation()`/`terminalPosition()`'s existing quadrant-rotation
+contract. Reference/value labels are separate, unrotated top-level text items
+positioned from the component's *unrotated* local bounding box, so rotation
+never rotates label text. Wires are drawn directly from `WireRoute::vertices`
+as a single painter path; junction dots are drawn only from
+`Document::junctionPoints()` - no geometric-crossing test exists anywhere in
+the renderer, matching the connectivity design (crossings never imply a
+join). Pen widths and label font size are real scene-unit values (not
+cosmetic/pixel-fixed), so line weight and text both scale with zoom exactly
+like symbol artwork, since this is a presentation/export tool, not a
+screen-fixed-size UI.
+Step 4 is read-only by design: no selection, move, delete, or
+grid-spacing control - those remain step 5. `MainWindow` gained a temporary
+`loadSampleDocument()` (clearly commented as step-4-only scaffolding in
+`mainwindow.h`/`.cpp`) that builds a small `Document` covering every built-in
+symbol kind, a branch/junction, and rotated components, and pushes it into
+`m_scene` via `setDocument()`; this exists solely so the new rendering code
+has something to render before step 6 wires up real file I/O, and should be
+removed/replaced then.
+**Verified**: a Debug build of all three targets succeeded, `ctest
+--test-dir build -C Debug --output-on-failure` passed (1/1 CTest entries;
+`schematiccore_tests` is unaffected since this step touches no `core/`
+code), and the running `Schematic.exe` was visually inspected via screenshots
+showing correct symbol shapes/rotation (including the 90°-rotated capacitor),
+axis-aligned wire routing, a rendered junction dot sitting above the wire
+crossing it, and upright labels that scale with zoom. No automated test was
+added for scene rendering itself - `tests/CMakeLists.txt` deliberately links
+only Core+Test (no Widgets), and `AGENTS.md` says not to expand into
+unrelated test infrastructure, so visual inspection was the agreed
+verification method for this step.
+
+**Not yet started**: interactive editing — select/move/
 delete/place/draw-wire, plus `SchematicView` pan and grid-spacing control
 (step 5), and `MainWindow` file I/O + symbol palette + label editing
 (step 6). See the step list above for what each covers.

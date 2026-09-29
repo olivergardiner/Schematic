@@ -2,6 +2,8 @@
 #include "schematicscene.h"
 #include "schematicview.h"
 
+#include "wireendpoint.h"
+
 #include <QApplication>
 #include <QMenuBar>
 #include <QToolBar>
@@ -33,6 +35,8 @@ MainWindow::MainWindow(QWidget *parent)
 
     resize(1000, 700);
     updateWindowTitle();
+
+    loadSampleDocument();
 }
 
 MainWindow::~MainWindow() = default;
@@ -204,4 +208,48 @@ void MainWindow::onMouseScenePositionChanged(const QPointF &scenePos)
     m_positionLabel->setText(tr("X: %1, Y: %2")
                                   .arg(scenePos.x(), 0, 'f', 1)
                                   .arg(scenePos.y(), 0, 'f', 1));
+}
+
+void MainWindow::loadSampleDocument()
+{
+    // Step 4 scaffolding only - see the declaration comment in mainwindow.h.
+    // Lays out one of every built-in symbol kind, straight and cornered
+    // wires, and a branch (so a junction dot is exercised), purely to
+    // visually verify SchematicScene::setDocument() rendering. Interior
+    // corner vertices below were hand-computed from each terminal's actual
+    // rotated world position (see Component::terminalPosition()) so every
+    // route segment stays axis-aligned, as validateRouteGeometry() requires.
+    const ComponentId jack = m_document.addComponent(SymbolKind::Jack, {-100, 0});
+    const ComponentId resistor = m_document.addComponent(SymbolKind::Resistor, {0, 0});
+    const ComponentId capacitor = m_document.addComponent(SymbolKind::Capacitor, {100, 0},
+                                                            Rotation::Deg90);
+    const ComponentId diode = m_document.addComponent(SymbolKind::Diode, {200, 0});
+    const ComponentId ground = m_document.addComponent(SymbolKind::Ground, {200, 80});
+    const ComponentId opAmp = m_document.addComponent(SymbolKind::OpAmp, {0, 150});
+    const ComponentId pot = m_document.addComponent(SymbolKind::Potentiometer, {150, 150},
+                                                      Rotation::Deg180);
+
+    // jack.sleeve (-80,0) -> resistor.1 (-20,0): already collinear.
+    const auto lead = m_document.addWire(makeTerminalEndpoint(jack, 1), {},
+                                          makeTerminalEndpoint(resistor, 0));
+    // Branch partway along that lead, then route up to the op-amp's in+.
+    if (lead) {
+        if (const auto node = m_document.branchWireAt(*lead, QPointF(-50, 0)))
+            m_document.addWire(makeNodeEndpoint(*node), {QPointF(-50, 142)},
+                                makeTerminalEndpoint(opAmp, 0));
+    }
+    // resistor.2 (20,0) -> capacitor.1 (100,-20): one corner at (100,0).
+    m_document.addWire(makeTerminalEndpoint(resistor, 1), {QPointF(100, 0)},
+                        makeTerminalEndpoint(capacitor, 0));
+    // capacitor.2 (100,20) -> diode.anode (180,0): one corner at (180,20).
+    m_document.addWire(makeTerminalEndpoint(capacitor, 1), {QPointF(180, 20)},
+                        makeTerminalEndpoint(diode, 0));
+    // diode.cathode (220,0) -> ground.1 (200,60): one corner at (220,60).
+    m_document.addWire(makeTerminalEndpoint(diode, 1), {QPointF(220, 60)},
+                        makeTerminalEndpoint(ground, 0));
+    // pot.wiper (150,170) -> op-amp.v+ (0,134): one corner at (150,134).
+    m_document.addWire(makeTerminalEndpoint(pot, 2), {QPointF(150, 134)},
+                        makeTerminalEndpoint(opAmp, 3));
+
+    m_scene->setDocument(m_document);
 }
