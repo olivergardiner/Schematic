@@ -24,4 +24,5 @@
 - The `schematiccore` library depends on Qt Core only. The model tests use Qt Test and CTest without Qt Gui or Widgets.
 - `BUILD_TESTING` defaults to `ON`. Use `-DBUILD_TESTING=OFF` for an app-only configuration that does not require Qt Test.
 - Focused tests live in `tests/tst_<module>.h/.cpp`; test classes are registered in `tests/main.cpp`. Keep expected values independent of the implementation path under test.
-- Before reporting verification, run the relevant checks in the current environment and report exactly what ran. Prior-session build or test results are historical, not evidence for a later change.
+- Run the smallest checks that give confidence in the change. Do not repeat a successful build or test run unless the code changed afterward, the result was inconclusive, or a later change could affect it. For documentation-only changes, check the Markdown diff and links; do not build or run tests.
+- Before reporting verification, run relevant checks in the current environment and report exactly what ran. Prior-session build or test results are historical, not evidence for a later change.

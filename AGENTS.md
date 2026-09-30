@@ -42,7 +42,7 @@ No PCB features, simulation, automatic routing, or user-authored symbol editor a
 
 - The project uses C++17 and CMake. The `schematiccore` target should depend on Qt Core, not Qt Gui or Widgets.
 - `BUILD_TESTING` defaults to `ON`, so the standard presets include the headless Qt Test suite and require the Qt Test component. An app-only configuration can set `-DBUILD_TESTING=OFF`; keep this option documented for users who do not have Qt Test installed.
-- Run focused checks appropriate to the change and report exactly what was run. Do not rely on historical build/test claims as evidence for new changes.
+- Run the smallest checks that give confidence in the change and report exactly what was run. Do not repeat a successful build or test run unless the code changed afterward, the result was inconclusive, or a later change could affect it. For documentation-only changes, check the Markdown diff and links; do not build or run tests.
 
 ## Repository notes
 
