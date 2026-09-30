@@ -42,7 +42,7 @@ No PCB features, simulation, automatic routing, or user-authored symbol editor a
 
 - The project uses C++17 and CMake. The `schematiccore` target should depend on Qt Core, not Qt Gui or Widgets.
 - `BUILD_TESTING` defaults to `ON`, so the standard presets include the headless Qt Test suite and require the Qt Test component. An app-only configuration can set `-DBUILD_TESTING=OFF`; keep this option documented for users who do not have Qt Test installed.
-- Step 1 currently establishes the `schematiccore` target, built-in symbol definitions, component terminal-position math, and focused tests. Review findings have been addressed in the coordinate-unit documentation and test-build gating; do not claim a build or test run unless one is actually performed.
+- Run focused checks appropriate to the change and report exactly what was run. Do not rely on historical build/test claims as evidence for new changes.
 
 ## Repository notes
 
@@ -50,3 +50,9 @@ No PCB features, simulation, automatic routing, or user-authored symbol editor a
 - Build system: CMake. Qt requirement currently specified as Qt 6.5 with Core, Gui, and Widgets for the app; Qt Test is required only when `BUILD_TESTING` is enabled.
 - Existing source includes `main.cpp`, `mainwindow.*`, `schematicscene.*`, and `schematicview.*`.
 - README build instructions use the CMake `default` preset; a `mingw` preset is also mentioned.
+
+## Documentation
+
+- Keep this file focused on product goals and collaboration guidance.
+- `DECISIONS.md` records settled design choices; `ROADMAP.md` tracks unresolved defects, open choices, and later product ideas.
+- The repository documentation is the source of truth. Keep claims about current behavior aligned with the code; identify known issues as unresolved until they are fixed and verified.
