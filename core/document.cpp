@@ -122,6 +122,28 @@ bool Document::moveComponent(ComponentId id, QPointF position)
     return true;
 }
 
+bool Document::setComponentLabels(ComponentId id, const QString &reference, const QString &value)
+{
+    auto it = std::find_if(m_components.begin(), m_components.end(),
+                           [id](const Component &item) { return item.id() == id; });
+    if (it == m_components.end())
+        return false;
+
+    const QString trimmedReference = reference.trimmed();
+    const QString trimmedValue = value.trimmed();
+    if (trimmedReference.isEmpty())
+        return false;
+
+    for (const Component &other : m_components) {
+        if (other.id() != id && other.reference() == trimmedReference)
+            return false;
+    }
+
+    it->setReference(trimmedReference);
+    it->setValue(trimmedValue);
+    return true;
+}
+
 bool Document::removeComponent(ComponentId id)
 {
     const auto componentIt = std::find_if(m_components.begin(), m_components.end(),
@@ -174,14 +196,34 @@ bool Document::removeWire(WireId id)
 
 std::optional<NodeId> Document::branchWireAt(WireId id, QPointF point)
 {
-    const auto it = std::find_if(m_wires.begin(), m_wires.end(),
+    QVector<QPointF> leftPoints;
+    QVector<QPointF> rightPoints;
+    WireEndpoint originalStart;
+    WireEndpoint originalEnd;
+    if (!computeBranchSplit(id, point, &leftPoints, &rightPoints, &originalStart, &originalEnd))
+        return std::nullopt;
+    if (!idsAvailable(m_nextNodeId, 1) || !idsAvailable(m_nextWireId, 2))
+        return std::nullopt;
+
+    const NodeId node = m_nextNodeId++;
+    const WireId leftId = allocateWireId();
+    const WireId rightId = allocateWireId();
+    commitBranchSplit(id, point, leftPoints, rightPoints, originalStart, originalEnd,
+                      node, leftId, rightId);
+    return node;
+}
+
+bool Document::computeBranchSplit(WireId id, QPointF point, QVector<QPointF> *leftPoints,
+                                  QVector<QPointF> *rightPoints, WireEndpoint *originalStart,
+                                  WireEndpoint *originalEnd) const
+{
+    const auto it = std::find_if(m_wires.cbegin(), m_wires.cend(),
                                  [id](const WireRoute &route) { return route.id == id; });
-    if (it == m_wires.end() || !std::isfinite(point.x()) || !std::isfinite(point.y()))
-        return std::nullopt;
-    const int wireIndex = static_cast<int>(std::distance(m_wires.begin(), it));
-    const WireRoute original = *it;
+    if (it == m_wires.cend() || !std::isfinite(point.x()) || !std::isfinite(point.y()))
+        return false;
+    const WireRoute &original = *it;
     if (samePoint(point, original.vertices.first()) || samePoint(point, original.vertices.last()))
-        return std::nullopt;
+        return false;
 
     int segment = -1;
     bool atVertex = false;
@@ -193,36 +235,158 @@ std::optional<NodeId> Document::branchWireAt(WireId id, QPointF point)
         }
     }
     if (segment < 0)
-        return std::nullopt;
+        return false;
 
-    QVector<QPointF> leftPoints;
-    QVector<QPointF> rightPoints;
+    QVector<QPointF> left;
+    QVector<QPointF> right;
     for (int i = 0; i <= segment; ++i)
-        leftPoints.append(original.vertices[i]);
-    leftPoints.append(point);
-    rightPoints.append(point);
+        left.append(original.vertices[i]);
+    left.append(point);
+    right.append(point);
     const int rightStart = atVertex ? segment + 2 : segment + 1;
     for (int i = rightStart; i < original.vertices.size(); ++i)
-        rightPoints.append(original.vertices[i]);
-    if (validateRouteGeometry(leftPoints) != RouteGeometryError::None
-        || validateRouteGeometry(rightPoints) != RouteGeometryError::None)
-        return std::nullopt;
-    if (m_nextNodeId == kInvalidNodeId)
-        return std::nullopt;
+        right.append(original.vertices[i]);
+    if (validateRouteGeometry(left) != RouteGeometryError::None
+        || validateRouteGeometry(right) != RouteGeometryError::None)
+        return false;
 
-    const NodeId node = m_nextNodeId++;
+    *leftPoints = left;
+    *rightPoints = right;
+    *originalStart = original.start;
+    *originalEnd = original.end;
+    return true;
+}
+
+void Document::commitBranchSplit(WireId id, QPointF point, const QVector<QPointF> &leftPoints,
+                                 const QVector<QPointF> &rightPoints,
+                                 const WireEndpoint &originalStart, const WireEndpoint &originalEnd,
+                                 NodeId node, WireId leftId, WireId rightId)
+{
+    const auto it = std::find_if(m_wires.begin(), m_wires.end(),
+                                 [id](const WireRoute &route) { return route.id == id; });
+    Q_ASSERT(it != m_wires.end());
+    const int wireIndex = static_cast<int>(std::distance(m_wires.begin(), it));
     const WireEndpoint nodeEndpoint = makeNodeEndpoint(node);
-    const WireId leftId = allocateWireId();
-    const WireId rightId = allocateWireId();
-    if (leftId == kInvalidWireId || rightId == kInvalidWireId)
-        return std::nullopt;
-    WireRoute left{leftId, leftPoints, original.start, nodeEndpoint};
-    WireRoute right{rightId, rightPoints, nodeEndpoint, original.end};
+    WireRoute left{leftId, leftPoints, originalStart, nodeEndpoint};
+    WireRoute right{rightId, rightPoints, nodeEndpoint, originalEnd};
     m_nodes.insert(node, point);
     m_wires.removeAt(wireIndex);
     m_wires.insert(wireIndex, right);
     m_wires.insert(wireIndex, left);
-    return node;
+}
+
+bool Document::idsAvailable(quint32 nextId, int count)
+{
+    if (count <= 0)
+        return true;
+    if (nextId == 0)
+        return false;
+    return nextId <= std::numeric_limits<quint32>::max() - static_cast<quint32>(count - 1);
+}
+
+std::optional<WireId> Document::addWireBranching(const PendingWireEndpoint &start,
+                                                  const QVector<QPointF> &interiorVertices,
+                                                  const PendingWireEndpoint &end)
+{
+    // Step 5 scope limit: branching twice from the same wire in one call
+    // would require compounding-split bookkeeping (the second site's
+    // segment index may shift once the first split is applied). Reject
+    // rather than handle that edge case - the user can draw two separate
+    // wires instead.
+    if (isBranchSite(start) && isBranchSite(end)
+        && std::get<BranchSite>(start).wire == std::get<BranchSite>(end).wire)
+        return std::nullopt;
+
+    struct ResolvedSite
+    {
+        WireId originalWire = kInvalidWireId;
+        QPointF point;
+        QVector<QPointF> leftPoints;
+        QVector<QPointF> rightPoints;
+        WireEndpoint originalStart;
+        WireEndpoint originalEnd;
+    };
+
+    QPointF startPoint;
+    QPointF endPoint;
+    std::optional<ResolvedSite> startSite;
+    std::optional<ResolvedSite> endSite;
+
+    if (isBranchSite(start)) {
+        const BranchSite &site = std::get<BranchSite>(start);
+        ResolvedSite resolved;
+        resolved.originalWire = site.wire;
+        resolved.point = site.point;
+        if (!computeBranchSplit(site.wire, site.point, &resolved.leftPoints,
+                                &resolved.rightPoints, &resolved.originalStart,
+                                &resolved.originalEnd))
+            return std::nullopt;
+        startPoint = site.point;
+        startSite = resolved;
+    } else if (!endpointPosition(std::get<WireEndpoint>(start), &startPoint)) {
+        return std::nullopt;
+    }
+
+    if (isBranchSite(end)) {
+        const BranchSite &site = std::get<BranchSite>(end);
+        ResolvedSite resolved;
+        resolved.originalWire = site.wire;
+        resolved.point = site.point;
+        if (!computeBranchSplit(site.wire, site.point, &resolved.leftPoints,
+                                &resolved.rightPoints, &resolved.originalStart,
+                                &resolved.originalEnd))
+            return std::nullopt;
+        endPoint = site.point;
+        endSite = resolved;
+    } else if (!endpointPosition(std::get<WireEndpoint>(end), &endPoint)) {
+        return std::nullopt;
+    }
+
+    QVector<QPointF> vertices;
+    vertices.reserve(interiorVertices.size() + 2);
+    vertices.append(startPoint);
+    vertices += interiorVertices;
+    vertices.append(endPoint);
+    if (validateRouteGeometry(vertices) != RouteGeometryError::None)
+        return std::nullopt;
+
+    // Pre-flight every ID this operation might need before mutating
+    // anything - this is what makes the whole operation atomic even though
+    // it can allocate up to 1 wire ID per branch site plus 1 for the new
+    // wire itself.
+    const int branchCount = (startSite ? 1 : 0) + (endSite ? 1 : 0);
+    if (!idsAvailable(m_nextWireId, 1 + branchCount * 2) || !idsAvailable(m_nextNodeId, branchCount))
+        return std::nullopt;
+
+    NodeId startNode = kInvalidNodeId;
+    NodeId endNode = kInvalidNodeId;
+    if (startSite) {
+        startNode = m_nextNodeId++;
+        const WireId leftId = allocateWireId();
+        const WireId rightId = allocateWireId();
+        commitBranchSplit(startSite->originalWire, startSite->point, startSite->leftPoints,
+                          startSite->rightPoints, startSite->originalStart,
+                          startSite->originalEnd, startNode, leftId, rightId);
+    }
+    if (endSite) {
+        endNode = m_nextNodeId++;
+        const WireId leftId = allocateWireId();
+        const WireId rightId = allocateWireId();
+        commitBranchSplit(endSite->originalWire, endSite->point, endSite->leftPoints,
+                          endSite->rightPoints, endSite->originalStart, endSite->originalEnd,
+                          endNode, leftId, rightId);
+    }
+
+    const WireEndpoint resolvedStart = startSite ? makeNodeEndpoint(startNode)
+                                                  : std::get<WireEndpoint>(start);
+    const WireEndpoint resolvedEnd = endSite ? makeNodeEndpoint(endNode)
+                                              : std::get<WireEndpoint>(end);
+    // allocateWireId() cannot fail here: idsAvailable() already confirmed
+    // 1 + branchCount*2 consecutive IDs were available before any were
+    // consumed above.
+    const WireId id = allocateWireId();
+    m_wires.append(WireRoute{id, vertices, resolvedStart, resolvedEnd});
+    return id;
 }
 
 QVector<Net> Document::computeNets() const

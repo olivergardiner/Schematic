@@ -37,6 +37,8 @@ add_library(schematiccore STATIC
     core/component.cpp
     core/terminalref.h
     core/wireendpoint.h
+    core/pendingwireendpoint.h
+
     core/wireroute.h
     core/routegeometry.h
     core/routegeometry.cpp
@@ -60,6 +62,7 @@ qt_add_executable(Schematic
     mainwindow.h
     schematicscene.cpp
     schematicscene.h
+    schematicitems.h
     schematicview.cpp
     schematicview.h
 )

@@ -39,6 +39,33 @@ private slots:
     // A grid increment is a positive finite world-unit value and invalid
     // edits must not replace the last valid setting.
     void gridSpacingMustBePositiveAndFinite();
+
+    // Completing a wire that branches off an existing route must apply the
+    // branch split and append the new wire as one atomic change.
+    void addWireBranchingAppliesSplitsAtomically();
+
+    // Branching twice from the same wire in one call is rejected (a step 5
+    // scope limit), and any other failure must leave wires, nodes, and ID
+    // allocation completely unchanged - no orphaned split, no consumed id.
+    void addWireBranchingFailureLeavesDocumentUnchanged();
+
+    // setComponentLabels() trims both fields before validation/storage, so
+    // "R1" and " R1 " are the same reference and an all-whitespace
+    // reference is treated as empty.
+    void setComponentLabelsTrimsBeforeValidationAndStorage();
+
+    // An empty (or all-whitespace) reference is rejected without changing
+    // the component's existing labels.
+    void setComponentLabelsRejectsEmptyReference();
+
+    // A reference that collides with another component's (trimmed)
+    // reference is rejected, but renaming a component to its own current
+    // reference succeeds.
+    void setComponentLabelsRejectsDuplicateReferenceButAllowsSelfRename();
+
+    // Editing only the value (same reference) succeeds and leaves the
+    // reference untouched.
+    void setComponentLabelsValueOnlyEditSucceeds();
 };
 
 #endif // TST_DOCUMENT_H

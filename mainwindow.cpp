@@ -3,18 +3,31 @@
 #include "schematicview.h"
 
 #include "wireendpoint.h"
+#include "documentloadresult.h"
 
 #include <QApplication>
 #include <QMenuBar>
 #include <QToolBar>
+#include <QDockWidget>
 #include <QStatusBar>
 #include <QLabel>
+#include <QToolButton>
+#include <QDoubleSpinBox>
 #include <QMessageBox>
 #include <QFileDialog>
 #include <QCloseEvent>
 #include <QAction>
+#include <QActionGroup>
 #include <QKeySequence>
 #include <QIcon>
+#include <QSaveFile>
+#include <QFile>
+#include <QVBoxLayout>
+#include <QFormLayout>
+#include <QLineEdit>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QInputDialog>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -27,16 +40,28 @@ MainWindow::MainWindow(QWidget *parent)
     createActions();
     createMenus();
     createToolBar();
+    createSymbolDock();
     createStatusBar();
 
     connect(m_view, &SchematicView::zoomFactorChanged, this, &MainWindow::onZoomFactorChanged);
     connect(m_view, &SchematicView::mouseScenePositionChanged,
             this, &MainWindow::onMouseScenePositionChanged);
+    connect(m_scene, &SchematicScene::documentEdited, this, &MainWindow::onDocumentEdited);
+    connect(m_scene, &SchematicScene::statusMessage, this, &MainWindow::onSceneStatusMessage);
+    connect(m_scene, &SchematicScene::componentDoubleClicked,
+            this, &MainWindow::onEditComponentLabels);
+    connect(m_scene, &SchematicScene::selectionChanged,
+            this, &MainWindow::updateRenameActionEnabled);
 
     resize(1000, 700);
     updateWindowTitle();
 
-    loadSampleDocument();
+    // m_document starts out empty (default-constructed); bind it to the
+    // scene explicitly here rather than relying on some other call to do so
+    // indirectly - see the m_document declaration comment in mainwindow.h.
+    m_scene->bindDocument(&m_document);
+    m_view->setGridSpacing(m_document.gridSpacing());
+    updateRenameActionEnabled();
 }
 
 MainWindow::~MainWindow() = default;
@@ -79,6 +104,20 @@ void MainWindow::createMenus()
     redoAction->setShortcut(QKeySequence::Redo);
     redoAction->setEnabled(false);
 
+    editMenu->addSeparator();
+    m_renameAction = editMenu->addAction(tr("&Rename..."), this,
+                                         &MainWindow::onRenameSelectedComponent);
+    m_renameAction->setShortcut(Qt::Key_F2);
+    // Qt::WindowShortcut (the default for an action added to a menu, but
+    // set explicitly for clarity) fires as long as this window - or any
+    // descendant widget, including both m_view and the symbol dock added
+    // in createSymbolDock() - has focus. Scoping this to m_view alone would
+    // miss F2 presses while focus is in the dock, since the dock is a
+    // sibling of m_view under QMainWindow, not a child of it.
+    m_renameAction->setShortcutContext(Qt::WindowShortcut);
+    m_renameAction->setEnabled(false); // Enabled only while exactly one component is selected.
+    addAction(m_renameAction);
+
     auto *viewMenu = menuBar()->addMenu(tr("&View"));
     auto *zoomInAction = viewMenu->addAction(tr("Zoom &In"), m_view, &SchematicView::zoomIn);
     zoomInAction->setShortcut(QKeySequence::ZoomIn);
@@ -104,6 +143,76 @@ void MainWindow::createToolBar()
     toolBar->addAction(tr("Zoom In"), m_view, &SchematicView::zoomIn);
     toolBar->addAction(tr("Zoom Out"), m_view, &SchematicView::zoomOut);
     toolBar->addAction(tr("Fit"), m_view, &SchematicView::zoomToFit);
+    toolBar->addSeparator();
+
+    // m_modeGroup also gathers the per-symbol placement actions added in
+    // createSymbolDock(), so Select/DrawWire/each-symbol-button are all
+    // mutually exclusive - see the m_modeGroup declaration comment in
+    // mainwindow.h.
+    m_modeGroup = new QActionGroup(this);
+    m_modeGroup->setExclusive(true);
+
+    m_selectAction = toolBar->addAction(tr("Select"));
+    m_selectAction->setCheckable(true);
+    m_selectAction->setChecked(true);
+    m_modeGroup->addAction(m_selectAction);
+    connect(m_selectAction, &QAction::triggered, this, &MainWindow::onSelectModeTriggered);
+
+    m_drawWireAction = toolBar->addAction(tr("Draw Wire"));
+    m_drawWireAction->setCheckable(true);
+    m_modeGroup->addAction(m_drawWireAction);
+    connect(m_drawWireAction, &QAction::triggered, this, &MainWindow::onDrawWireModeTriggered);
+
+    toolBar->addSeparator();
+    auto *gridLabel = new QLabel(tr("Grid spacing:"), this);
+    toolBar->addWidget(gridLabel);
+    m_gridSpacingSpin = new QDoubleSpinBox(this);
+    m_gridSpacingSpin->setRange(0.1, 1000.0);
+    m_gridSpacingSpin->setDecimals(2);
+    m_gridSpacingSpin->setValue(m_document.gridSpacing());
+    m_gridSpacingSpin->setToolTip(
+        tr("Sets the snap increment and minor grid line spacing; major grid "
+           "lines are drawn every 10 minor intervals."));
+    connect(m_gridSpacingSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+            this, &MainWindow::onGridSpacingChanged);
+    toolBar->addWidget(m_gridSpacingSpin);
+}
+
+void MainWindow::createSymbolDock()
+{
+    auto *dock = new QDockWidget(tr("Symbols"), this);
+    dock->setObjectName("symbolDock");
+    dock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
+
+    auto *container = new QWidget(dock);
+    auto *layout = new QVBoxLayout(container);
+    layout->setContentsMargins(4, 4, 4, 4);
+
+    for (SymbolKind kind : {SymbolKind::Resistor, SymbolKind::Capacitor, SymbolKind::Diode,
+                            SymbolKind::Ground, SymbolKind::OpAmp, SymbolKind::Potentiometer,
+                            SymbolKind::Jack}) {
+        // One QAction per symbol, added to m_modeGroup so it is mutually
+        // exclusive with Select/Draw Wire, bound to a QToolButton via
+        // setDefaultAction() (the standard Qt pattern for a button whose
+        // checked state and click behaviour are entirely driven by its
+        // action - no manual signal syncing needed).
+        auto *action = new QAction(symbolKindName(kind), this);
+        action->setCheckable(true);
+        m_modeGroup->addAction(action);
+        connect(action, &QAction::triggered, this, [this, kind]() {
+            onPlaceComponentKindChanged(kind);
+        });
+
+        auto *button = new QToolButton(container);
+        button->setDefaultAction(action);
+        button->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        button->setMinimumWidth(96);
+        layout->addWidget(button);
+    }
+    layout->addStretch(1);
+
+    dock->setWidget(container);
+    addDockWidget(Qt::LeftDockWidgetArea, dock);
 }
 
 void MainWindow::createStatusBar()
@@ -145,7 +254,10 @@ void MainWindow::onNew()
     if (!maybeSave())
         return;
 
-    m_scene->clear();
+    m_document = Document();
+    m_scene->bindDocument(&m_document);
+    m_gridSpacingSpin->setValue(m_document.gridSpacing());
+    m_view->setGridSpacing(m_document.gridSpacing());
     m_currentFilePath.clear();
     m_documentModified = false;
     updateWindowTitle();
@@ -161,11 +273,50 @@ void MainWindow::onOpen()
     if (path.isEmpty())
         return;
 
-    // File format not yet implemented; this establishes the UI flow so
-    // document I/O can be dropped in without further UI changes.
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        QMessageBox::warning(this, tr("Schematic"),
+            tr("Could not open \"%1\" for reading: %2").arg(path, file.errorString()));
+        return;
+    }
+    const DocumentLoadResult result = Document::fromJsonBytes(file.readAll());
+    if (!result.document) {
+        QMessageBox::warning(this, tr("Schematic"),
+            tr("\"%1\" could not be loaded:\n%2").arg(path, result.errors.join('\n')));
+        return; // The current document is left completely unchanged.
+    }
+
+    m_document = *result.document;
+    m_scene->bindDocument(&m_document);
+    m_gridSpacingSpin->setValue(m_document.gridSpacing());
+    m_view->setGridSpacing(m_document.gridSpacing());
     m_currentFilePath = path;
     m_documentModified = false;
     updateWindowTitle();
+
+    if (!result.warnings.isEmpty())
+        statusBar()->showMessage(result.warnings.join(QStringLiteral("; ")), 5000);
+}
+
+bool MainWindow::writeDocumentTo(const QString &path)
+{
+    // QSaveFile writes to a temporary file alongside path and only
+    // atomically renames it into place on a successful commit(), so a
+    // write failure can never leave a partially-written or corrupted file
+    // at path - see AGENTS.md/CLAUDE.md step 6 plan.
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly)) {
+        QMessageBox::warning(this, tr("Schematic"),
+            tr("Could not open \"%1\" for writing: %2").arg(path, file.errorString()));
+        return false;
+    }
+    file.write(m_document.toJsonBytes());
+    if (!file.commit()) {
+        QMessageBox::warning(this, tr("Schematic"),
+            tr("Could not save \"%1\": %2").arg(path, file.errorString()));
+        return false;
+    }
+    return true;
 }
 
 bool MainWindow::onSave()
@@ -173,7 +324,8 @@ bool MainWindow::onSave()
     if (m_currentFilePath.isEmpty())
         return onSaveAs();
 
-    // File format not yet implemented.
+    if (!writeDocumentTo(m_currentFilePath))
+        return false;
     m_documentModified = false;
     updateWindowTitle();
     return true;
@@ -186,8 +338,15 @@ bool MainWindow::onSaveAs()
     if (path.isEmpty())
         return false;
 
+    // Only commit m_currentFilePath once the write actually succeeds - a
+    // failed save must not change which file subsequent plain Save calls
+    // target.
+    if (!writeDocumentTo(path))
+        return false;
     m_currentFilePath = path;
-    return onSave();
+    m_documentModified = false;
+    updateWindowTitle();
+    return true;
 }
 
 void MainWindow::onAbout()
@@ -210,46 +369,101 @@ void MainWindow::onMouseScenePositionChanged(const QPointF &scenePos)
                                   .arg(scenePos.y(), 0, 'f', 1));
 }
 
-void MainWindow::loadSampleDocument()
+void MainWindow::onDocumentEdited()
 {
-    // Step 4 scaffolding only - see the declaration comment in mainwindow.h.
-    // Lays out one of every built-in symbol kind, straight and cornered
-    // wires, and a branch (so a junction dot is exercised), purely to
-    // visually verify SchematicScene::setDocument() rendering. Interior
-    // corner vertices below were hand-computed from each terminal's actual
-    // rotated world position (see Component::terminalPosition()) so every
-    // route segment stays axis-aligned, as validateRouteGeometry() requires.
-    const ComponentId jack = m_document.addComponent(SymbolKind::Jack, {-100, 0});
-    const ComponentId resistor = m_document.addComponent(SymbolKind::Resistor, {0, 0});
-    const ComponentId capacitor = m_document.addComponent(SymbolKind::Capacitor, {100, 0},
-                                                            Rotation::Deg90);
-    const ComponentId diode = m_document.addComponent(SymbolKind::Diode, {200, 0});
-    const ComponentId ground = m_document.addComponent(SymbolKind::Ground, {200, 80});
-    const ComponentId opAmp = m_document.addComponent(SymbolKind::OpAmp, {0, 150});
-    const ComponentId pot = m_document.addComponent(SymbolKind::Potentiometer, {150, 150},
-                                                      Rotation::Deg180);
+    m_documentModified = true;
+    updateWindowTitle();
+}
 
-    // jack.sleeve (-80,0) -> resistor.1 (-20,0): already collinear.
-    const auto lead = m_document.addWire(makeTerminalEndpoint(jack, 1), {},
-                                          makeTerminalEndpoint(resistor, 0));
-    // Branch partway along that lead, then route up to the op-amp's in+.
-    if (lead) {
-        if (const auto node = m_document.branchWireAt(*lead, QPointF(-50, 0)))
-            m_document.addWire(makeNodeEndpoint(*node), {QPointF(-50, 142)},
-                                makeTerminalEndpoint(opAmp, 0));
+void MainWindow::onSceneStatusMessage(const QString &message)
+{
+    statusBar()->showMessage(message, 3000);
+}
+
+void MainWindow::onGridSpacingChanged(double spacing)
+{
+    const qreal previousSpacing = m_document.gridSpacing();
+    if (!m_document.setGridSpacing(spacing))
+        return;
+    m_view->setGridSpacing(m_document.gridSpacing());
+    if (!qFuzzyCompare(previousSpacing, m_document.gridSpacing())) {
+        m_documentModified = true;
+        updateWindowTitle();
     }
-    // resistor.2 (20,0) -> capacitor.1 (100,-20): one corner at (100,0).
-    m_document.addWire(makeTerminalEndpoint(resistor, 1), {QPointF(100, 0)},
-                        makeTerminalEndpoint(capacitor, 0));
-    // capacitor.2 (100,20) -> diode.anode (180,0): one corner at (180,20).
-    m_document.addWire(makeTerminalEndpoint(capacitor, 1), {QPointF(180, 20)},
-                        makeTerminalEndpoint(diode, 0));
-    // diode.cathode (220,0) -> ground.1 (200,60): one corner at (220,60).
-    m_document.addWire(makeTerminalEndpoint(diode, 1), {QPointF(220, 60)},
-                        makeTerminalEndpoint(ground, 0));
-    // pot.wiper (150,170) -> op-amp.v+ (0,134): one corner at (150,134).
-    m_document.addWire(makeTerminalEndpoint(pot, 2), {QPointF(150, 134)},
-                        makeTerminalEndpoint(opAmp, 3));
+}
 
-    m_scene->setDocument(m_document);
+void MainWindow::onSelectModeTriggered()
+{
+    m_scene->setEditMode(SchematicScene::EditMode::Select);
+}
+
+void MainWindow::onDrawWireModeTriggered()
+{
+    m_scene->setEditMode(SchematicScene::EditMode::DrawWire);
+}
+
+void MainWindow::onPlaceComponentKindChanged(SymbolKind kind)
+{
+    m_scene->setEditMode(SchematicScene::EditMode::PlaceComponent);
+    m_scene->setPlaceComponentKind(kind);
+}
+
+void MainWindow::onEditComponentLabels(ComponentId componentId)
+{
+    const Component *component = m_document.component(componentId);
+    if (!component)
+        return;
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Edit Component"));
+    auto *form = new QFormLayout;
+    auto *referenceEdit = new QLineEdit(component->reference(), &dialog);
+    auto *valueEdit = new QLineEdit(component->value(), &dialog);
+    form->addRow(tr("Reference:"), referenceEdit);
+    form->addRow(tr("Value:"), valueEdit);
+
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+    auto *layout = new QVBoxLayout(&dialog);
+    layout->addLayout(form);
+    layout->addWidget(buttons);
+
+    while (dialog.exec() == QDialog::Accepted) {
+        if (m_document.setComponentLabels(componentId, referenceEdit->text(), valueEdit->text())) {
+            m_scene->refreshAfterExternalEdit(); // Marks modified via onDocumentEdited().
+            return;
+        }
+        QMessageBox::warning(&dialog, tr("Schematic"),
+            tr("The reference must be non-empty and unique among components."));
+    }
+}
+
+void MainWindow::onRenameSelectedComponent()
+{
+    const std::optional<ComponentId> selected = m_scene->singleSelectedComponent();
+    if (!selected)
+        return;
+    const Component *component = m_document.component(*selected);
+    if (!component)
+        return;
+
+    bool ok = false;
+    const QString newReference = QInputDialog::getText(this, tr("Rename Component"),
+        tr("Reference:"), QLineEdit::Normal, component->reference(), &ok);
+    if (!ok)
+        return;
+
+    if (!m_document.setComponentLabels(*selected, newReference, component->value())) {
+        QMessageBox::warning(this, tr("Schematic"),
+            tr("The reference must be non-empty and unique among components."));
+        return;
+    }
+    m_scene->refreshAfterExternalEdit();
+}
+
+void MainWindow::updateRenameActionEnabled()
+{
+    m_renameAction->setEnabled(m_scene->singleSelectedComponent().has_value());
 }

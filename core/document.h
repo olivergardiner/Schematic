@@ -2,6 +2,7 @@
 #define DOCUMENT_H
 
 #include "component.h"
+#include "pendingwireendpoint.h"
 #include "routegeometry.h"
 #include "wireroute.h"
 
@@ -38,11 +39,35 @@ public:
     bool moveComponent(ComponentId id, QPointF position);
     bool removeComponent(ComponentId id);
 
+    // Renames/re-values an already-placed component. Both reference and
+    // value are trimmed before validation and storage (so "R1" and " R1 "
+    // are treated as the same reference, and an all-whitespace reference is
+    // treated as empty). Rejected (returning false, leaving the document
+    // completely unchanged) if id does not exist, the trimmed reference is
+    // empty, or the trimmed reference collides with another component's
+    // trimmed reference (case-sensitive; renaming a component to its own
+    // current reference is allowed). value has no uniqueness constraint and
+    // may be empty after trimming - see AGENTS.md/CLAUDE.md step 6 plan.
+    bool setComponentLabels(ComponentId id, const QString &reference, const QString &value);
+
     std::optional<WireId> addWire(const WireEndpoint &start,
                                   const QVector<QPointF> &interiorVertices,
                                   const WireEndpoint &end);
     bool removeWire(WireId id);
     std::optional<NodeId> branchWireAt(WireId id, QPointF point);
+
+    // Atomic wire completion: resolves each endpoint (materializing any
+    // BranchSite's split only if the whole operation succeeds), validates
+    // the full candidate route, and only then mutates the document - see
+    // AGENTS.md/CLAUDE.md "wire completion is atomic". Rejects (returning
+    // std::nullopt with the document completely unchanged, including no ID
+    // allocation) if either endpoint fails to resolve, both endpoints are
+    // BranchSites on the same WireId (unsupported in step 5 - draw two
+    // wires instead), a BranchSite's point does not lie on its wire, or the
+    // resulting route/split geometry is invalid.
+    std::optional<WireId> addWireBranching(const PendingWireEndpoint &start,
+                                           const QVector<QPointF> &interiorVertices,
+                                           const PendingWireEndpoint &end);
 
     QVector<Net> computeNets() const;
     QVector<QPointF> junctionPoints() const;
@@ -60,6 +85,29 @@ private:
     bool endpointExists(const WireEndpoint &endpoint) const;
     void removeOrphanNodes();
     WireId allocateWireId();
+
+    // Pure (non-mutating) computation of a branch split: finds the segment
+    // of wire id containing point and returns the two resulting vertex
+    // lists and the original route's endpoints, without allocating any ID
+    // or touching m_wires/m_nodes. Shared by branchWireAt() and
+    // addWireBranching() so both use identical split geometry rules.
+    bool computeBranchSplit(WireId id, QPointF point, QVector<QPointF> *leftPoints,
+                            QVector<QPointF> *rightPoints, WireEndpoint *originalStart,
+                            WireEndpoint *originalEnd) const;
+    // Mutates m_wires/m_nodes to actually apply a previously computed split.
+    // Callers must have already reserved node/leftId/rightId (e.g. via
+    // idsAvailable()) - this function performs no validation and cannot
+    // fail, which is what lets addWireBranching() apply two splits and a
+    // new wire as one all-or-nothing sequence.
+    void commitBranchSplit(WireId id, QPointF point, const QVector<QPointF> &leftPoints,
+                           const QVector<QPointF> &rightPoints, const WireEndpoint &originalStart,
+                           const WireEndpoint &originalEnd, NodeId node, WireId leftId,
+                           WireId rightId);
+    // True if count sequential IDs starting at nextId can be allocated
+    // without hitting the invalid-ID sentinel (0) or wrapping past
+    // quint32's range. Used to pre-flight every ID an addWireBranching()
+    // call might need before any mutation begins.
+    static bool idsAvailable(quint32 nextId, int count);
 
     qreal m_gridSpacing = 10.0;
     ComponentId m_nextComponentId = 1;

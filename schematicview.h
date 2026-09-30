@@ -21,6 +21,12 @@ public slots:
     void zoomReset();
     void zoomToFit();
 
+    // Sets both the snap increment and the minor grid-line spacing to
+    // spacing (scene units); major grid lines are drawn every 10 minor
+    // intervals - see the step 5 plan's UI-clarity note. Ignored if spacing
+    // is not finite and positive.
+    void setGridSpacing(qreal spacing);
+
 signals:
     void zoomFactorChanged(qreal factor);
     void mouseScenePositionChanged(const QPointF &scenePos);
@@ -28,6 +34,8 @@ signals:
 protected:
     void wheelEvent(QWheelEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
+    void mousePressEvent(QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
     void drawBackground(QPainter *painter, const QRectF &rect) override;
 
 private:
@@ -36,10 +44,19 @@ private:
     static constexpr qreal kZoomStep = 1.15;
     static constexpr qreal kMinZoom  = 0.05;
     static constexpr qreal kMaxZoom  = 20.0;
-    static constexpr int   kGridSpacingMinor = 10;
-    static constexpr int   kGridSpacingMajor = 100;
+    // Major grid lines are drawn every this-many minor intervals - see
+    // setGridSpacing().
+    static constexpr int kMajorGridRatio = 10;
 
     qreal m_zoomFactor = 1.0;
+    qreal m_gridSpacingMinor = 10.0;
+
+    // Middle-button panning temporarily swaps to ScrollHandDrag (which
+    // requires a fake left-button press per QGraphicsView's own documented
+    // hand-drag implementation) without disturbing the default
+    // RubberBandDrag mode used for left-button rubber-band selection, or
+    // the existing Ctrl+wheel zoom.
+    bool m_middleButtonPanning = false;
 };
 
 #endif // SCHEMATICVIEW_H

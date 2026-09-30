@@ -408,7 +408,73 @@ only Core+Test (no Widgets), and `AGENTS.md` says not to expand into
 unrelated test infrastructure, so visual inspection was the agreed
 verification method for this step.
 
-**Not yet started**: interactive editing — select/move/
-delete/place/draw-wire, plus `SchematicView` pan and grid-spacing control
-(step 5), and `MainWindow` file I/O + symbol palette + label editing
-(step 6). See the step list above for what each covers.
+**Step 5 — complete.** Interactive editing landed in `SchematicScene`/
+`SchematicView`: Select mode (click/rubber-band selection, drag-move with
+grid snapping, Delete/Backspace removal cascading through
+`Document::removeComponent()`), PlaceComponent mode (click-to-place any
+built-in `SymbolKind` at the nearest grid point), and DrawWire mode
+(click-click orthogonal routing with deterministic corner insertion on
+diagonal pointer movement, snapping to terminals/nodes/existing route
+points, and branch-splitting via `Document::addWire()`'s existing atomic
+branch path). `SchematicView` gained pan (middle-drag and scrollbars), zoom
+(wheel + toolbar actions + `Ctrl+0` reset + zoom-to-fit), and a grid-spacing
+spin box wired to `Document::setGridSpacing()`/`SchematicScene`'s grid
+rendering. All mutation goes through `Document` methods first; the scene
+only asks for a targeted incremental redraw (or the full `setDocument()`
+rebuild) after a `Document` call reports success - the scene never carries
+its own duplicate copy of connectivity or geometry. Verified with a Debug
+build, a passing `ctest` run, and manual interactive testing (placing every
+symbol kind, drawing branching wire routes, dragging connected components,
+deleting components/wires, undoing via re-placing, and adjusting grid
+spacing) with no visual artifacts.
+
+**Step 6 — complete.** `MainWindow` now performs real file I/O instead of
+the step-4 `loadSampleDocument()` scaffolding (removed):
+`onNew()`/`onOpen()`/`onSave()`/`onSaveAs()` plus a private
+`writeDocumentTo()` helper that writes `Document::toJsonBytes()` through a
+`QSaveFile` (atomic rename-on-`commit()`, so a write failure - disk full,
+permission denied, etc. - can never leave a partially-written or corrupted
+file on disk) and shows a `QMessageBox` on any open/save/load failure
+without touching the in-memory document. `onOpen()` reads the file, calls
+`Document::fromJsonBytes()`, and on success rebinds `m_scene` to the newly
+loaded `Document`, updates the grid-spacing control, and surfaces any
+non-fatal load warnings in the status bar; on failure the current document
+is left completely unchanged. `maybeSave()` gates `onNew()`/`onOpen()`/
+window-close on the existing modified-flag prompt. A new `Symbols` dock
+(`createSymbolDock()`) lists one button per built-in `SymbolKind`, each a
+checkable `QAction` sharing `m_modeGroup` with Select/DrawWire so exactly
+one tool is ever active; clicking a symbol button both enters
+`PlaceComponent` mode and sets that kind via
+`MainWindow::onPlaceComponentKindChanged()`. `Document::setComponentLabels()`
+(trims both fields, rejects an empty/all-whitespace reference, rejects a
+reference colliding with another component's trimmed reference, allows
+renaming a component to its own current reference) backs two editing paths:
+double-clicking a component in Select mode
+(`SchematicScene::componentDoubleClicked()` →
+`MainWindow::onEditComponentLabels()`, a modal reference+value form that
+stays open on rejection with a warning instead of silently discarding
+input) and F2 rename (`m_renameAction`, a `QAction` owned by `MainWindow`
+itself with `Qt::WindowShortcut` context - not scoped to the view alone,
+since the symbol dock is a sibling of `m_view` under `QMainWindow` and F2
+must still fire while focus is in the dock - enabled only while
+`SchematicScene::singleSelectedComponent()` reports exactly one selected
+component, driving a `QInputDialog` for the reference alone).
+**Verified**: a Debug build of all three targets succeeded and `ctest
+--test-dir build -C Debug --output-on-failure` passed (1/1 CTest entries;
+all four QObject test classes - including the four new
+`TstDocument::setComponentLabels*` cases - passed: 35 tests total, 0
+failures). The running `Schematic.exe` was interactively exercised via
+screenshots: placing a resistor and confirming no rendering artifacts,
+double-clicking it to confirm the label dialog pre-fills "Reference:
+Resistor1" / an empty "Value:", editing the value to "10k" and confirming
+it renders under the symbol, then selecting the component and pressing F2
+to confirm the "Rename Component" dialog pre-fills the current reference
+("Resistor2" after the value edit) with the text pre-selected, and that
+Escape/Cancel leave the document unchanged. Save/Open round-trip through
+real `QFileDialog` file pickers and the corrupt-JSON/invalid-path failure
+paths were verified by code review of `writeDocumentTo()`/`onOpen()`
+(both funnel every failure through a `QMessageBox::warning` and leave
+`m_currentFilePath`/`m_documentModified`/the in-memory `Document`
+untouched on failure) rather than by scripted UI automation, since
+driving native Windows file-picker dialogs from an external screenshot/
+input-injection script proved unreliable in this environment.

@@ -183,3 +183,119 @@ void TstDocument::gridSpacingMustBePositiveAndFinite()
     QVERIFY(!document.setGridSpacing(std::numeric_limits<qreal>::quiet_NaN()));
     QCOMPARE(document.gridSpacing(), 12.5);
 }
+
+void TstDocument::addWireBranchingAppliesSplitsAtomically()
+{
+    Document document;
+    const ComponentId a = document.addComponent(SymbolKind::Resistor, QPointF(0, 0));
+    const ComponentId b = document.addComponent(SymbolKind::Resistor, QPointF(100, 0));
+    const ComponentId c = document.addComponent(SymbolKind::Resistor, QPointF(50, 50));
+    const auto wire = document.addWire(makeTerminalEndpoint(a, 1), {}, makeTerminalEndpoint(b, 0));
+    QVERIFY(wire);
+
+    const auto bridge = document.addWireBranching(BranchSite{*wire, QPointF(40, 0)},
+                                                   {QPointF(40, 50)}, makeTerminalEndpoint(c, 0));
+    QVERIFY(bridge);
+    QVERIFY(!document.wire(*wire)); // The branch split retires the original route identity.
+    QCOMPARE(document.wires().size(), 3); // left leg + right leg + the new bridge wire.
+    QCOMPARE(document.nodes().size(), 1);
+    QCOMPARE(document.nodes().value(1), QPointF(40, 0));
+    QCOMPARE(document.junctionPoints(), QVector<QPointF>({QPointF(40, 0)}));
+
+    const QVector<Net> nets = document.computeNets();
+    QCOMPARE(netContaining(nets, TerminalRef{a, 1}), netContaining(nets, TerminalRef{b, 0}));
+    QCOMPARE(netContaining(nets, TerminalRef{a, 1}), netContaining(nets, TerminalRef{c, 0}));
+}
+
+void TstDocument::addWireBranchingFailureLeavesDocumentUnchanged()
+{
+    Document document;
+    const ComponentId a = document.addComponent(SymbolKind::Resistor, QPointF(0, 0));
+    const ComponentId b = document.addComponent(SymbolKind::Resistor, QPointF(100, 0));
+    const ComponentId c = document.addComponent(SymbolKind::Resistor, QPointF(50, 50));
+    const auto wire = document.addWire(makeTerminalEndpoint(a, 1), {}, makeTerminalEndpoint(b, 0));
+    QVERIFY(wire);
+    const int wiresBefore = document.wires().size();
+    const int nodesBefore = document.nodes().size();
+
+    // Rejected: both endpoints branch off the same wire (step 5 scope limit).
+    QVERIFY(!document.addWireBranching(BranchSite{*wire, QPointF(30, 0)}, {},
+                                       BranchSite{*wire, QPointF(70, 0)}));
+    QCOMPARE(document.wires().size(), wiresBefore);
+    QCOMPARE(document.nodes().size(), nodesBefore);
+    QVERIFY(document.wire(*wire)); // The original route must not have been split.
+
+    // Rejected: the branch point does not lie on the given wire.
+    QVERIFY(!document.addWireBranching(BranchSite{*wire, QPointF(500, 500)}, {},
+                                       makeTerminalEndpoint(c, 0)));
+    QCOMPARE(document.wires().size(), wiresBefore);
+    QCOMPARE(document.nodes().size(), nodesBefore);
+
+    // Rejected: the completed route's own geometry is invalid (diagonal).
+    QVERIFY(!document.addWireBranching(BranchSite{*wire, QPointF(40, 0)}, {},
+                                       makeTerminalEndpoint(c, 0)));
+    QCOMPARE(document.wires().size(), wiresBefore);
+    QCOMPARE(document.nodes().size(), nodesBefore);
+    QVERIFY(document.wire(*wire)); // Still not split by any of the failed attempts.
+
+    // None of the failures above may have advanced node/wire ID allocation:
+    // a subsequent successful branch must still get the first available IDs.
+    const auto bridge = document.addWireBranching(BranchSite{*wire, QPointF(40, 0)},
+                                                   {QPointF(40, 50)}, makeTerminalEndpoint(c, 0));
+    QVERIFY(bridge);
+    QCOMPARE(document.nodes().size(), 1);
+    QVERIFY(document.nodes().contains(1)); // The first available NodeId, unconsumed by failures above.
+}
+
+void TstDocument::setComponentLabelsTrimsBeforeValidationAndStorage()
+{
+    Document document;
+    const ComponentId a = document.addComponent(SymbolKind::Resistor, QPointF(0, 0));
+
+    QVERIFY(document.setComponentLabels(a, QStringLiteral(" R1 "), QStringLiteral(" 10k ")));
+    QCOMPARE(document.component(a)->reference(), QStringLiteral("R1"));
+    QCOMPARE(document.component(a)->value(), QStringLiteral("10k"));
+}
+
+void TstDocument::setComponentLabelsRejectsEmptyReference()
+{
+    Document document;
+    const ComponentId a = document.addComponent(SymbolKind::Resistor, QPointF(0, 0));
+    document.setComponentLabels(a, QStringLiteral("R1"), QStringLiteral("10k"));
+
+    QVERIFY(!document.setComponentLabels(a, QString(), QStringLiteral("22k")));
+    QVERIFY(!document.setComponentLabels(a, QStringLiteral("   "), QStringLiteral("22k")));
+    // Rejected calls must not change the existing labels.
+    QCOMPARE(document.component(a)->reference(), QStringLiteral("R1"));
+    QCOMPARE(document.component(a)->value(), QStringLiteral("10k"));
+}
+
+void TstDocument::setComponentLabelsRejectsDuplicateReferenceButAllowsSelfRename()
+{
+    Document document;
+    const ComponentId a = document.addComponent(SymbolKind::Resistor, QPointF(0, 0));
+    const ComponentId b = document.addComponent(SymbolKind::Resistor, QPointF(100, 0));
+    QVERIFY(document.setComponentLabels(a, QStringLiteral("R1"), QString()));
+    QVERIFY(document.setComponentLabels(b, QStringLiteral("R2"), QString()));
+
+    // Duplicate (including a whitespace-variant duplicate) is rejected.
+    QVERIFY(!document.setComponentLabels(b, QStringLiteral("R1"), QString()));
+    QVERIFY(!document.setComponentLabels(b, QStringLiteral(" R1 "), QString()));
+    QCOMPARE(document.component(b)->reference(), QStringLiteral("R2"));
+
+    // Renaming a component to its own current reference is allowed.
+    QVERIFY(document.setComponentLabels(a, QStringLiteral("R1"), QStringLiteral("10k")));
+    QCOMPARE(document.component(a)->reference(), QStringLiteral("R1"));
+    QCOMPARE(document.component(a)->value(), QStringLiteral("10k"));
+}
+
+void TstDocument::setComponentLabelsValueOnlyEditSucceeds()
+{
+    Document document;
+    const ComponentId a = document.addComponent(SymbolKind::Resistor, QPointF(0, 0));
+    QVERIFY(document.setComponentLabels(a, QStringLiteral("R1"), QStringLiteral("10k")));
+
+    QVERIFY(document.setComponentLabels(a, QStringLiteral("R1"), QStringLiteral("22k")));
+    QCOMPARE(document.component(a)->reference(), QStringLiteral("R1"));
+    QCOMPARE(document.component(a)->value(), QStringLiteral("22k"));
+}
