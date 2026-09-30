@@ -26,6 +26,7 @@ Smaller file/UI follow-ups from the review:
 - **Default references:** current generated labels use the global component ID and full symbol names (for example, `Resistor2`). Decide whether to move to conventional per-kind references such as `R1`/`C1`, and whether grounds or jacks should have references, before changing the defaults or uniqueness rules.
 - **Junction dots at component terminals:** decide whether a terminal shared by multiple wire routes should display a dot. Current derived dots are based on shared route endpoint identities with three or more wire ends.
 - **Off-grid terminals:** op-amp terminal offsets are not all grid multiples. This follows the world-coordinate design decision; changing offsets for grid alignment would alter symbol geometry and saved-wire compatibility, so do not do it as a cosmetic fix.
+- **Document compatibility for future symbols and transforms:** custom symbol definitions, changed terminal positions, and mirroring affect how documents reopen. Choose how definitions are versioned or stored with documents before shipping these capabilities.
 
 ## Later presentation and editing features
 
@@ -33,11 +34,21 @@ These are product ideas from review, not confirmed requirements for the first mi
 
 - SVG, PNG, or PDF export.
 - Free-text annotations and callouts; improved label placement for rotated or crowded symbols.
-- Rotation controls for placed components.
 - Undo/redo.
 - More guitar-pedal symbols (such as JFETs, BJTs, LEDs, switches, inductors, and supply symbols) and op-amp input polarity marks.
-- Terminal highlighting during wire drawing, symbol icons in the palette, Escape-to-Select behavior, and moving multiple selected components together.
+- Escape-to-Select behavior and moving multiple selected components together.
 - Automated UI/file-I/O tests where they can be added without undermining the existing headless model-test setup.
+
+## Editing and symbol-library direction
+
+The following are user-requested directions for the next product iteration. Details can be planned before implementation:
+
+- **Grouped symbol palette:** organize symbols into simple categories such as Passives, ICs, Transistors, Connectors, and Signals. Signals can include ground and supply symbols plus labelled input, output, and bidirectional signal connectors. Signal labels and direction are presentation metadata; they must not infer electrical connectivity.
+- **Drag-to-place palette:** users should be able to drag a symbol from the palette onto the canvas to place it, rather than selecting a text item and clicking to place. Show the actual graphical symbol in the palette instead of a text-only name; retain accessible names and tooltips.
+- **Frequent-action toolbar:** replace text-heavy controls with a graphical toolbar focused on common editing actions. Use recognizable icons, tooltips, and consider visible text labels for less familiar actions. Show rotation and mirroring controls when a component is selected. Keep zoom and grid-spacing controls in the View menu or other secondary controls; Ctrl+mouse-wheel remains the primary zoom interaction.
+- **Rotation and mirroring:** these should be document-model operations, not render-only transforms. They change terminal positions and may invalidate connected routes, so apply the same transactional validation used for component movement. Decide how mirroring affects terminal identities and labels before implementation.
+- **User-authored symbols:** start with an SVG import workflow and a Schematic step for identifying connection points, rather than building a full drawing editor immediately. Before implementation, decide how SVG artwork and terminal definitions are packaged or embedded so documents remain usable when the original external SVG is moved or changed. Symbol geometry, terminal identity, and file compatibility need a dedicated design plan.
+- **Wire-drawing feedback:** highlight available terminals while drawing wires.
 
 ## Repository and release readiness
 
