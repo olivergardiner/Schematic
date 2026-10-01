@@ -1,6 +1,6 @@
 # Roadmap and review findings
 
-This document is a working list, not a promise or a fixed schedule. The first usable milestone has its main model, rendering, editing, and JSON file workflows in place. A code review identified the defects below; they are documented for follow-up and **have not been fixed by this documentation update**.
+This document is a working list, not a promise or a fixed schedule. The first usable milestone has its main model, rendering, editing, and JSON file workflows in place. A code review identified the issues below; each item records whether it remains open or has been addressed.
 
 ## Milestone 2 plan
 
@@ -30,7 +30,7 @@ The following M2 scope and decisions have been agreed. Work is divided into chun
 - Check that `QSaveFile::write()` writes the complete byte array before committing.
 - Prevent grid-control signals from mutating a newly loaded/new document during UI synchronization, and preserve the file's supported grid precision in the control/model.
 - Serialize nodes in stable ID order.
-- Implement and test the settled loader reference policy. Add reference-prefix metadata for the existing symbols as needed for deterministic generation; chunk D uses the same metadata for defaults on newly placed components.
+- Implement and test the settled loader label policy: generate missing/blank references deterministically with warnings, reject duplicate non-empty references naming both components, and trim loaded values consistently with label editing. Add reference-prefix metadata for the existing symbols as needed for deterministic generation; chunk D uses the same metadata for defaults on newly placed components.
 - Done when focused tests cover reference repair/duplicate rejection, precise grid round trips and stable node order, and the close prompt is checked manually.
 
 **C — Wire recovery, route reversal, and selection preservation**
@@ -86,7 +86,7 @@ Use this brief when requesting implementation of any one of A, B, or C. It assum
 
 **Chunk A brief:** Clean up obsolete code/test comment references to numbered planning sections; ensure mirroring is described as out of scope for milestone 1 and in scope for milestone 2 (format v2); make checked-in CMake and VS Code configuration portable; ignore `CMakeUserPresets.json` and put machine-specific paths there. Do not change application behavior. Acceptance: no obsolete step-plan references remain; a clean configure succeeds from a user preset.
 
-**Chunk B brief:** Implement the window-close unsaved-changes prompt; check full `QSaveFile::write()` completion; synchronize grid controls without value-change callbacks mutating the document and preserve supported precision; serialize nodes by ascending ID; and implement the settled loader reference policy. Missing/blank references are generated deterministically with warnings, avoiding explicit/generated collisions. Reject duplicate non-empty references after trimming, case-sensitively, with an error that names both components by kind and ID plus the duplicate text. Add focused tests for loader policies, grid precision round trips, and stable node order. Add reference-prefix metadata for existing symbols if needed, but defer changing default labels for newly placed parts to D. Check the close prompt manually. Do not change the file format version in B.
+**Chunk B brief:** Implement the window-close unsaved-changes prompt; check full `QSaveFile::write()` completion; synchronize grid controls without value-change callbacks mutating the document and preserve supported precision; serialize nodes by ascending ID; and implement the settled loader label policy. Missing/blank references are generated deterministically with warnings, avoiding explicit/generated collisions. Reject duplicate non-empty references after trimming, case-sensitively, with an error that names both components by kind and ID plus the duplicate text. Trim loaded values to match the component-label edit invariant. Add focused tests for loader policies, grid precision round trips, and stable node order. Add reference-prefix metadata for existing symbols if needed, but defer changing default labels for newly placed parts to D. Check the close prompt manually. Do not change the file format version in B.
 
 **Chunk C brief:** Keep pending wires editable after rejected completion and suppress duplicate consecutive points. Preserve selection of currently selectable components by stable component ID when rebuilding the scene; wire selection is outside this chunk because wire items are not selectable today. Extend shared route validation to reject collinear backtracking and ensure component endpoint movement uses the same validator. Add model tests for reversals and manual interaction checks for wire recovery and selection retention. Do not add rotation, mirroring, undo/redo, or palette drag/drop here.
 
@@ -94,13 +94,14 @@ Use this brief when requesting implementation of any one of A, B, or C. It assum
 
 The following items were confirmed by source review. Prioritize them before adding larger product features:
 
-1. **Protect unsaved work on window close.** Implemented (chunk B): `MainWindow::closeEvent()` calls `maybeSave()`. Not yet manually verified - check New/Open/Exit/title-bar close with Save, Discard and Cancel before treating this as fixed.
+1. **Protect unsaved work on window close.** Implemented (chunk B): `MainWindow::closeEvent()` calls `maybeSave()`. Manually verified.
 2. **Preserve a pending wire after rejected completion.** The scene currently cancels the draft after any completion attempt, including a rejected route. Avoid appending duplicate consecutive corners and keep the draft available for correction when completion fails.
 3. **Validate route reversals.** The route validator rejects diagonals and zero-length segments but currently accepts collinear backtracking such as `(0,0) → (50,0) → (30,0)`. Decide whether to reject or normalize redundant/retraced geometry, then cover it with model tests.
-4. **Apply reference rules while loading.** Fixed (chunk B), covered by tests: missing/blank references are generated from per-kind prefixes with a warning; duplicate non-empty references are rejected with an error naming both components.
+4. **Apply label normalization while loading.** Fixed (chunk B), covered by tests: missing/blank references are generated from per-kind prefixes with a warning; duplicate non-empty references are rejected with an error naming both components; references and values are trimmed.
 5. **Preserve grid precision on open.** Fixed (chunk B): the control is synchronized with signals blocked, so loading cannot rewrite the document value, and the file value round-trips exactly (tested). The spin box shows 4 decimals and is limited to 0.1-1000, so a valid file value outside that range displays clamped but is kept unchanged in the model.
 6. **Check the full save write.** Fixed (chunk B): a short or failed `QSaveFile::write()` cancels the save instead of committing. Not covered by an automated test (no practical way to force a short write headlessly).
 7. **Make serialized node order stable.** Fixed (chunk B): `toJson()` writes nodes in ascending ID order (tested).
+8. **Bound grid-rendering work for very small spacing.** The loader accepts every finite positive spacing, while `SchematicView::drawBackground()` currently emits one line per scene-space interval. A file with spacing such as `0.001` can therefore cause an enormous number of grid lines per repaint. Adapt grid drawing to zoom (skip minor lines or use a coarser visual grid below a screen-space threshold) while retaining the document's exact spacing for snapping.
 
 Smaller file/UI follow-ups from the review:
 

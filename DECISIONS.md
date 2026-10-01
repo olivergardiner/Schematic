@@ -18,7 +18,7 @@ This file records choices that affect the document model, file compatibility, or
 - On load, wire endpoint coordinates are recalculated from terminal or node identity. A stale serialized endpoint is a warning; invalid topology or route geometry rejects the whole document.
 - Symbol kind names are part of the serialization contract. Built-in terminal geometry also affects loading because endpoint positions are derived from current symbol definitions. Changes to that geometry require a compatibility decision before release.
 - Milestone 2 adds format version 2 for horizontal mirroring. The loader accepts v1 and v2; v1 components are unmirrored and may not contain a `mirrored` property. V2 requires a boolean `mirrored` property per component. Writers emit v2, so saving a loaded v1 document upgrades it.
-- Missing, empty, and whitespace-only references are generated from per-kind prefixes with a warning. Generation avoids collisions deterministically. Duplicate non-empty references are load errors that name both components; they are not silently renamed. References are trimmed and compared case-sensitively.
+- Missing, empty, and whitespace-only references are generated from per-kind prefixes with a warning. Generation avoids collisions deterministically. Duplicate non-empty references are load errors that name both components; they are not silently renamed. References are trimmed and compared case-sensitively. Loaded values are trimmed as well.
 
 ## Symbols and labels
 

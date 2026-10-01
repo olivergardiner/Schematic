@@ -140,7 +140,8 @@ DocumentLoadResult Document::fromJson(const QJsonObject &root)
             }
             if (!valid) continue;
             componentIds.insert(id); kinds.insert(id, *kind);
-            parsedComponents.append({id, *kind, {x, y}, static_cast<Rotation>(rot), reference.toString(), valueField.toString()});
+            parsedComponents.append({id, *kind, {x, y}, static_cast<Rotation>(rot),
+                                     reference.toString(), valueField.toString().trimmed()});
         }
     }
 

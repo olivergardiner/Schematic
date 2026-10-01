@@ -151,13 +151,19 @@ QJsonObject documentWithReferences(const QVector<QPair<SymbolKind, QString>> &pa
 
 void TstDocumentJson::generatesMissingReferences()
 {
-    const QJsonObject root = documentWithReferences({
+    QJsonObject root = documentWithReferences({
         {SymbolKind::Resistor, QString()},               // id 1: key missing
         {SymbolKind::Resistor, QStringLiteral(" R1 ")},  // id 2: explicit, trimmed on load
         {SymbolKind::Resistor, QStringLiteral("   ")},   // id 3: whitespace only
         {SymbolKind::Capacitor, QStringLiteral("")},     // id 4: empty
         {SymbolKind::Resistor, QStringLiteral("R3")},    // id 5: explicit, later in the file
     });
+    QJsonArray components = root.value(QStringLiteral("components")).toArray();
+    QJsonObject componentWithValue = components[1].toObject();
+    componentWithValue.insert(QStringLiteral("value"), QStringLiteral(" 10k "));
+    components[1] = componentWithValue;
+    root.insert(QStringLiteral("components"), components);
+
     const DocumentLoadResult loaded = Document::fromJson(root);
     QVERIFY2(loaded.errors.isEmpty(), qPrintable(loaded.errors.join(QLatin1Char('\n'))));
     QVERIFY(loaded.document);
@@ -169,6 +175,7 @@ void TstDocumentJson::generatesMissingReferences()
     QCOMPARE(loaded.document->component(3)->reference(), QStringLiteral("R4"));
     QCOMPARE(loaded.document->component(4)->reference(), QStringLiteral("C1"));
     QCOMPARE(loaded.document->component(5)->reference(), QStringLiteral("R3"));
+    QCOMPARE(loaded.document->component(2)->value(), QStringLiteral("10k"));
     QCOMPARE(loaded.warnings.size(), 3); // One per generated reference.
 
     // Generation is deterministic.
