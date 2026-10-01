@@ -25,3 +25,17 @@ std::optional<SymbolKind> symbolKindFromName(const QString &name)
     if (name == QStringLiteral("Jack"))          return SymbolKind::Jack;
     return std::nullopt;
 }
+
+QString symbolKindReferencePrefix(SymbolKind kind)
+{
+    switch (kind) {
+    case SymbolKind::Resistor:      return QStringLiteral("R");
+    case SymbolKind::Capacitor:     return QStringLiteral("C");
+    case SymbolKind::Diode:         return QStringLiteral("D");
+    case SymbolKind::Ground:        return QStringLiteral("GND");
+    case SymbolKind::OpAmp:         return QStringLiteral("U");
+    case SymbolKind::Potentiometer: return QStringLiteral("RV");
+    case SymbolKind::Jack:          return QStringLiteral("J");
+    }
+    return QStringLiteral("X");
+}

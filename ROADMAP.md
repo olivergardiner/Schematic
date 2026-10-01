@@ -74,6 +74,10 @@ The following M2 scope and decisions have been agreed. Work is divided into chun
 - Escape returns to Select mode; highlight valid terminals while drawing wires.
 - Done when a manual walkthrough covers placement, rotation, mirroring, undo, and wire drawing.
 
+**H - Tidy up M2 comments
+
+- Make sure that there are no stale references to chunks once M2 is complete
+
 ### Self-contained handoff brief: chunks A–C
 
 Use this brief when requesting implementation of any one of A, B, or C. It assumes no context beyond this repository, `AGENTS.md`, `DECISIONS.md`, and this section of `ROADMAP.md`.
@@ -90,13 +94,13 @@ Use this brief when requesting implementation of any one of A, B, or C. It assum
 
 The following items were confirmed by source review. Prioritize them before adding larger product features:
 
-1. **Protect unsaved work on window close.** `MainWindow::maybeSave()` is used for New and Open, but the main window has no close-event handler to call it when the application window closes.
+1. **Protect unsaved work on window close.** Implemented (chunk B): `MainWindow::closeEvent()` calls `maybeSave()`. Not yet manually verified - check New/Open/Exit/title-bar close with Save, Discard and Cancel before treating this as fixed.
 2. **Preserve a pending wire after rejected completion.** The scene currently cancels the draft after any completion attempt, including a rejected route. Avoid appending duplicate consecutive corners and keep the draft available for correction when completion fails.
 3. **Validate route reversals.** The route validator rejects diagonals and zero-length segments but currently accepts collinear backtracking such as `(0,0) → (50,0) → (30,0)`. Decide whether to reject or normalize redundant/retraced geometry, then cover it with model tests.
-4. **Apply reference rules while loading.** Interactive edits reject empty and duplicate trimmed references, but JSON loading should enforce the same document invariant.
-5. **Preserve grid precision on open.** The UI spin box shows two decimal places while the file format accepts finer values. Loading a more precise grid spacing can round it and mutate the document. Preserve the loaded value or explicitly constrain the file format and control consistently.
-6. **Check the full save write.** `writeDocumentTo()` checks `QSaveFile::commit()` but currently ignores the byte count returned by `write()`.
-7. **Make serialized node order stable.** `toJson()` iterates nodes through a `QHash`; sort them by ID so identical documents produce stable JSON across runs.
+4. **Apply reference rules while loading.** Fixed (chunk B), covered by tests: missing/blank references are generated from per-kind prefixes with a warning; duplicate non-empty references are rejected with an error naming both components.
+5. **Preserve grid precision on open.** Fixed (chunk B): the control is synchronized with signals blocked, so loading cannot rewrite the document value, and the file value round-trips exactly (tested). The spin box shows 4 decimals and is limited to 0.1-1000, so a valid file value outside that range displays clamped but is kept unchanged in the model.
+6. **Check the full save write.** Fixed (chunk B): a short or failed `QSaveFile::write()` cancels the save instead of committing. Not covered by an automated test (no practical way to force a short write headlessly).
+7. **Make serialized node order stable.** Fixed (chunk B): `toJson()` writes nodes in ascending ID order (tested).
 
 Smaller file/UI follow-ups from the review:
 

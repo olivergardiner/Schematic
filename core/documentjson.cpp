@@ -8,6 +8,7 @@
 #include <QJsonParseError>
 #include <QSet>
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -57,10 +58,17 @@ QJsonObject Document::toJson() const
             {QStringLiteral("reference"), item.reference()}, {QStringLiteral("value"), item.value()}});
     }
     root.insert(QStringLiteral("components"), components);
+    // m_nodes is a QHash, whose iteration order is unspecified and can vary
+    // between runs; write nodes by ascending ID so identical documents
+    // always serialize to identical JSON.
+    QList<NodeId> nodeIds = m_nodes.keys();
+    std::sort(nodeIds.begin(), nodeIds.end());
     QJsonArray nodes;
-    for (auto it = m_nodes.cbegin(); it != m_nodes.cend(); ++it)
-        nodes.append(QJsonObject{{QStringLiteral("id"), static_cast<double>(it.key())},
-            {QStringLiteral("x"), it.value().x()}, {QStringLiteral("y"), it.value().y()}});
+    for (const NodeId nodeId : nodeIds) {
+        const QPointF point = m_nodes.value(nodeId);
+        nodes.append(QJsonObject{{QStringLiteral("id"), static_cast<double>(nodeId)},
+            {QStringLiteral("x"), point.x()}, {QStringLiteral("y"), point.y()}});
+    }
     root.insert(QStringLiteral("nodes"), nodes);
     QJsonArray wires;
     for (const WireRoute &route : m_wires) {
@@ -133,6 +141,41 @@ DocumentLoadResult Document::fromJson(const QJsonObject &root)
             if (!valid) continue;
             componentIds.insert(id); kinds.insert(id, *kind);
             parsedComponents.append({id, *kind, {x, y}, static_cast<Rotation>(rot), reference.toString(), valueField.toString()});
+        }
+    }
+
+    // Reference policy (see DECISIONS.md "File format"). References are
+    // trimmed. Non-empty duplicates (case-sensitive) are errors that name
+    // both components, so a user-authored label is never silently renamed.
+    // Missing/blank references are generated afterwards - in file order,
+    // using the smallest unused number after the kind's prefix - so a
+    // generated label can never collide with an explicit one, even one that
+    // appears later in the file.
+    {
+        QHash<QString, int> owners; // trimmed explicit reference -> index in parsedComponents
+        for (int i = 0; i < parsedComponents.size(); ++i) {
+            ParsedComponent &item = parsedComponents[i];
+            item.reference = item.reference.trimmed();
+            if (item.reference.isEmpty()) continue;
+            const auto existing = owners.constFind(item.reference);
+            if (existing == owners.cend()) { owners.insert(item.reference, i); continue; }
+            const ParsedComponent &first = parsedComponents[existing.value()];
+            error(QStringLiteral("Components %1 (id %2) and %3 (id %4) have the same reference \"%5\"")
+                      .arg(symbolKindName(first.kind)).arg(first.id)
+                      .arg(symbolKindName(item.kind)).arg(item.id).arg(item.reference));
+        }
+        QSet<QString> used;
+        for (auto it = owners.cbegin(); it != owners.cend(); ++it) used.insert(it.key());
+        for (ParsedComponent &item : parsedComponents) {
+            if (!item.reference.isEmpty()) continue;
+            const QString prefix = symbolKindReferencePrefix(item.kind);
+            QString candidate;
+            for (int n = 1; candidate.isEmpty() || used.contains(candidate); ++n)
+                candidate = prefix + QString::number(n);
+            used.insert(candidate);
+            item.reference = candidate;
+            result.warnings.append(QStringLiteral("Component %1 (id %2) had no reference; generated \"%3\"")
+                                       .arg(symbolKindName(item.kind)).arg(item.id).arg(candidate));
         }
     }
 

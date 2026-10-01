@@ -24,4 +24,10 @@ QString symbolKindName(SymbolKind kind);
 // name, e.g. one written by a newer file format version.
 std::optional<SymbolKind> symbolKindFromName(const QString &name);
 
+// Conventional reference-designator prefix for a kind (e.g. "R" for a
+// resistor). Non-empty for every kind. Used to generate references for
+// components that are loaded without one; the same metadata is intended
+// for default references on newly placed components.
+QString symbolKindReferencePrefix(SymbolKind kind);
+
 #endif // SYMBOLKIND_H

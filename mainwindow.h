@@ -13,6 +13,7 @@ class QDoubleSpinBox;
 class QToolButton;
 class QAction;
 class QActionGroup;
+class QCloseEvent;
 class SchematicScene;
 class SchematicView;
 
@@ -23,6 +24,11 @@ class MainWindow : public QMainWindow
 public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow() override;
+
+protected:
+    // Routes a window close (title-bar button, File > Exit, Alt+F4) through
+    // maybeSave() so unsaved changes are never discarded silently.
+    void closeEvent(QCloseEvent *event) override;
 
 private slots:
     void onNew();
@@ -60,6 +66,12 @@ private:
     void createSymbolDock();
     void createStatusBar();
     void updateWindowTitle();
+    // Pushes m_document's grid spacing into the toolbar spin box and the
+    // view *without* emitting valueChanged(), so loading/creating a document
+    // can never route the control's (rounded/clamped) value back into the
+    // model through onGridSpacingChanged(). Only user edits of the control
+    // reach onGridSpacingChanged().
+    void syncGridControls();
     bool maybeSave();
     // Writes m_document's current JSON bytes to path via QSaveFile, so a
     // write failure (disk full, permission denied, etc.) can never leave a

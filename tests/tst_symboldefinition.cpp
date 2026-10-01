@@ -57,6 +57,16 @@ void TstSymbolDefinition::nameRoundTripsForEveryKind()
     }
 }
 
+void TstSymbolDefinition::everyKindHasReferencePrefix()
+{
+    for (SymbolKind kind : kAllKinds)
+        QVERIFY2(!symbolKindReferencePrefix(kind).trimmed().isEmpty(),
+                 qPrintable(symbolKindName(kind)));
+    QCOMPARE(symbolKindReferencePrefix(SymbolKind::Resistor), QStringLiteral("R"));
+    QCOMPARE(symbolKindReferencePrefix(SymbolKind::Capacitor), QStringLiteral("C"));
+    QCOMPARE(symbolKindReferencePrefix(SymbolKind::Diode), QStringLiteral("D"));
+}
+
 void TstSymbolDefinition::unknownNameReturnsNullopt()
 {
     QVERIFY(!symbolKindFromName(QStringLiteral("NotARealSymbol")).has_value());

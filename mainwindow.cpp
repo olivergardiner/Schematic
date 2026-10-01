@@ -28,6 +28,15 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QInputDialog>
+#include <QSignalBlocker>
+
+namespace {
+// Decimal places shown by the grid-spacing spin box. The document stores
+// the exact spacing (any finite positive value the file format accepts); the
+// control only displays it at this precision, and loading never writes the
+// displayed value back into the document.
+constexpr int kGridSpinDecimals = 4;
+} // namespace
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -168,7 +177,7 @@ void MainWindow::createToolBar()
     toolBar->addWidget(gridLabel);
     m_gridSpacingSpin = new QDoubleSpinBox(this);
     m_gridSpacingSpin->setRange(0.1, 1000.0);
-    m_gridSpacingSpin->setDecimals(2);
+    m_gridSpacingSpin->setDecimals(kGridSpinDecimals);
     m_gridSpacingSpin->setValue(m_document.gridSpacing());
     m_gridSpacingSpin->setToolTip(
         tr("Sets the snap increment and minor grid line spacing; major grid "
@@ -230,6 +239,28 @@ void MainWindow::updateWindowTitle()
     setWindowTitle(QString("%1%2 - Schematic").arg(m_documentModified ? "*" : "", name));
 }
 
+void MainWindow::syncGridControls()
+{
+    // The spin box rounds to its displayed precision and clamps to its
+    // range, so a loaded spacing outside that (still valid in the file) must
+    // not travel back through valueChanged() into the document. Block the
+    // signal while updating; the model keeps the exact loaded value and the
+    // view uses it directly.
+    {
+        const QSignalBlocker blocker(m_gridSpacingSpin);
+        m_gridSpacingSpin->setValue(m_document.gridSpacing());
+    }
+    m_view->setGridSpacing(m_document.gridSpacing());
+}
+
+void MainWindow::closeEvent(QCloseEvent *event)
+{
+    if (maybeSave())
+        event->accept();
+    else
+        event->ignore();
+}
+
 bool MainWindow::maybeSave()
 {
     if (!m_documentModified)
@@ -256,8 +287,7 @@ void MainWindow::onNew()
 
     m_document = Document();
     m_scene->bindDocument(&m_document);
-    m_gridSpacingSpin->setValue(m_document.gridSpacing());
-    m_view->setGridSpacing(m_document.gridSpacing());
+    syncGridControls();
     m_currentFilePath.clear();
     m_documentModified = false;
     updateWindowTitle();
@@ -288,8 +318,7 @@ void MainWindow::onOpen()
 
     m_document = *result.document;
     m_scene->bindDocument(&m_document);
-    m_gridSpacingSpin->setValue(m_document.gridSpacing());
-    m_view->setGridSpacing(m_document.gridSpacing());
+    syncGridControls();
     m_currentFilePath = path;
     m_documentModified = false;
     updateWindowTitle();
@@ -310,7 +339,18 @@ bool MainWindow::writeDocumentTo(const QString &path)
             tr("Could not open \"%1\" for writing: %2").arg(path, file.errorString()));
         return false;
     }
-    file.write(m_document.toJsonBytes());
+    const QByteArray bytes = m_document.toJsonBytes();
+    const qint64 written = file.write(bytes);
+    if (written != bytes.size()) {
+        // A short or failed write must never be committed over the existing
+        // file; discard the temporary file instead.
+        const QString reason = file.errorString();
+        file.cancelWriting();
+        QMessageBox::warning(this, tr("Schematic"),
+            tr("Could not save \"%1\": only %2 of %3 bytes could be written (%4)")
+                .arg(path).arg(qMax<qint64>(written, 0)).arg(bytes.size()).arg(reason));
+        return false;
+    }
     if (!file.commit()) {
         QMessageBox::warning(this, tr("Schematic"),
             tr("Could not save \"%1\": %2").arg(path, file.errorString()));

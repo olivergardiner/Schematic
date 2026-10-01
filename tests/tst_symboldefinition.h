@@ -24,6 +24,10 @@ private slots:
     // file format (added in a later step).
     void nameRoundTripsForEveryKind();
 
+    // Every kind needs a non-empty reference prefix: the loader uses it to
+    // generate references for components that have none.
+    void everyKindHasReferencePrefix();
+
     // An unrecognised name (e.g. from a newer file format) must not resolve
     // to any kind.
     void unknownNameReturnsNullopt();
