@@ -4,6 +4,7 @@
 #include "documentloadresult.h"
 
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonObject>
 #include <QTest>
 
@@ -123,6 +124,27 @@ void TstDocumentJson::rejectsInvalidIdsReferencesAndGeometry()
     QVERIFY(!Document::fromJson(diagonal).document);
 }
 
+void TstDocumentJson::rejectsCollinearReversalOnLoad()
+{
+    Document source;
+    const auto a = source.addComponent(SymbolKind::Resistor, {0, 0});
+    const auto b = source.addComponent(SymbolKind::Resistor, {100, 0});
+    QVERIFY(source.addWire(makeTerminalEndpoint(a, 1), {}, makeTerminalEndpoint(b, 0)));
+
+    QJsonObject root = source.toJson();
+    QJsonArray wires = root.value(QStringLiteral("wires")).toArray();
+    QJsonObject wire = wires[0].toObject();
+    wire.insert(QStringLiteral("points"),
+                QJsonArray{QJsonArray{20, 0}, QJsonArray{60, 0},
+                           QJsonArray{50, 0}, QJsonArray{80, 0}});
+    wires[0] = wire;
+    root.insert(QStringLiteral("wires"), wires);
+
+    const DocumentLoadResult loaded = Document::fromJsonBytes(QJsonDocument(root).toJson());
+    QVERIFY(!loaded.document);
+    QVERIFY2(loaded.errors.join(QLatin1Char('\n')).contains(QStringLiteral("route geometry")),
+             qPrintable(loaded.errors.join(QLatin1Char('\n'))));
+}
 namespace {
 
 // Builds a version-1 document JSON whose components carry exactly the given

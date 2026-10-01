@@ -66,6 +66,19 @@ private slots:
     // Editing only the value (same reference) succeeds and leaves the
     // reference untouched.
     void setComponentLabelsValueOnlyEditSucceeds();
+
+    // The shared validator rejects a collinear route that reverses direction
+    // (horizontal or vertical, at any bend) but still accepts a collinear
+    // route that keeps going the same way.
+    void routeValidationRejectsCollinearBacktracking();
+
+    // Endpoint movement uses the same validator: a move that would leave a
+    // reversing route is rejected and leaves the component and route intact.
+    void movementRejectsCollinearReversal();
+
+    // A branching wire whose completed route reverses is rejected without
+    // splitting the wire, adding a node, or consuming IDs.
+    void addWireBranchingRejectsReversalWithoutSideEffects();
 };
 
 #endif // TST_DOCUMENT_H

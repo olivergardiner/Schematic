@@ -299,3 +299,81 @@ void TstDocument::setComponentLabelsValueOnlyEditSucceeds()
     QCOMPARE(document.component(a)->reference(), QStringLiteral("R1"));
     QCOMPARE(document.component(a)->value(), QStringLiteral("22k"));
 }
+
+void TstDocument::routeValidationRejectsCollinearBacktracking()
+{
+    // Horizontal and vertical reversals, including a full retrace.
+    QCOMPARE(validateRouteGeometry({QPointF(0, 0), QPointF(50, 0), QPointF(30, 0)}),
+             RouteGeometryError::CollinearBacktrack);
+    QCOMPARE(validateRouteGeometry({QPointF(0, 0), QPointF(0, 50), QPointF(0, 30)}),
+             RouteGeometryError::CollinearBacktrack);
+    QCOMPARE(validateRouteGeometry({QPointF(0, 0), QPointF(50, 0), QPointF(0, 0)}),
+             RouteGeometryError::CollinearBacktrack);
+    // A reversal after a bend, away from the first segment.
+    QCOMPARE(validateRouteGeometry({QPointF(0, 10), QPointF(0, 0), QPointF(50, 0), QPointF(30, 0)}),
+             RouteGeometryError::CollinearBacktrack);
+
+    // Collinear segments that keep their direction and genuine bends stay valid.
+    QCOMPARE(validateRouteGeometry({QPointF(0, 0), QPointF(30, 0), QPointF(50, 0)}),
+             RouteGeometryError::None);
+    QCOMPARE(validateRouteGeometry({QPointF(50, 0), QPointF(30, 0), QPointF(0, 0)}),
+             RouteGeometryError::None);
+    QCOMPARE(validateRouteGeometry({QPointF(0, 0), QPointF(50, 0), QPointF(50, 30), QPointF(20, 30)}),
+             RouteGeometryError::None);
+
+    // The same validator guards new routes: a reversing route is rejected.
+    Document document;
+    const ComponentId a = document.addComponent(SymbolKind::Resistor, QPointF(0, 0));
+    const ComponentId b = document.addComponent(SymbolKind::Resistor, QPointF(100, 0));
+    QVERIFY(!document.addWire(makeTerminalEndpoint(a, 1), {QPointF(90, 0)},
+                              makeTerminalEndpoint(b, 0)));
+    QVERIFY(document.wires().isEmpty());
+}
+
+void TstDocument::movementRejectsCollinearReversal()
+{
+    Document document;
+    const ComponentId a = document.addComponent(SymbolKind::Resistor, QPointF(0, 0));
+    const ComponentId b = document.addComponent(SymbolKind::Resistor, QPointF(100, 0));
+    // Terminals sit 20 units either side of the component origin: this route
+    // runs (20,0) -> (60,0) -> (80,0) and keeps its direction.
+    const auto id = document.addWire(makeTerminalEndpoint(a, 1), {QPointF(60, 0)},
+                                     makeTerminalEndpoint(b, 0));
+    QVERIFY(id);
+    const QVector<QPointF> before = document.wire(*id)->vertices;
+
+    // Moving b left puts its terminal at (40,0), behind the corner at (60,0).
+    QVERIFY(!document.moveComponent(b, QPointF(60, 0)));
+    QCOMPARE(document.component(b)->position(), QPointF(100, 0));
+    QCOMPARE(document.wire(*id)->vertices, before);
+
+    // A move that keeps the same direction is still accepted.
+    QVERIFY(document.moveComponent(b, QPointF(110, 0)));
+    QCOMPARE(document.wire(*id)->vertices,
+             QVector<QPointF>({QPointF(20, 0), QPointF(60, 0), QPointF(90, 0)}));
+}
+
+void TstDocument::addWireBranchingRejectsReversalWithoutSideEffects()
+{
+    Document document;
+    const ComponentId a = document.addComponent(SymbolKind::Resistor, QPointF(0, 0));
+    const ComponentId b = document.addComponent(SymbolKind::Resistor, QPointF(100, 0));
+    // d's terminal 1 is at (60,0).
+    const ComponentId d = document.addComponent(SymbolKind::Resistor, QPointF(40, 0));
+    const auto wire = document.addWire(makeTerminalEndpoint(a, 1), {}, makeTerminalEndpoint(b, 0));
+    QVERIFY(wire);
+    const int wiresBefore = document.wires().size();
+
+    // (40,0) -> (70,0) -> (60,0) doubles back on itself.
+    QVERIFY(!document.addWireBranching(BranchSite{*wire, QPointF(40, 0)}, {QPointF(70, 0)},
+                                       makeTerminalEndpoint(d, 1)));
+    QCOMPARE(document.wires().size(), wiresBefore);
+    QCOMPARE(document.nodes().size(), 0);
+    QVERIFY(document.wire(*wire)); // Not split by the failed attempt.
+
+    // The failed attempt consumed no IDs: a valid route gets the first node.
+    QVERIFY(document.addWireBranching(BranchSite{*wire, QPointF(40, 0)},
+                                      {QPointF(40, -20), QPointF(60, -20)},
+                                      makeTerminalEndpoint(d, 1)));
+    QVERIFY(document.nodes().contains(1));
+}

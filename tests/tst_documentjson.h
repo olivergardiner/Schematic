@@ -13,6 +13,8 @@ private slots:
     void rejectsInvalidAndRepairsStaleEndpoints();
     // IDs and endpoint references are validated before a document is returned.
     void rejectsInvalidIdsReferencesAndGeometry();
+    // Saved routes with an adjacent collinear reversal are rejected on load.
+    void rejectsCollinearReversalOnLoad();
     // Unused node identities are not retained as phantom topology.
     void discardsOrphanNodes();
     // Missing, empty and whitespace-only references are generated from the

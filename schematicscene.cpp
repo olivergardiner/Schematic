@@ -14,6 +14,7 @@
 #include <QLineF>
 #include <QPainterPath>
 #include <QPen>
+#include <QSet>
 
 #include <cmath>
 
@@ -127,6 +128,9 @@ void SchematicScene::bindDocument(Document *document)
 {
     cancelPendingWire();
     m_dragging = false;
+    // Component IDs are only meaningful within one Document, so a newly bound
+    // (or unbound) document must never inherit the previous selection.
+    clearSelection();
     m_document = document;
     rebuild();
 }
@@ -155,6 +159,16 @@ void SchematicScene::cancelPendingWire()
 
 void SchematicScene::rebuild()
 {
+    // Items are recreated from scratch, so remember which components were
+    // selected by their stable model ID and reselect the survivors below.
+    // Wire selection is intentionally not preserved here (wire IDs change
+    // when a route is split).
+    QSet<ComponentId> selectedComponents;
+    for (QGraphicsItem *item : selectedItems()) {
+        if (auto *component = qgraphicsitem_cast<ComponentItem *>(item))
+            selectedComponents.insert(component->componentId());
+    }
+
     clear();
     m_wirePreviewItem = nullptr; // clear() already deleted the item itself.
     if (!m_document)
@@ -166,6 +180,15 @@ void SchematicScene::rebuild()
         addJunctionItem(point);
     for (const Component &component : m_document->components())
         addComponentItems(component);
+
+    if (selectedComponents.isEmpty())
+        return;
+    for (QGraphicsItem *item : items()) {
+        if (auto *component = qgraphicsitem_cast<ComponentItem *>(item)) {
+            if (selectedComponents.contains(component->componentId()))
+                component->setSelected(true);
+        }
+    }
 }
 
 void SchematicScene::addWireItems(const WireRoute &route)
@@ -456,6 +479,10 @@ void SchematicScene::extendPendingWire(QPointF scenePos)
     if (hit.kind == HitKind::None) {
         const QPointF snapped = snapToGrid(scenePos);
         const QPointF last = m_pendingVertices.last();
+        // A repeat click on the current last point would add a zero-length
+        // segment that the route validator then rejects at completion.
+        if (closeEnough(last, snapped))
+            return;
         // Insert a horizontal-first deterministic corner for a diagonal
         // click (see DECISIONS.md "Document model and connectivity").
         if (!closeEnough(last.x(), snapped.x()) && !closeEnough(last.y(), snapped.y()))
@@ -487,12 +514,17 @@ void SchematicScene::extendPendingWire(QPointF scenePos)
     }
 
     const auto result = m_document->addWireBranching(m_pendingStart, interior, end);
-    cancelPendingWire();
     if (result) {
+        cancelPendingWire();
         emit documentEdited();
         rebuild();
     } else {
-        emit statusMessage(tr("That wire could not be completed there."));
+        // The Document is unchanged on rejection (addWireBranching() is
+        // atomic) and m_pendingStart/m_pendingVertices were not modified
+        // above, so the draft and its preview stay available: the user can
+        // click another corner or target, or press Escape to discard it.
+        emit statusMessage(tr("That wire could not be completed there. Click to adjust the "
+                              "route or press Escape to cancel."));
     }
 }
 
