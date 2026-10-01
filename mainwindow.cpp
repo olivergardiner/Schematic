@@ -303,7 +303,7 @@ bool MainWindow::writeDocumentTo(const QString &path)
     // QSaveFile writes to a temporary file alongside path and only
     // atomically renames it into place on a successful commit(), so a
     // write failure can never leave a partially-written or corrupted file
-    // at path - see AGENTS.md/CLAUDE.md step 6 plan.
+    // at path.
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly)) {
         QMessageBox::warning(this, tr("Schematic"),

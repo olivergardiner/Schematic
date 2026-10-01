@@ -5,12 +5,12 @@
             "name": "Launch Schematic (MSVC Debug)",
             "type": "cppvsdbg",
             "request": "launch",
-            "program": "D:/Perspective/Software/Schematic/build/Debug/Schematic.exe",
+            "program": "${workspaceFolder}/build/Debug/Schematic.exe",
             "args": [],
             "stopAtEntry": false,
-            "cwd": "D:/Perspective/Software/Schematic/build/Debug",
+            "cwd": "${workspaceFolder}/build/Debug",
             "environment": [
-                { "name": "PATH", "value": "D:/Qt/6.11.1/msvc2022_64/bin;${env:PATH}" }
+                { "name": "PATH", "value": "${env:QT_BIN_DIR};${env:PATH}" }
             ],
             "console": "internalConsole"
         },
@@ -18,12 +18,12 @@
             "name": "Launch Schematic (MSVC Release)",
             "type": "cppvsdbg",
             "request": "launch",
-            "program": "D:/Perspective/Software/Schematic/build/Release/Schematic.exe",
+            "program": "${workspaceFolder}/build/Release/Schematic.exe",
             "args": [],
             "stopAtEntry": false,
-            "cwd": "D:/Perspective/Software/Schematic/build/Release",
+            "cwd": "${workspaceFolder}/build/Release",
             "environment": [
-                { "name": "PATH", "value": "D:/Qt/6.11.1/msvc2022_64/bin;${env:PATH}" }
+                { "name": "PATH", "value": "${env:QT_BIN_DIR};${env:PATH}" }
             ],
             "console": "internalConsole"
         }

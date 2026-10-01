@@ -47,7 +47,7 @@ public:
     // empty, or the trimmed reference collides with another component's
     // trimmed reference (case-sensitive; renaming a component to its own
     // current reference is allowed). value has no uniqueness constraint and
-    // may be empty after trimming - see AGENTS.md/CLAUDE.md step 6 plan.
+    // may be empty after trimming - see DECISIONS.md "Symbols and labels".
     bool setComponentLabels(ComponentId id, const QString &reference, const QString &value);
 
     std::optional<WireId> addWire(const WireEndpoint &start,
@@ -59,10 +59,10 @@ public:
     // Atomic wire completion: resolves each endpoint (materializing any
     // BranchSite's split only if the whole operation succeeds), validates
     // the full candidate route, and only then mutates the document - see
-    // AGENTS.md/CLAUDE.md "wire completion is atomic". Rejects (returning
+    // DECISIONS.md "Document model and connectivity". Rejects (returning
     // std::nullopt with the document completely unchanged, including no ID
     // allocation) if either endpoint fails to resolve, both endpoints are
-    // BranchSites on the same WireId (unsupported in step 5 - draw two
+    // BranchSites on the same WireId (currently unsupported - draw two
     // wires instead), a BranchSite's point does not lie on its wire, or the
     // resulting route/split geometry is invalid.
     std::optional<WireId> addWireBranching(const PendingWireEndpoint &start,

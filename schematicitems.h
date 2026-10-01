@@ -54,8 +54,8 @@ private:
 };
 
 // One reference or value label, positioned independently of the rotated
-// ComponentItem group (see the step 4 design note on labels staying
-// upright) but tagged with the same ComponentId so a click on a label
+// ComponentItem group (labels stay upright; see DECISIONS.md "Symbols and
+// labels") but tagged with the same ComponentId so a click on a label
 // selects/drags/deletes its owning component - see
 // SchematicScene::componentItemAt().
 class ComponentLabelItem : public QGraphicsSimpleTextItem

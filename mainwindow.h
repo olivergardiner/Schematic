@@ -63,8 +63,8 @@ private:
     bool maybeSave();
     // Writes m_document's current JSON bytes to path via QSaveFile, so a
     // write failure (disk full, permission denied, etc.) can never leave a
-    // partially-written or corrupted file at path - see AGENTS.md/CLAUDE.md
-    // step 6 plan. Shows a QMessageBox on failure. Does not touch
+    // partially-written or corrupted file at path. Shows a QMessageBox on
+    // failure. Does not touch
     // m_currentFilePath or m_documentModified; callers (onSave()/
     // onSaveAs()) are responsible for committing those only on success.
     bool writeDocumentTo(const QString &path);

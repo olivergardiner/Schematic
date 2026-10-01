@@ -23,7 +23,7 @@ public slots:
 
     // Sets both the snap increment and the minor grid-line spacing to
     // spacing (scene units); major grid lines are drawn every 10 minor
-    // intervals - see the step 5 plan's UI-clarity note. Ignored if spacing
+    // intervals so the grid stays readable. Ignored if spacing
     // is not finite and positive.
     void setGridSpacing(qreal spacing);
 

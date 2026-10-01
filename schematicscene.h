@@ -16,7 +16,7 @@ class ComponentItem;
 class ComponentLabelItem;
 
 // SchematicScene hosts the schematic symbols, wires and annotations that
-// make up a drawing, and (from step 5) interprets mouse/keyboard input as
+// make up a drawing, and interprets mouse/keyboard input as
 // edits against a bound Document. Per AGENTS.md "keep the schematic
 // document model independent of Qt rendering items and input handling",
 // this class is a renderer/input *adapter* only: MainWindow owns the one
@@ -50,7 +50,7 @@ public:
     // again (with a new pointer, or nullptr) *before* the previously bound
     // Document instance is destroyed, moved, or reallocated - e.g. before
     // replacing MainWindow's Document member wholesale for a new/opened
-    // file (step 6). Holding onto a stale pointer past that point is
+    // file. Holding onto a stale pointer past that point is
     // undefined behaviour; this class has no way to detect it.
     void bindDocument(Document *document);
 
@@ -68,15 +68,14 @@ public:
 
     // Returns the id of the single selected ComponentItem, or std::nullopt
     // if zero or more than one component is currently selected. Used by
-    // MainWindow to drive the Rename (F2) action's enabled state and target
-    // - see AGENTS.md/CLAUDE.md step 6 plan.
+    // MainWindow to drive the Rename (F2) action's enabled state and target.
     std::optional<ComponentId> singleSelectedComponent() const;
 
     // Rebuilds scene items from the bound Document and emits
     // documentEdited(). For edits MainWindow makes directly against the
     // Document outside of this class's own mouse/keyboard handlers (e.g.
     // Document::setComponentLabels() from the label-edit dialog or the
-    // Rename action) - see AGENTS.md/CLAUDE.md step 6 plan. A no-op if no
+    // Rename action). A no-op if no
     // document is bound.
     void refreshAfterExternalEdit();
 
@@ -137,9 +136,9 @@ private:
     EditMode m_mode = EditMode::Select;
     SymbolKind m_placeKind = SymbolKind::Resistor;
 
-    // Select-mode manual drag state (see AGENTS.md/CLAUDE.md step 5 plan:
-    // preview by moving only the dragged symbol's items, attached wires
-    // reshape only once Document::moveComponent() commits on release).
+    // Select-mode manual drag state: preview by moving only the dragged
+    // symbol's items; attached wires reshape only once
+    // Document::moveComponent() commits on release.
     bool m_dragging = false;
     ComponentId m_dragComponentId = kInvalidComponentId;
     QPointF m_dragOriginalPosition;

@@ -24,12 +24,11 @@ namespace {
 constexpr qreal kDefaultWidth  = 2000.0;
 constexpr qreal kDefaultHeight = 1500.0;
 
-// Explicit stacking order (see AGENTS.md/CLAUDE.md step 4 plan): wires sit
-// behind everything, junction dots sit above wires (so a dot is never hidden
-// under a wire it marks), symbol artwork sits above both, and reference/
-// value labels sit above everything so text is never occluded by artwork.
-// The in-progress wire preview (step 5) sits above all rendered content so
-// it's always visible while drawing.
+// Explicit stacking order: wires sit behind everything, junction dots sit
+// above wires (so a dot is never hidden under a wire it marks), symbol
+// artwork sits above both, and reference/value labels sit above everything
+// so text is never occluded by artwork. The in-progress wire preview sits
+// above all rendered content so it's always visible while drawing.
 constexpr qreal kWireZ        = 0.0;
 constexpr qreal kJunctionZ    = 1.0;
 constexpr qreal kSymbolZ      = 2.0;
@@ -38,8 +37,8 @@ constexpr qreal kWirePreviewZ = 4.0;
 
 // Real (non-cosmetic) scene-unit pen widths and a scene-unit font size, so
 // line weight and text both scale with the schematic exactly like symbol
-// artwork does when the view is zoomed - see the step 4 plan's decision that
-// this is a presentation/export tool, not a screen-fixed-size UI.
+// artwork does when the view is zoomed. This is a presentation/export tool,
+// not a screen-fixed-size UI.
 constexpr qreal kLineWidth      = 1.0;
 constexpr qreal kJunctionRadius = 2.5;
 constexpr qreal kLabelPixelSize = 8.0;
@@ -220,11 +219,10 @@ void SchematicScene::addComponentItems(const Component &component)
 
     // Labels are separate, unrotated top-level items positioned directly in
     // world coordinates (not parented under the rotated artwork group), so
-    // component rotation never rotates the text - see the step 4 plan's
-    // decision on label placement. Each is tagged with the same
-    // ComponentId (see schematicitems.h) so a click on a label maps back to
-    // this component for selection/dragging/deletion - see
-    // componentItemAt().
+    // component rotation never rotates the text (see DECISIONS.md
+    // "Symbols and labels"). Each is tagged with the same ComponentId (see
+    // schematicitems.h) so a click on a label maps back to this component for
+    // selection/dragging/deletion - see componentItemAt().
     QRectF localBounds;
     for (const SymbolPrimitive &primitive : def.primitives)
         localBounds = localBounds.united(primitivePath(primitive).boundingRect());
@@ -426,8 +424,9 @@ void SchematicScene::extendPendingWire(QPointF scenePos)
 
     if (!m_wireActive) {
         // A wire can only ever *start* from a terminal, node, or existing
-        // wire segment - never from empty space (see AGENTS.md/CLAUDE.md:
-        // both ends of a committed wire must resolve to something real).
+        // wire segment - never from empty space: both ends of a committed
+        // wire must resolve to something real (see DECISIONS.md "Document
+        // model and connectivity").
         if (hit.kind == HitKind::None) {
             emit statusMessage(tr("Start a wire from a terminal, node, or existing wire."));
             return;
@@ -458,7 +457,7 @@ void SchematicScene::extendPendingWire(QPointF scenePos)
         const QPointF snapped = snapToGrid(scenePos);
         const QPointF last = m_pendingVertices.last();
         // Insert a horizontal-first deterministic corner for a diagonal
-        // click, matching the agreed default (see AGENTS.md/CLAUDE.md).
+        // click (see DECISIONS.md "Document model and connectivity").
         if (!closeEnough(last.x(), snapped.x()) && !closeEnough(last.y(), snapped.y()))
             m_pendingVertices.append(QPointF(snapped.x(), last.y()));
         m_pendingVertices.append(snapped);

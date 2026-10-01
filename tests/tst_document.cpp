@@ -218,7 +218,7 @@ void TstDocument::addWireBranchingFailureLeavesDocumentUnchanged()
     const int wiresBefore = document.wires().size();
     const int nodesBefore = document.nodes().size();
 
-    // Rejected: both endpoints branch off the same wire (step 5 scope limit).
+    // Rejected: both endpoints branch off the same wire (current scope limit).
     QVERIFY(!document.addWireBranching(BranchSite{*wire, QPointF(30, 0)}, {},
                                        BranchSite{*wire, QPointF(70, 0)}));
     QCOMPARE(document.wires().size(), wiresBefore);

@@ -106,8 +106,8 @@ void TstDocumentJson::rejectsInvalidIdsReferencesAndGeometry()
     QVERIFY(!Document::fromJson(badTerminal).document);
 
     // The first/last vertices of a wire are always overwritten by positions
-    // derived from its start/end identities on load (see AGENTS.md/CLAUDE.md
-    // "Endpoint coordinates are always derived from identity"), so corrupting
+    // derived from its start/end identities on load (see DECISIONS.md "File
+    // format"), so corrupting
     // only those two coordinates can never produce invalid geometry after
     // derivation - a 2-vertex wire's corrupted endpoints simply get replaced
     // by the correct terminal-to-terminal line. To actually exercise

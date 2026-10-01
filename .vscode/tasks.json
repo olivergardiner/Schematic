@@ -39,7 +39,7 @@
         {
             "label": "Deploy Qt (Debug)",
             "type": "shell",
-            "command": "D:/Qt/6.11.1/msvc2022_64/bin/windeployqt6.exe --debug build/Debug/Schematic.exe; if (Test-Path \"$env:SystemRoot\\System32\\icu.dll\") { Copy-Item \"$env:SystemRoot\\System32\\icu.dll\" build\\Debug -Force }",
+            "command": "& \"$env:QT_BIN_DIR\\windeployqt6.exe\" --debug build/Debug/Schematic.exe; if (Test-Path \"$env:SystemRoot\\System32\\icu.dll\") { Copy-Item \"$env:SystemRoot\\System32\\icu.dll\" build\\Debug -Force }",
             "options": {
                 "shell": {
                     "executable": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
@@ -56,7 +56,7 @@
         {
             "label": "Deploy Qt (Release)",
             "type": "shell",
-            "command": "D:/Qt/6.11.1/msvc2022_64/bin/windeployqt6.exe --release build/Release/Schematic.exe; if (Test-Path \"$env:SystemRoot\\System32\\icu.dll\") { Copy-Item \"$env:SystemRoot\\System32\\icu.dll\" build\\Release -Force }",
+            "command": "& \"$env:QT_BIN_DIR\\windeployqt6.exe\" --release build/Release/Schematic.exe; if (Test-Path \"$env:SystemRoot\\System32\\icu.dll\") { Copy-Item \"$env:SystemRoot\\System32\\icu.dll\" build\\Release -Force }",
             "options": {
                 "shell": {
                     "executable": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",

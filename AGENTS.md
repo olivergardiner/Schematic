@@ -49,7 +49,7 @@ No PCB features, simulation, automatic routing, or user-authored symbol editor a
 - The project is currently named `Schematic`; the product name is not settled.
 - Build system: CMake. Qt requirement currently specified as Qt 6.5 with Core, Gui, and Widgets for the app; Qt Test is required only when `BUILD_TESTING` is enabled.
 - Existing source includes `main.cpp`, `mainwindow.*`, `schematicscene.*`, and `schematicview.*`.
-- README build instructions use the CMake `default` preset; a `mingw` preset is also mentioned.
+- Checked-in CMake presets (`default`, `mingw`) are portable; Qt kit paths belong in a git-ignored `CMakeUserPresets.json`, as described in the README.
 
 ## Documentation
 

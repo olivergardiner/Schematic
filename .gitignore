@@ -44,6 +44,9 @@ build/
 Build/
 build-*/
 
+# Per-machine CMake presets (local Qt/compiler paths)
+CMakeUserPresets.json
+
 # CMake generated files
 CMakeFiles/
 CMakeCache.txt

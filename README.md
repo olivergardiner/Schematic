@@ -12,14 +12,32 @@ See [ROADMAP.md](ROADMAP.md) for known issues and future product work, and [DECI
 
 Requirements: CMake, a C++17 compiler, and Qt 6.5 or newer with Core, Gui, and Widgets. Qt Test is needed when `BUILD_TESTING` is enabled (the default).
 
-Configure and build with the default preset:
+The checked-in `default` (Visual Studio) and `mingw` presets contain no machine-specific paths, so CMake must be told where Qt is installed. Create a git-ignored `CMakeUserPresets.json` that inherits from a checked-in preset and sets `CMAKE_PREFIX_PATH`:
 
-```sh
-cmake --preset default
-cmake --build --preset default
+```json
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "local",
+      "inherits": "default",
+      "cacheVariables": { "CMAKE_PREFIX_PATH": "<path to your Qt kit, e.g. C:/Qt/6.x.y/msvc2022_64>" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "local", "configurePreset": "local" }
+  ]
+}
 ```
 
-A `mingw` preset is also provided. If Qt Test is not installed, configure with `-DBUILD_TESTING=OFF` to build the application without the test target.
+Then configure and build:
+
+```sh
+cmake --preset local
+cmake --build --preset local
+```
+
+Alternatively, pass `-DCMAKE_PREFIX_PATH=<Qt kit>` to `cmake --preset default` directly. A `mingw` preset is also provided (inherit from it the same way). If Qt Test is not installed, configure with `-DBUILD_TESTING=OFF` to build the application without the test target.
 
 ## Project documentation
 

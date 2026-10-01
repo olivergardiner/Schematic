@@ -22,7 +22,7 @@ struct BranchSite
 // pending branch site whose split has not yet been applied to the
 // document. Kept distinct from WireEndpoint itself so a persisted
 // WireRoute's start/end can never accidentally reference a not-yet-real
-// branch - see AGENTS.md/CLAUDE.md on keeping wire completion atomic.
+// branch - see DECISIONS.md "Document model and connectivity".
 using PendingWireEndpoint = std::variant<WireEndpoint, BranchSite>;
 
 inline bool isBranchSite(const PendingWireEndpoint &endpoint)

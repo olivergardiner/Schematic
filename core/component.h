@@ -7,8 +7,8 @@
 #include <QPointF>
 #include <QString>
 
-// Rotation is restricted to right-angle quadrants for milestone 1 - see
-// AGENTS.md and the approved design plan. This keeps terminal geometry a
+// Rotation is restricted to right-angle quadrants - see DECISIONS.md
+// "Symbols and labels". This keeps terminal geometry a
 // simple axis swap/negation (rotateOffset() below) rather than a general
 // affine transform, and it preserves axis-aligned symbol geometry: any
 // horizontal or vertical line in a symbol's local artwork (see

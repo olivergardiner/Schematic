@@ -44,7 +44,7 @@ private slots:
     // branch split and append the new wire as one atomic change.
     void addWireBranchingAppliesSplitsAtomically();
 
-    // Branching twice from the same wire in one call is rejected (a step 5
+    // Branching twice from the same wire in one call is rejected (a current
     // scope limit), and any other failure must leave wires, nodes, and ID
     // allocation completely unchanged - no orphaned split, no consumed id.
     void addWireBranchingFailureLeavesDocumentUnchanged();

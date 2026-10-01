@@ -288,7 +288,7 @@ std::optional<WireId> Document::addWireBranching(const PendingWireEndpoint &star
                                                   const QVector<QPointF> &interiorVertices,
                                                   const PendingWireEndpoint &end)
 {
-    // Step 5 scope limit: branching twice from the same wire in one call
+    // Scope limit: branching twice from the same wire in one call
     // would require compounding-split bookkeeping (the second site's
     // segment index may shift once the first split is applied). Reject
     // rather than handle that edge case - the user can draw two separate
