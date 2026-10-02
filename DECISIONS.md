@@ -27,6 +27,7 @@ This file records choices that affect the document model, file compatibility, or
 - Reference labels are trimmed and must be non-empty and unique among other components. Values are trimmed, may be empty, and need not be unique. Load repair/rejection follows the explicit policy above.
 - Double-click opens the reference/value dialog. F2 renames the reference of exactly one selected component.
 - Component transforms include quadrant rotation and horizontal mirroring. Mirroring is applied to local symbol geometry before rotation; text labels remain readable. Transform operations update connected routes transactionally.
+- Default references are the kind's prefix plus the smallest unused number (`R1`, `VR1`, `GND1`). The potentiometer prefix is `VR`. Symbol kinds can hide their reference label (`showsReference`; Ground only for now) while keeping a unique internal reference. This is a per-kind rule and is not serialized.
 
 ## Milestone boundaries
 

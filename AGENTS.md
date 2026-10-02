@@ -15,7 +15,8 @@ The intended editor should provide a sensible configurable grid, standard symbol
 - Use world/scene units for symbol geometry, component positions, and terminal positions. Grid spacing controls snapping and grid-line spacing; it does not scale symbols. Right-angle rotations preserve axis-aligned symbol geometry, but do not imply that every terminal lies on a grid intersection.
 - Milestone-1 wire routes are orthogonal. The wire tool should insert deterministic corners for diagonal pointer movement. When loading, derive route endpoint coordinates from their terminal or node identities; warn on stale serialized endpoint coordinates and validate the resulting route geometry.
 - Net groups and junction dots are derived from explicit topology; persistent net IDs and a separately persisted junction list are not required for milestone 1.
-- Treat undo/redo as a later decision unless the user explicitly brings it into the first milestone.
+- Symbols are intended to become library data rather than hard-coded C++ (ROADMAP chunk E0): each has a stable string ID, category, reference prefix and named terminals, served by a registry in `schematiccore`. The aim is a maintainable, extensible library (transistors, diode variants, valves, transconductance amps and more). A released symbol's terminal order and positions must not change, because saved wires refer to terminals by index; changed geometry gets a new ID. Until E0 is designed, approved and implemented, the built-in set remains the closed enum in `symbolkind.h`.
+- Undo/redo was deferred from milestone 1 and is in milestone 2; its design note (ROADMAP chunk H) must be approved before implementation.
 
 ## First usable milestone
 
@@ -33,6 +34,7 @@ No PCB features, simulation, automatic routing, or user-authored symbol editor a
 
 ## Collaboration and implementation workflow
 
+- Direction and architecture are worked out directly between the user and Claude in the Claude Project. Other tools (for example Codex, or an agent working in the repository) may implement or review, but they follow the plans and approvals recorded in this repository and do not set direction.
 - For substantial feature work, first inspect the existing code and conventions and propose a short, reviewable implementation plan. Explain the model, symbol geometry and terminal placement, net/routing representation, and scene/view interaction. Call out choices that would be costly to change later.
 - Do not begin implementation until the user has approved that plan. Once approved, implement only the agreed milestone and work in small, reviewable steps.
 - Keep changes aligned with the approved scope. Prefer focused tests for connectivity, moving connected components, and save/load when implementing the model and persistence; do not expand into unrelated test infrastructure.

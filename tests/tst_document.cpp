@@ -377,3 +377,53 @@ void TstDocument::addWireBranchingRejectsReversalWithoutSideEffects()
                                       makeTerminalEndpoint(d, 1)));
     QVERIFY(document.nodes().contains(1));
 }
+
+void TstDocument::rotateAndMirrorUpdateRoutesTransactionally()
+{
+    Document d;
+    const ComponentId a = d.addComponent(SymbolKind::Resistor, {0, 0});
+    const ComponentId b = d.addComponent(SymbolKind::Resistor, {40, 0}, Rotation::Deg180);
+    // b.0 is at (60,0); a.1 at (20,0).
+    const auto w = d.addWire(makeTerminalEndpoint(a, 1), {}, makeTerminalEndpoint(b, 0));
+    QVERIFY(w);
+    const QVector<QPointF> before = d.wire(*w)->vertices;
+
+    // Rotating b to 0 would put b.0 on (20,0): zero-length route -> rejected.
+    QVERIFY(!d.rotateComponent(b, Rotation::Deg0));
+    QCOMPARE(d.component(b)->rotation(), Rotation::Deg180);
+    QCOMPARE(d.wire(*w)->vertices, before);
+
+    // Mirroring b makes b.0 land on (20,0) as well -> rejected.
+    QVERIFY(!d.setComponentMirrored(b, true));
+    QVERIFY(!d.component(b)->mirrored());
+    QCOMPARE(d.wire(*w)->vertices, before);
+
+    // A valid mirror of a moves a.1 to (-20,0) and the route follows.
+    QVERIFY(d.setComponentMirrored(a, true));
+    QCOMPARE(d.wire(*w)->vertices.first(), QPointF(-20, 0));
+    QCOMPARE(d.wire(*w)->vertices.last(), QPointF(60, 0));
+
+    QVERIFY(!d.rotateComponent(999, Rotation::Deg90));
+    QVERIFY(!d.setComponentMirrored(999, true));
+}
+
+void TstDocument::defaultReferencesUseSmallestUnusedPrefixNumber()
+{
+    Document d;
+    const ComponentId r1 = d.addComponent(SymbolKind::Resistor, {0, 0});
+    d.addComponent(SymbolKind::Resistor, {50, 0});
+    const ComponentId c1 = d.addComponent(SymbolKind::Capacitor, {100, 0});
+    const ComponentId g = d.addComponent(SymbolKind::Ground, {150, 0});
+    const ComponentId rv = d.addComponent(SymbolKind::Potentiometer, {200, 0});
+    const ComponentId u = d.addComponent(SymbolKind::OpAmp, {250, 0});
+    QCOMPARE(d.component(r1)->reference(), QStringLiteral("R1"));
+    QCOMPARE(d.components()[1].reference(), QStringLiteral("R2"));
+    QCOMPARE(d.component(c1)->reference(), QStringLiteral("C1"));
+    QCOMPARE(d.component(g)->reference(), QStringLiteral("GND1"));
+    QCOMPARE(d.component(rv)->reference(), QStringLiteral("VR1"));
+    QCOMPARE(d.component(u)->reference(), QStringLiteral("U1"));
+
+    QVERIFY(d.setComponentLabels(r1, QStringLiteral("X"), QString()));
+    const ComponentId r3 = d.addComponent(SymbolKind::Resistor, {300, 0});
+    QCOMPARE(d.component(r3)->reference(), QStringLiteral("R1")); // freed number reused
+}

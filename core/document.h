@@ -38,6 +38,11 @@ public:
                              Rotation rotation = Rotation::Deg0);
     bool moveComponent(ComponentId id, QPointF position);
     bool removeComponent(ComponentId id);
+    // Transactional: rejects (returns false, document unchanged) if id is
+    // unknown or any attached route would become invalid.
+    bool rotateComponent(ComponentId id, Rotation rotation);
+    bool setComponentMirrored(ComponentId id, bool mirrored);
+
 
     // Renames/re-values an already-placed component. Both reference and
     // value are trimmed before validation and storage (so "R1" and " R1 "
@@ -85,6 +90,7 @@ private:
     bool endpointExists(const WireEndpoint &endpoint) const;
     void removeOrphanNodes();
     WireId allocateWireId();
+    bool commitComponentChange(ComponentId id, const Component &changed);
 
     // Pure (non-mutating) computation of a branch split: finds the segment
     // of wire id containing point and returns the two resulting vertex

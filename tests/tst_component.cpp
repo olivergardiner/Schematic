@@ -107,3 +107,24 @@ void TstComponent::terminalCountMatchesSymbolDefinition()
         QCOMPARE(component.terminalCount(), symbolTerminalCount(kind));
     }
 }
+
+void TstComponent::mirroredTerminalPositions()
+{
+    // Mirror negates local x before rotation. Terminal indices are unchanged.
+    Component m0(1, SymbolKind::OpAmp, QPointF(40, -30));
+    m0.setMirrored(true);
+    QCOMPARE(m0.terminalPosition(0), QPointF(68, -38));
+    QCOMPARE(m0.terminalPosition(1), QPointF(68, -22));
+    QCOMPARE(m0.terminalPosition(2), QPointF(12, -30));
+    QCOMPARE(m0.terminalPosition(3), QPointF(40, -46));
+    QCOMPARE(m0.terminalPosition(4), QPointF(40, -14));
+
+    Component m90(1, SymbolKind::OpAmp, QPointF(40, -30));
+    m90.setMirrored(true);
+    m90.setRotation(Rotation::Deg90);
+    QCOMPARE(m90.terminalPosition(0), QPointF(48, -2));
+    QCOMPARE(m90.terminalPosition(1), QPointF(32, -2));
+    QCOMPARE(m90.terminalPosition(2), QPointF(40, -58));
+    QCOMPARE(m90.terminalPosition(3), QPointF(56, -30));
+    QCOMPARE(m90.terminalPosition(4), QPointF(24, -30));
+}

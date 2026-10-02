@@ -35,6 +35,10 @@ private slots:
     // wire tool and file-format validator (added in later steps) rely on to
     // detect an out-of-range terminal index.
     void terminalCountMatchesSymbolDefinition();
+
+    // Mirroring negates the local x offset before rotation; terminal indices
+    // are unchanged. Expected values are hand-computed for the op-amp.
+    void mirroredTerminalPositions();
 };
 
 #endif // TST_COMPONENT_H

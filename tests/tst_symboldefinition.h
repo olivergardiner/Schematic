@@ -31,6 +31,9 @@ private slots:
     // An unrecognised name (e.g. from a newer file format) must not resolve
     // to any kind.
     void unknownNameReturnsNullopt();
+    
+    // Ground is the only built-in kind that hides its reference label.
+    void groundIsTheOnlyKindThatHidesItsReference();
 };
 
 #endif // TST_SYMBOLDEFINITION_H

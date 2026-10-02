@@ -29,6 +29,14 @@ private slots:
     // Nodes are written in ascending ID order, so equal documents give
     // byte-identical JSON.
     void serializesNodesInStableOrder();
+    // toJson() writes version 2 with a boolean mirrored on every component,
+    // and mirroring survives a save/load round trip.
+    void writesV2AndRoundTripsMirroring();
+    // A version 1 file loads as unmirrored and is upgraded to v2 on save.
+    void loadsV1AsUnmirroredAndUpgradesOnSave();
+    // v1 must not contain mirrored; v2 requires a boolean one; unsupported
+    // versions are rejected.
+    void rejectsInvalidVersionAndMirroredCombinations();
 };
 
 #endif

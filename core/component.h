@@ -61,6 +61,9 @@ public:
     QString value() const { return m_value; }
     void setValue(const QString &value) { m_value = value; }
 
+    bool mirrored() const { return m_mirrored; }
+    void setMirrored(bool mirrored) { m_mirrored = mirrored; }
+
     // Number of terminals this component's symbol kind defines.
     int terminalCount() const;
 
@@ -79,6 +82,7 @@ private:
     Rotation m_rotation = Rotation::Deg0;
     QString m_reference;
     QString m_value;
+    bool m_mirrored = false;
 };
 
 // Rotates a local symbol-space offset by the given quadrant rotation.

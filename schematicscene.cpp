@@ -235,6 +235,7 @@ void SchematicScene::addComponentItems(const Component &component)
         artwork->addToGroup(primitiveItem);
     }
     artwork->setPos(component.position());
+    artwork->setTransform(QTransform::fromScale(component.mirrored() ? -1.0 : 1.0, 1.0));
     artwork->setRotation(degrees);
     artwork->setZValue(kSymbolZ);
     artwork->setFlag(QGraphicsItem::ItemIsSelectable, true);

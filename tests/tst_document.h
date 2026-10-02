@@ -79,6 +79,14 @@ private slots:
     // A branching wire whose completed route reverses is rejected without
     // splitting the wire, adding a node, or consuming IDs.
     void addWireBranchingRejectsReversalWithoutSideEffects();
+    // rotateComponent()/setComponentMirrored() update attached routes and are
+    // transactional: a transform that would break a route is rejected with
+    // the component and route unchanged.
+    void rotateAndMirrorUpdateRoutesTransactionally();
+
+    // New components get the smallest unused "<prefix><n>" reference,
+    // reusing numbers freed by renaming.
+    void defaultReferencesUseSmallestUnusedPrefixNumber();
 };
 
 #endif // TST_DOCUMENT_H

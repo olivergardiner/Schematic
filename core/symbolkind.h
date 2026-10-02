@@ -3,6 +3,7 @@
 
 #include <QString>
 #include <optional>
+#include <QSet>
 
 // The fixed set of built-in symbols for the milestone-1 editor. This list is
 // intentionally closed (no user-authored symbols in scope) - see AGENTS.md.
@@ -29,5 +30,13 @@ std::optional<SymbolKind> symbolKindFromName(const QString &name);
 // components that are loaded without one; the same metadata is intended
 // for default references on newly placed components.
 QString symbolKindReferencePrefix(SymbolKind kind);
+
+// Smallest-numbered unused "<prefix><n>" (n >= 1) for kind. Shared by the
+// loader and Document::addComponent() so defaults and repairs agree.
+QString firstUnusedReference(SymbolKind kind, const QSet<QString> &used);
+
+// False for kinds whose reference label is not drawn (they still keep a
+// unique internal reference).
+bool symbolKindShowsReference(SymbolKind kind);
 
 #endif // SYMBOLKIND_H

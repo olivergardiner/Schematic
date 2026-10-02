@@ -72,3 +72,9 @@ void TstSymbolDefinition::unknownNameReturnsNullopt()
     QVERIFY(!symbolKindFromName(QStringLiteral("NotARealSymbol")).has_value());
     QVERIFY(!symbolKindFromName(QString()).has_value());
 }
+
+void TstSymbolDefinition::groundIsTheOnlyKindThatHidesItsReference()
+{
+    for (SymbolKind kind : kAllKinds)
+        QCOMPARE(symbolKindShowsReference(kind), kind != SymbolKind::Ground);
+}
