@@ -89,35 +89,64 @@ ComponentId Document::addComponent(SymbolKind kind, QPointF position, Rotation r
     const ComponentId id = m_nextComponentId++;
     Component item(id, kind, position);
     item.setRotation(rotation);
-    item.setReference(QStringLiteral("%1%2").arg(symbolKindName(kind)).arg(id));
+    QSet<QString> used;
+    for (const Component &existing : m_components)
+        used.insert(existing.reference());
+    item.setReference(firstUnusedReference(kind, used));
     m_components.append(item);
     return id;
 }
 
 bool Document::moveComponent(ComponentId id, QPointF position)
 {
+    const Component *current = component(id);
+    if (!current || !std::isfinite(position.x()) || !std::isfinite(position.y()))
+        return false;
+    Component moved = *current;
+    moved.setPosition(position);
+    return commitComponentChange(id, moved);
+}
+
+bool Document::rotateComponent(ComponentId id, Rotation rotation)
+{
+    const Component *current = component(id);
+    if (!current)
+        return false;
+    Component changed = *current;
+    changed.setRotation(rotation);
+    return commitComponentChange(id, changed);
+}
+
+bool Document::setComponentMirrored(ComponentId id, bool mirrored)
+{
+    const Component *current = component(id);
+    if (!current)
+        return false;
+    Component changed = *current;
+    changed.setMirrored(mirrored);
+    return commitComponentChange(id, changed);
+}
+
+bool Document::commitComponentChange(ComponentId id, const Component &changed)
+{
     auto it = std::find_if(m_components.begin(), m_components.end(),
                            [id](const Component &item) { return item.id() == id; });
-    if (it == m_components.end() || !std::isfinite(position.x()) || !std::isfinite(position.y()))
+    if (it == m_components.end())
         return false;
-
-    Component moved = *it;
-    moved.setPosition(position);
     QVector<WireRoute> candidateWires = m_wires;
     for (WireRoute &route : candidateWires) {
         if (isTerminal(route.start) && std::get<TerminalRef>(route.start).component == id) {
             const TerminalRef ref = std::get<TerminalRef>(route.start);
-            if (!moveRouteEndpoint(&route, true, moved.terminalPosition(ref.terminal)))
+            if (!moveRouteEndpoint(&route, true, changed.terminalPosition(ref.terminal)))
                 return false;
         }
         if (isTerminal(route.end) && std::get<TerminalRef>(route.end).component == id) {
             const TerminalRef ref = std::get<TerminalRef>(route.end);
-            if (!moveRouteEndpoint(&route, false, moved.terminalPosition(ref.terminal)))
+            if (!moveRouteEndpoint(&route, false, changed.terminalPosition(ref.terminal)))
                 return false;
         }
     }
-
-    *it = moved;
+    *it = changed;
     m_wires = std::move(candidateWires);
     return true;
 }

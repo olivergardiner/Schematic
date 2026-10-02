@@ -34,8 +34,23 @@ QString symbolKindReferencePrefix(SymbolKind kind)
     case SymbolKind::Diode:         return QStringLiteral("D");
     case SymbolKind::Ground:        return QStringLiteral("GND");
     case SymbolKind::OpAmp:         return QStringLiteral("U");
-    case SymbolKind::Potentiometer: return QStringLiteral("RV");
+    case SymbolKind::Potentiometer: return QStringLiteral("VR");
     case SymbolKind::Jack:          return QStringLiteral("J");
     }
     return QStringLiteral("X");
+}
+
+QString firstUnusedReference(SymbolKind kind, const QSet<QString> &used)
+{
+    const QString prefix = symbolKindReferencePrefix(kind);
+    for (int n = 1;; ++n) {
+        const QString candidate = prefix + QString::number(n);
+        if (!used.contains(candidate))
+            return candidate;
+    }
+}
+
+bool symbolKindShowsReference(SymbolKind kind)
+{
+    return kind != SymbolKind::Ground;
 }

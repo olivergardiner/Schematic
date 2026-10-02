@@ -47,7 +47,7 @@ QJsonObject endpointJson(const WireEndpoint &endpoint)
 QJsonObject Document::toJson() const
 {
     QJsonObject root;
-    root.insert(QStringLiteral("formatVersion"), 1);
+    root.insert(QStringLiteral("formatVersion"), 2);
     root.insert(QStringLiteral("grid"), QJsonObject{{QStringLiteral("spacing"), m_gridSpacing}});
     QJsonArray components;
     for (const Component &item : m_components) {
@@ -55,6 +55,7 @@ QJsonObject Document::toJson() const
             {QStringLiteral("kind"), symbolKindName(item.kind())},
             {QStringLiteral("x"), item.position().x()}, {QStringLiteral("y"), item.position().y()},
             {QStringLiteral("rotation"), static_cast<int>(item.rotation())},
+            {QStringLiteral("mirrored"), item.mirrored()},
             {QStringLiteral("reference"), item.reference()}, {QStringLiteral("value"), item.value()}});
     }
     root.insert(QStringLiteral("components"), components);
@@ -100,9 +101,10 @@ DocumentLoadResult Document::fromJsonBytes(const QByteArray &data)
 DocumentLoadResult Document::fromJson(const QJsonObject &root)
 {
     DocumentLoadResult result;
-    if (!root.value(QStringLiteral("formatVersion")).isDouble()
-        || root.value(QStringLiteral("formatVersion")).toInt(-1) != 1) {
-        result.errors.append(QStringLiteral("Unsupported or missing formatVersion (expected 1)"));
+    const QJsonValue versionValue = root.value(QStringLiteral("formatVersion"));
+    const int formatVersion = versionValue.isDouble() ? versionValue.toInt(-1) : -1;
+    if (formatVersion != 1 && formatVersion != 2) {
+        result.errors.append(QStringLiteral("Unsupported or missing formatVersion (expected 1 or 2)"));
         return result;
     }
     auto error = [&result](const QString &message) { result.errors.append(message); };
@@ -112,7 +114,7 @@ DocumentLoadResult Document::fromJson(const QJsonObject &root)
         || spacing <= 0)
         error(QStringLiteral("grid.spacing must be a finite positive number"));
 
-    struct ParsedComponent { ComponentId id; SymbolKind kind; QPointF position; Rotation rotation; QString reference; QString value; };
+    struct ParsedComponent { ComponentId id; SymbolKind kind; QPointF position; Rotation rotation; QString reference; QString value; bool mirrored; };
     QVector<ParsedComponent> parsedComponents;
     QHash<ComponentId, SymbolKind> kinds;
     QSet<ComponentId> componentIds;
@@ -138,10 +140,22 @@ DocumentLoadResult Document::fromJson(const QJsonObject &root)
                 || (obj.contains(QStringLiteral("value")) && !valueField.isString())) {
                 error(path + QStringLiteral(" reference and value must be strings when present")); valid = false;
             }
+            bool mirrored = false;
+            if (formatVersion == 1) {
+                if (obj.contains(QStringLiteral("mirrored"))) {
+                    error(path + QStringLiteral(" has a mirrored property, which is not valid in format version 1"));
+                    valid = false;
+                }
+            } else if (!obj.value(QStringLiteral("mirrored")).isBool()) {
+                error(path + QStringLiteral(" requires a boolean mirrored property"));
+                valid = false;
+            } else {
+                mirrored = obj.value(QStringLiteral("mirrored")).toBool();
+            }
             if (!valid) continue;
             componentIds.insert(id); kinds.insert(id, *kind);
             parsedComponents.append({id, *kind, {x, y}, static_cast<Rotation>(rot),
-                                     reference.toString(), valueField.toString().trimmed()});
+                                     reference.toString(), valueField.toString().trimmed(), mirrored});
         }
     }
 
@@ -169,10 +183,7 @@ DocumentLoadResult Document::fromJson(const QJsonObject &root)
         for (auto it = owners.cbegin(); it != owners.cend(); ++it) used.insert(it.key());
         for (ParsedComponent &item : parsedComponents) {
             if (!item.reference.isEmpty()) continue;
-            const QString prefix = symbolKindReferencePrefix(item.kind);
-            QString candidate;
-            for (int n = 1; candidate.isEmpty() || used.contains(candidate); ++n)
-                candidate = prefix + QString::number(n);
+            const QString candidate = firstUnusedReference(item.kind, used);
             used.insert(candidate);
             item.reference = candidate;
             result.warnings.append(QStringLiteral("Component %1 (id %2) had no reference; generated \"%3\"")
@@ -251,7 +262,7 @@ DocumentLoadResult Document::fromJson(const QJsonObject &root)
     quint32 maxComponent = 0, maxNode = 0, maxWire = 0;
     for (const ParsedComponent &item : parsedComponents) {
         Component component(item.id, item.kind, item.position);
-        component.setRotation(item.rotation); component.setReference(item.reference); component.setValue(item.value);
+        component.setRotation(item.rotation); component.setMirrored(item.mirrored); component.setReference(item.reference); component.setValue(item.value);
         doc.m_components.append(component); maxComponent = qMax(maxComponent, item.id);
     }
     for (const ParsedNode &node : parsedNodes) { doc.m_nodes.insert(node.id, node.point); maxNode = qMax(maxNode, node.id); }

@@ -41,6 +41,8 @@ QPointF Component::terminalPosition(TerminalId terminal) const
     if (terminal < 0 || terminal >= def.terminals.size())
         return m_position;
 
-    const QPointF localOffset = def.terminals[terminal].offset;
-    return m_position + rotateOffset(localOffset, m_rotation);
+    // Apply mirroring if necessary - the local offset is mirrored (x negated) first, then rotated, then translated.
+    const QPointF local = def.terminals[terminal].offset;
+    const QPointF mirroredOffset = m_mirrored ? QPointF(-local.x(), local.y()) : local;
+    return m_position + rotateOffset(mirroredOffset, m_rotation);
 }
