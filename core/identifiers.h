@@ -8,7 +8,7 @@
 using ComponentId = quint32;
 
 // Index of a terminal within a single component's symbol definition (0-based,
-// contiguous - see SymbolDefinition::terminal()). Not unique across
+// contiguous - see LibrarySymbol::terminals). Not unique across
 // components; always paired with a ComponentId when referring to a specific
 // connection point (see TerminalRef, added in a later step).
 using TerminalId = int;

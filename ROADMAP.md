@@ -4,7 +4,7 @@ This document is a working list, not a promise or a fixed schedule. The first us
 
 ## Milestone 2 plan
 
-The following M2 scope and decisions have been agreed. Work is divided into chunks A–I (E is split into E0–E3). Chunks A–D are complete. **Each chunk requires the user's approval before implementation begins; completion of one chunk does not authorize the next.** Keep each piece of work limited to that chunk and its stated acceptance checks.
+The following M2 scope and decisions have been agreed. Work is divided into chunks A–I (E is split into E0–E3). Chunks A–D and E0 are complete. **Each chunk requires the user's approval before implementation begins; completion of one chunk does not authorize the next.** Keep each piece of work limited to that chunk and its stated acceptance checks.
 
 ### Settled M2 decisions
 
@@ -48,14 +48,15 @@ The following M2 scope and decisions have been agreed. Work is divided into chun
 - Add per-kind reference prefixes (for example, R, C, D) for default references and a `showsReference` property for symbol kinds that should hide that label while retaining a unique internal reference.
 - Done when headless tests cover rotation/mirror terminal positions, transactional rejection, defaults, and v1/v2 round trips including invalid version/property combinations.
 
-**E0 — Data-driven symbol library (design note first)**
+**E0 — Data-driven symbol library** (done)
 
 - Write and approve a short design note before coding. The long-term goal is a maintainable, extensible library (transistors including MOSFETs, diode variants, valves, transconductance amps and more), so adding a symbol should be a data entry plus a test, not a C++ change.
 - Move symbol definitions into library data (JSON, embedded as Qt resources initially). Each entry has a stable string ID, display name, category, a /-separated path such as Semiconductors/Diodes (used by the palette in F), reference prefix, `showsReference`, primitives, and named terminals. A registry in `schematiccore` serves them (Qt Core only). `SymbolKind` as a closed enum is replaced by an ID-based handle.
 - The existing seven symbols keep their current names as IDs, so version 1 and 2 documents load unchanged. No format version bump in this chunk.
 - Terminals are referenced by index in saved wires, so a released symbol's terminal order and positions must never change; changed geometry gets a new ID. The note must decide whether to keep index references or move to names.
 - The note must also decide how an unknown symbol ID is handled on load, and where user library files could live later (on disk, embedded in documents). Neither is implemented in E0, but E0 must not block them.
-- Done when the seven existing symbols load from library data, all existing tests pass apart from renames for the new API, a library validation case for malformed category paths (empty segment, stray whitespace), library validation is tested (duplicate IDs, bad terminal definitions, missing prefix), and a pre-E0 file loads identically.
+- Done when the seven existing symbols load from library data, all existing tests pass apart from renames for the new API, a library validation case for malformed category paths (empty segment, stray whitespace), library validation is tested (duplicate IDs, bad terminal definitions, missing prefix, malformed category paths), and a pre-E0 file loads identically.
+- Design note decisions: saved wires keep referencing terminals by index (no format change); an unknown symbol ID rejects the whole document with an error naming the ID; user libraries are not implemented, but `SymbolLibrary::loadFromDirectory()` already loads from a disk directory and built-in IDs cannot be shadowed, so disk libraries can be added later; embedding definitions in documents is deferred.
 
 **E1 — Transistors**
 
@@ -121,10 +122,10 @@ Smaller file/UI follow-ups from the review:
 
 ## Decisions to settle before changing the model or file contract
 
-- **Symbol geometry compatibility:** version 1 derives route endpoints from current built-in terminal positions. Moving a terminal offset can make an existing saved route invalid on load. Freeze geometry before public files exist, or design explicit symbol-definition versioning/migration before changing it. To be settled in the E0 design note.
+- **Symbol geometry compatibility:** version 1 derives route endpoints from current built-in terminal positions. Moving a terminal offset can make an existing saved route invalid on load. Freeze geometry before public files exist, or design explicit symbol-definition versioning/migration before changing it. Settled by E0: a released symbol's terminal order and positions are frozen, and changed geometry gets a new symbol ID, so existing files keep resolving.
 - **Junction dots at component terminals:** decide whether a terminal shared by multiple wire routes should display a dot. Current derived dots are based on shared route endpoint identities with three or more wire ends.
 - **Off-grid terminals:** op-amp terminal offsets are not all grid multiples. This follows the world-coordinate design decision; changing offsets for grid alignment would alter symbol geometry and saved-wire compatibility, so do not do it as a cosmetic fix.
-- **Document compatibility for future symbols and transforms:** custom symbol definitions, changed terminal positions, and mirroring affect how documents reopen. Choose how definitions are versioned or stored with documents before shipping these capabilities. To be settled in the E0 design note.
+- **Document compatibility for future symbols and transforms:** custom symbol definitions, changed terminal positions, and mirroring affect how documents reopen. Choose how definitions are versioned or stored with documents before shipping these capabilities. Partly settled by E0: symbol IDs are stable and an unknown ID rejects the document with an error naming it; storing or embedding definitions in documents is still open.
 
 ## Later presentation and editing features
 
@@ -140,7 +141,7 @@ These are product ideas from review, not confirmed requirements for the first mi
 The following are user-requested directions for the next product iteration. Details can be planned before implementation:
 
 - **Maintainable symbol libraries:** the symbol set should grow without code changes (see E0). Categories drive the palette, variants such as N/P-channel or LED versus Zener are separate entries, and user-maintained library files are a later step once the library format and compatibility rules are settled.
-- **Grouped symbol palette:** organize symbols into simple categories such as Passives, ICs, Transistors, Connectors, and Signals. Signals can include ground and supply symbols plus labelled input, output, and bidirectional signal connectors. Signal labels and direction are presentation metadata; they must not infer electrical connectivity.
+- **Grouped symbol palette:** organize symbols into groups driven by the library's category paths, such as Passives, Semiconductors, ICs, Connectors, and Signals. Signals can include ground and supply symbols plus labelled input, output, and bidirectional signal connectors. Signal labels and direction are presentation metadata; they must not infer electrical connectivity.
 - **Drag-to-place palette:** users should be able to drag a symbol from the palette onto the canvas to place it, rather than selecting a text item and clicking to place. Show the actual graphical symbol in the palette instead of a text-only name; retain accessible names and tooltips.
 - **Frequent-action toolbar:** replace text-heavy controls with a graphical toolbar focused on common editing actions. Use recognizable icons, tooltips, and consider visible text labels for less familiar actions. Show rotation and mirroring controls when a component is selected. Keep zoom and grid-spacing controls in the View menu or other secondary controls; Ctrl+mouse-wheel remains the primary zoom interaction.
 - **Rotation and mirroring:** these should be document-model operations, not render-only transforms. They change terminal positions and may invalidate connected routes, so apply the same transactional validation used for component movement. Decide how mirroring affects terminal identities and labels before implementation.

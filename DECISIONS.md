@@ -16,7 +16,7 @@ This file records choices that affect the document model, file compatibility, or
 
 - Project documents use versioned JSON. Version 1 stores grid spacing, components, explicit nodes, wire vertices, and endpoint references. Nets and junctions are derived.
 - On load, wire endpoint coordinates are recalculated from terminal or node identity. A stale serialized endpoint is a warning; invalid topology or route geometry rejects the whole document. The loader rejects collinear reversals rather than normalizing saved geometry.
-- Symbol kind names are part of the serialization contract. Built-in terminal geometry also affects loading because endpoint positions are derived from current symbol definitions. Changes to that geometry require a compatibility decision before release.
+- Symbol IDs (the `kind` property of a saved component) are part of the serialization contract. Terminal geometry also affects loading because endpoint positions are derived from the current symbol definitions, and saved wires refer to terminals by index. A released symbol's terminal order and positions must therefore never change; changed geometry gets a new symbol ID. A document that uses an unknown symbol ID is rejected, with an error that names the component and the ID.
 - Milestone 2 adds format version 2 for horizontal mirroring. The loader accepts v1 and v2; v1 components are unmirrored and may not contain a `mirrored` property. V2 requires a boolean `mirrored` property per component. Writers emit v2, so saving a loaded v1 document upgrades it.
 - Missing, empty, and whitespace-only references are generated from per-kind prefixes with a warning. Generation avoids collisions deterministically. Duplicate non-empty references are load errors that name both components; they are not silently renamed. References are trimmed and compared case-sensitively. Loaded values are trimmed as well.
 
@@ -24,10 +24,11 @@ This file records choices that affect the document model, file compatibility, or
 
 - Rotation is limited to 0, 90, 180, and 270 degrees. Horizontal mirroring is out of scope for milestone 1 and in scope for milestone 2 (format v2); arbitrary-angle rotation and vertical mirroring remain out of scope.
 - The built-in symbol set for the current milestone is resistor, capacitor, diode, ground, op-amp, potentiometer, and input/output jack.
+- Symbols are library data, not C++. Each is a JSON entry (stable string ID, display name, category path, reference prefix, `showsReference`, primitives, named terminals) under `core/symbols/`, embedded as Qt resources and listed in a manifest that fixes palette order. `SymbolLibrary` in `schematiccore` loads and validates entries (Qt Core only) and rejects duplicate IDs; the built-in library is fatal if invalid. A symbol's ID is its serialization name, and the seven built-in IDs are the pre-library kind names, so earlier files load unchanged. Categories are `/`-separated paths such as `Semiconductors/Diodes` and are presentation only. Polarity and type variants are separate entries, not flags. Adding a symbol is a data file plus a test.
 - Reference labels are trimmed and must be non-empty and unique among other components. Values are trimmed, may be empty, and need not be unique. Load repair/rejection follows the explicit policy above.
 - Double-click opens the reference/value dialog. F2 renames the reference of exactly one selected component.
 - Component transforms include quadrant rotation and horizontal mirroring. Mirroring is applied to local symbol geometry before rotation; text labels remain readable. Transform operations update connected routes transactionally.
-- Default references are the kind's prefix plus the smallest unused number (`R1`, `VR1`, `GND1`). The potentiometer prefix is `VR`. Symbol kinds can hide their reference label (`showsReference`; Ground only for now) while keeping a unique internal reference. This is a per-kind rule and is not serialized.
+- Default references are the kind's prefix plus the smallest unused number (`R1`, `VR1`, `GND1`). The potentiometer prefix is `VR`. Symbols can hide their reference label (library `showsReference`; Ground only for now) while keeping a unique internal reference; the scene does not draw a hidden label. This is a per-symbol library property and is not serialized.
 
 ## Milestone boundaries
 

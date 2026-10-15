@@ -12,7 +12,7 @@
 // simple axis swap/negation (rotateOffset() below) rather than a general
 // affine transform, and it preserves axis-aligned symbol geometry: any
 // horizontal or vertical line in a symbol's local artwork (see
-// symboldefinition.h) stays horizontal or vertical after rotation, never
+// symbollibrary.h) stays horizontal or vertical after rotation, never
 // becoming diagonal. This does NOT mean terminals land on grid
 // intersections - e.g. the op-amp's (-28,-8) terminal offset is off-grid at
 // a 10-unit spacing regardless of rotation (a stale version of this comment
@@ -34,7 +34,7 @@ enum class Rotation {
 //
 // Coordinate contract: position() and terminalPosition() are both in
 // world/scene units - the same units symbol artwork is authored in (see
-// symboldefinition.h) - not pixels. Document::gridSpacing (added in a later
+// symbollibrary.h) - not pixels. Document::gridSpacing (added in a later
 // step) is purely a snap increment and background grid-line spacing; it
 // never scales symbol geometry, so changing grid spacing does not change
 // component size. The Qt view layer is responsible for any pixel-per-unit

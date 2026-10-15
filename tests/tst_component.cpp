@@ -47,7 +47,7 @@ void TstComponent::rotateOffsetIsConsistentAcrossQuadrants()
 
 void TstComponent::terminalPositionCombinesRotationAndTranslation()
 {
-    // Op-amp terminal offsets (see core/symboldefinition.cpp makeOpAmp()):
+    // Op-amp terminal offsets (see core/symbols/opamp.json):
     // 0 "in+" (-28,-8), 1 "in-" (-28,8), 2 "out" (28,0),
     // 3 "v+" (0,-16), 4 "v-" (0,16).
     // Expected positions below are hand-computed by applying the documented

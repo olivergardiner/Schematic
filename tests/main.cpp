@@ -6,7 +6,6 @@
 // tst_*.h class here rather than registering a separate CTest executable
 // per file.
 
-#include "tst_symboldefinition.h"
 #include "tst_symbollibrary.h"
 #include "tst_component.h"
 #include "tst_document.h"
@@ -18,10 +17,6 @@ int main(int argc, char *argv[])
 {
     int status = 0;
 
-    {
-        TstSymbolDefinition test;
-        status |= QTest::qExec(&test, argc, argv);
-    }
     {
         TstSymbolLibrary test;
         status |= QTest::qExec(&test, argc, argv);

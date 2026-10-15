@@ -2,10 +2,10 @@
 #define SYMBOLLIBRARY_H
 
 #include "symbolid.h"
-#include "symboldefinition.h"
 
 #include <QHash>
 #include <QJsonObject>
+#include <QPointF>
 #include <QSet>
 #include <QString>
 #include <QStringList>
@@ -13,9 +13,36 @@
 
 #include <optional>
 
-// One symbol as served by a SymbolLibrary. Geometry uses the same local
-// world/scene units, primitive kinds and terminal types as
-// SymbolDefinition (see symboldefinition.h). Terminal order is the
+// A single drawing primitive of a symbol's static artwork, expressed in
+// local symbol-space world/scene units at rotation 0, centred on the origin.
+// These are the same units as Component::position() and
+// Document::gridSpacing - see the coordinate contract note in component.h.
+// Grid spacing controls snapping and grid-line spacing only; it never scales
+// symbol artwork or terminal offsets.
+enum class PrimitiveKind {
+    Line,     // exactly 2 points: start, end
+    Polyline, // 2+ points, drawn open (not closed/filled)
+    Polygon,  // 3+ points, drawn closed (outline; may be filled by the renderer)
+    Circle,   // exactly 1 point (centre); radius is set separately
+};
+
+struct SymbolPrimitive
+{
+    PrimitiveKind kind = PrimitiveKind::Line;
+    QVector<QPointF> points;
+    qreal radius = 0.0; // only meaningful when kind == Circle
+};
+
+// A single named connection point on a symbol, in the same local unit space
+// as SymbolPrimitive geometry (no scaling). TerminalId is this terminal's
+// index within LibrarySymbol::terminals.
+struct SymbolTerminal
+{
+    QString name;
+    QPointF offset;
+};
+
+// One symbol as served by a SymbolLibrary. Terminal order is the
 // TerminalId that saved wires refer to, so for a released symbol it must
 // never change; changed geometry gets a new id.
 struct LibrarySymbol

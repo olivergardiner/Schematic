@@ -30,10 +30,6 @@ endif()
 add_library(schematiccore STATIC
     core/identifiers.h
     core/symbolid.h
-    core/symbolkind.h
-    core/symbolkind.cpp
-    core/symboldefinition.h
-    core/symboldefinition.cpp
     core/symbollibrary.h
     core/symbollibrary.cpp
     core/component.h

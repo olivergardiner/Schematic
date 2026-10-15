@@ -254,15 +254,21 @@ void SchematicScene::addComponentItems(const Component &component)
     for (const SymbolPrimitive &primitive : def.primitives)
         localBounds = localBounds.united(primitivePath(primitive).boundingRect());
 
-    auto *reference = new ComponentLabelItem(component.reference(), component.id());
-    QFont font = reference->font();
+    QFont font;
     font.setPixelSize(static_cast<int>(kLabelPixelSize));
-    reference->setFont(font);
-    reference->setPos(component.position()
-                       + QPointF(localBounds.left(),
-                                 localBounds.top() - kLabelGap - kLabelPixelSize));
-    reference->setZValue(kLabelZ);
-    addItem(reference);
+
+    // A symbol that hides its reference (library showsReference == false;
+    // Ground only for now) keeps its unique reference in the model, but the
+    // label is not drawn - see DECISIONS.md "Symbols and labels".
+    if (def.showsReference) {
+        auto *reference = new ComponentLabelItem(component.reference(), component.id());
+        reference->setFont(font);
+        reference->setPos(component.position()
+                          + QPointF(localBounds.left(),
+                                    localBounds.top() - kLabelGap - kLabelPixelSize));
+        reference->setZValue(kLabelZ);
+        addItem(reference);
+    }
 
     if (!component.value().isEmpty()) {
         auto *value = new ComponentLabelItem(component.value(), component.id());
