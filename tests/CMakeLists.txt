@@ -6,6 +6,8 @@ qt_add_executable(schematiccore_tests
     main.cpp
     tst_symboldefinition.h
     tst_symboldefinition.cpp
+    tst_symbollibrary.h
+    tst_symbollibrary.cpp
     tst_component.h
     tst_component.cpp
     tst_document.h

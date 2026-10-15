@@ -1,0 +1,22 @@
+{
+  "id": "OpAmp",
+  "name": "Op-Amp",
+  "category": "ICs",
+  "referencePrefix": "U",
+  "showsReference": true,
+  "primitives": [
+    { "kind": "Polygon", "points": [[-20, -16], [-20, 16], [20, 0]] },
+    { "kind": "Line", "points": [[-28, -8], [-20, -8]] },
+    { "kind": "Line", "points": [[-28, 8], [-20, 8]] },
+    { "kind": "Line", "points": [[20, 0], [28, 0]] },
+    { "kind": "Line", "points": [[0, -8], [0, -16]] },
+    { "kind": "Line", "points": [[0, 8], [0, 16]] }
+  ],
+  "terminals": [
+    { "name": "in+", "x": -28, "y": -8 },
+    { "name": "in-", "x": -28, "y": 8 },
+    { "name": "out", "x": 28, "y": 0 },
+    { "name": "v+", "x": 0, "y": -16 },
+    { "name": "v-", "x": 0, "y": 16 }
+  ]
+}

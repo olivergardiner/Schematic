@@ -1,0 +1,19 @@
+{
+  "id": "Potentiometer",
+  "name": "Potentiometer",
+  "category": "Passives",
+  "referencePrefix": "VR",
+  "showsReference": true,
+  "primitives": [
+    { "kind": "Line", "points": [[-20, 0], [-10, 0]] },
+    { "kind": "Line", "points": [[10, 0], [20, 0]] },
+    { "kind": "Polygon", "points": [[-10, -6], [10, -6], [10, 6], [-10, 6]] },
+    { "kind": "Line", "points": [[0, -20], [0, -6]] },
+    { "kind": "Polyline", "points": [[-4, -14], [0, -6], [4, -14]] }
+  ],
+  "terminals": [
+    { "name": "1", "x": -20, "y": 0 },
+    { "name": "2", "x": 20, "y": 0 },
+    { "name": "wiper", "x": 0, "y": -20 }
+  ]
+}

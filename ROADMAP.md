@@ -51,11 +51,11 @@ The following M2 scope and decisions have been agreed. Work is divided into chun
 **E0 — Data-driven symbol library (design note first)**
 
 - Write and approve a short design note before coding. The long-term goal is a maintainable, extensible library (transistors including MOSFETs, diode variants, valves, transconductance amps and more), so adding a symbol should be a data entry plus a test, not a C++ change.
-- Move symbol definitions into library data (JSON, embedded as Qt resources initially). Each entry has a stable string ID, display name, category (used by the palette in F), reference prefix, `showsReference`, primitives, and named terminals. A registry in `schematiccore` serves them (Qt Core only). `SymbolKind` as a closed enum is replaced by an ID-based handle.
+- Move symbol definitions into library data (JSON, embedded as Qt resources initially). Each entry has a stable string ID, display name, category, a /-separated path such as Semiconductors/Diodes (used by the palette in F), reference prefix, `showsReference`, primitives, and named terminals. A registry in `schematiccore` serves them (Qt Core only). `SymbolKind` as a closed enum is replaced by an ID-based handle.
 - The existing seven symbols keep their current names as IDs, so version 1 and 2 documents load unchanged. No format version bump in this chunk.
 - Terminals are referenced by index in saved wires, so a released symbol's terminal order and positions must never change; changed geometry gets a new ID. The note must decide whether to keep index references or move to names.
 - The note must also decide how an unknown symbol ID is handled on load, and where user library files could live later (on disk, embedded in documents). Neither is implemented in E0, but E0 must not block them.
-- Done when the seven existing symbols load from library data, all existing tests pass apart from renames for the new API, library validation is tested (duplicate IDs, bad terminal definitions, missing prefix), and a pre-E0 file loads identically.
+- Done when the seven existing symbols load from library data, all existing tests pass apart from renames for the new API, a library validation case for malformed category paths (empty segment, stray whitespace), library validation is tested (duplicate IDs, bad terminal definitions, missing prefix), and a pre-E0 file loads identically.
 
 **E1 — Transistors**
 
@@ -64,7 +64,7 @@ The following M2 scope and decisions have been agreed. Work is divided into chun
 
 **E2 — Diodes, passives, valves, and other devices**
 
-- LED, Zener and Schottky diodes; switch, inductor, supply rail; triode and pentode valves; transconductance amp (OTA). Order and exact set to be agreed when E2 is approved.
+- LED, Zener and Schottky diodes (which go under Semiconductors/Diodes); switch, inductor, supply rail; triode and pentode valves; transconductance amp (OTA). Order and exact set to be agreed when E2 is approved.
 - Done when each symbol and its JSON round trip are covered by focused tests.
 
 **E3 — Signal ports (design note first)**
@@ -82,7 +82,7 @@ The following M2 scope and decisions have been agreed. Work is divided into chun
 **F — Shared renderer, grouped palette, and drag-to-place**
 
 - Extract the current primitive path generation into a shared application-layer renderer used by both canvas and palette, so symbol artwork matches. Generate the sections from the library's category field (E0) rather than a hard-coded list.
-- Build grouped Passives, ICs, Transistors, Connectors, and Signals palette sections with graphical symbols, accessible names, and tooltips.
+- Build grouped palette sections and nested groups generated from the library’s category paths (today’s top-level groups: Passives, Semiconductors, ICs, Connectors, Signals) with graphical symbols, accessible names, and tooltips.
 - Support dragging a palette symbol onto the canvas and placing it at the snapped drop position through the edit-commit path.
 - Done when palette artwork matches the canvas and a drop places one snapped, undoable component.
 

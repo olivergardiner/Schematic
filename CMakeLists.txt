@@ -29,10 +29,13 @@ endif()
 # input handling".
 add_library(schematiccore STATIC
     core/identifiers.h
+    core/symbolid.h
     core/symbolkind.h
     core/symbolkind.cpp
     core/symboldefinition.h
     core/symboldefinition.cpp
+    core/symbollibrary.h
+    core/symbollibrary.cpp
     core/component.h
     core/component.cpp
     core/terminalref.h
@@ -53,6 +56,25 @@ target_include_directories(schematiccore PUBLIC core)
 target_link_libraries(schematiccore
     PUBLIC
         Qt6::Core
+)
+
+# The built-in symbol library: one JSON file per symbol plus a manifest that
+# fixes palette order, embedded as Qt resources under :/symbols. On a static
+# library Qt links the compiled resources into every consumer (the app and
+# the test executable). Add a symbol by adding its file here and to
+# manifest.json.
+qt_add_resources(schematiccore symbol_library
+    PREFIX "/symbols"
+    BASE core/symbols
+    FILES
+        core/symbols/manifest.json
+        core/symbols/resistor.json
+        core/symbols/capacitor.json
+        core/symbols/diode.json
+        core/symbols/ground.json
+        core/symbols/opamp.json
+        core/symbols/potentiometer.json
+        core/symbols/jack.json
 )
 
 qt_add_executable(Schematic

@@ -1,0 +1,16 @@
+{
+  "id": "Ground",
+  "name": "Ground",
+  "category": "Signals",
+  "referencePrefix": "GND",
+  "showsReference": false,
+  "primitives": [
+    { "kind": "Line", "points": [[0, -20], [0, 0]] },
+    { "kind": "Line", "points": [[-16, 0], [16, 0]] },
+    { "kind": "Line", "points": [[-10, 6], [10, 6]] },
+    { "kind": "Line", "points": [[-4, 12], [4, 12]] }
+  ],
+  "terminals": [
+    { "name": "1", "x": 0, "y": -20 }
+  ]
+}

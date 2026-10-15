@@ -7,6 +7,7 @@
 // per file.
 
 #include "tst_symboldefinition.h"
+#include "tst_symbollibrary.h"
 #include "tst_component.h"
 #include "tst_document.h"
 #include "tst_documentjson.h"
@@ -19,6 +20,10 @@ int main(int argc, char *argv[])
 
     {
         TstSymbolDefinition test;
+        status |= QTest::qExec(&test, argc, argv);
+    }
+    {
+        TstSymbolLibrary test;
         status |= QTest::qExec(&test, argc, argv);
     }
     {

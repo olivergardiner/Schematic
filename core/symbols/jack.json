@@ -1,0 +1,16 @@
+{
+  "id": "Jack",
+  "name": "Input/Output Jack",
+  "category": "Connectors",
+  "referencePrefix": "J",
+  "showsReference": true,
+  "primitives": [
+    { "kind": "Circle", "points": [[0, 0]], "radius": 10 },
+    { "kind": "Line", "points": [[-20, 0], [-10, 0]] },
+    { "kind": "Line", "points": [[10, 0], [20, 0]] }
+  ],
+  "terminals": [
+    { "name": "tip", "x": -20, "y": 0 },
+    { "name": "sleeve", "x": 20, "y": 0 }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "symbols": [
+    "resistor.json",
+    "capacitor.json",
+    "diode.json",
+    "ground.json",
+    "opamp.json",
+    "potentiometer.json",
+    "jack.json"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "id": "Capacitor",
+  "name": "Capacitor",
+  "category": "Passives",
+  "referencePrefix": "C",
+  "showsReference": true,
+  "primitives": [
+    { "kind": "Line", "points": [[-20, 0], [-4, 0]] },
+    { "kind": "Line", "points": [[4, 0], [20, 0]] },
+    { "kind": "Line", "points": [[-4, -10], [-4, 10]] },
+    { "kind": "Line", "points": [[4, -10], [4, 10]] }
+  ],
+  "terminals": [
+    { "name": "1", "x": -20, "y": 0 },
+    { "name": "2", "x": 20, "y": 0 }
+  ]
+}
