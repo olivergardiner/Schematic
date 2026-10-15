@@ -4,6 +4,7 @@
 
 ## Environment on Oliver's Windows machine
 
+- Sandboxed reviewers (for example Codex) usually cannot find Qt. They should review the diff only and state that nothing was built; the user runs the build and `ctest` locally and reports the output.
 - Qt 6.11.1 is installed at `D:/Qt/6.11.1`, with `msvc2022_64` and `mingw_64` kits.
 - The checked-in `default` and `mingw` CMake presets are portable and do not name a Qt kit. This machine's Qt paths live in the git-ignored `CMakeUserPresets.json` (`local-msvc` inherits `default`; `local-mingw` inherits `mingw`). Recreate it from the README if it is missing. The default preset uses Visual Studio 18 (2026).
 - The VS Code launch configurations and the "Deploy Qt" tasks read the Qt `bin` directory from the `QT_BIN_DIR` environment variable (here `D:/Qt/6.11.1/msvc2022_64/bin`). Set it in the user environment before using them.
@@ -28,9 +29,20 @@
 - Run the smallest checks that give confidence in the change. Do not repeat a successful build or test run unless the code changed afterward, the result was inconclusive, or a later change could affect it. For documentation-only changes, check the Markdown diff and links; do not build or run tests.
 - Before reporting verification, run relevant checks in the current environment and report exactly what ran. Prior-session build or test results are historical, not evidence for a later change.
 
+## Working with Claude in the chat
+
+Claude in the Project chat cannot edit the repository or run builds. The user applies changes and runs the checks, so anything not run by the user is unverified.
+
+- Every proposed change names the file, says whether it replaces or inserts, and says where (function name or surrounding lines). Replacements show the old code.
+- Every new test comes with its slot declaration for the header and its full body for the `.cpp`. Changes to existing tests (expected values that must change) are listed explicitly.
+- Expected values in tests are worked out independently of the implementation.
+- When a snippet depends on values in a file that may have changed (prefix tables, expected strings), Claude says so and the current file wins over memory.
+- Work file by file in build order, building after each, so a compile error points at the file just touched.
+- After the user reports results, Claude helps update the docs to match.
+
 ## Working efficiently (cost)
 
-Sonnet runs here on pay-as-you-go, so avoid avoidable token use:
+When an agent works in the repository (for example Sonnet through the API on pay-as-you-go), avoid avoidable token use:
 
 - Work on one approved ROADMAP chunk per task. Do not start the next chunk without approval.
 - Read the files named in the chunk brief and what they directly depend on. Do not scan the whole repo, and skip LICENSE, build directories and generated files.
