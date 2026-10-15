@@ -1,14 +1,14 @@
 #include "tst_component.h"
 
 #include "component.h"
-#include "symboldefinition.h"
+#include "symbollibrary.h"
 
 #include <QTest>
 
 void TstComponent::terminalPositionAtOriginNoRotation()
 {
-    Component resistor(1, SymbolKind::Resistor, QPointF(0, 0));
-    const SymbolDefinition &def = symbolDefinition(SymbolKind::Resistor);
+    Component resistor(1, SymbolIds::Resistor, QPointF(0, 0));
+    const LibrarySymbol &def = *builtinSymbolLibrary().find(SymbolIds::Resistor);
 
     for (int i = 0; i < def.terminals.size(); ++i)
         QCOMPARE(resistor.terminalPosition(i), def.terminals[i].offset);
@@ -17,8 +17,8 @@ void TstComponent::terminalPositionAtOriginNoRotation()
 void TstComponent::terminalPositionTranslatesWithComponent()
 {
     const QPointF position(100, 50);
-    Component resistor(1, SymbolKind::Resistor, position);
-    const SymbolDefinition &def = symbolDefinition(SymbolKind::Resistor);
+    Component resistor(1, SymbolIds::Resistor, position);
+    const LibrarySymbol &def = *builtinSymbolLibrary().find(SymbolIds::Resistor);
 
     for (int i = 0; i < def.terminals.size(); ++i)
         QCOMPARE(resistor.terminalPosition(i), position + def.terminals[i].offset);
@@ -61,7 +61,7 @@ void TstComponent::terminalPositionCombinesRotationAndTranslation()
     // implementation's own control flow.
     const QPointF position(40, -30);
 
-    Component opAmp0(1, SymbolKind::OpAmp, position);
+    Component opAmp0(1, SymbolIds::OpAmp, position);
     opAmp0.setRotation(Rotation::Deg0);
     QCOMPARE(opAmp0.terminalPosition(0), QPointF(12, -38));
     QCOMPARE(opAmp0.terminalPosition(1), QPointF(12, -22));
@@ -69,7 +69,7 @@ void TstComponent::terminalPositionCombinesRotationAndTranslation()
     QCOMPARE(opAmp0.terminalPosition(3), QPointF(40, -46));
     QCOMPARE(opAmp0.terminalPosition(4), QPointF(40, -14));
 
-    Component opAmp90(1, SymbolKind::OpAmp, position);
+    Component opAmp90(1, SymbolIds::OpAmp, position);
     opAmp90.setRotation(Rotation::Deg90);
     QCOMPARE(opAmp90.terminalPosition(0), QPointF(48, -58));
     QCOMPARE(opAmp90.terminalPosition(1), QPointF(32, -58));
@@ -77,7 +77,7 @@ void TstComponent::terminalPositionCombinesRotationAndTranslation()
     QCOMPARE(opAmp90.terminalPosition(3), QPointF(56, -30));
     QCOMPARE(opAmp90.terminalPosition(4), QPointF(24, -30));
 
-    Component opAmp180(1, SymbolKind::OpAmp, position);
+    Component opAmp180(1, SymbolIds::OpAmp, position);
     opAmp180.setRotation(Rotation::Deg180);
     QCOMPARE(opAmp180.terminalPosition(0), QPointF(68, -22));
     QCOMPARE(opAmp180.terminalPosition(1), QPointF(68, -38));
@@ -85,7 +85,7 @@ void TstComponent::terminalPositionCombinesRotationAndTranslation()
     QCOMPARE(opAmp180.terminalPosition(3), QPointF(40, -14));
     QCOMPARE(opAmp180.terminalPosition(4), QPointF(40, -46));
 
-    Component opAmp270(1, SymbolKind::OpAmp, position);
+    Component opAmp270(1, SymbolIds::OpAmp, position);
     opAmp270.setRotation(Rotation::Deg270);
     QCOMPARE(opAmp270.terminalPosition(0), QPointF(32, -2));
     QCOMPARE(opAmp270.terminalPosition(1), QPointF(48, -2));
@@ -96,22 +96,22 @@ void TstComponent::terminalPositionCombinesRotationAndTranslation()
 
 void TstComponent::terminalCountMatchesSymbolDefinition()
 {
-    const QVector<SymbolKind> kinds = {
-        SymbolKind::Resistor,  SymbolKind::Capacitor, SymbolKind::Diode,
-        SymbolKind::Ground,    SymbolKind::OpAmp,      SymbolKind::Potentiometer,
-        SymbolKind::Jack,
+    const QVector<SymbolId> kinds = {
+        SymbolIds::Resistor,  SymbolIds::Capacitor, SymbolIds::Diode,
+        SymbolIds::Ground,    SymbolIds::OpAmp,      SymbolIds::Potentiometer,
+        SymbolIds::Jack,
     };
 
-    for (SymbolKind kind : kinds) {
+    for (const SymbolId &kind : kinds) {
         Component component(1, kind, QPointF(0, 0));
-        QCOMPARE(component.terminalCount(), symbolTerminalCount(kind));
+        QCOMPARE(component.terminalCount(), builtinSymbolLibrary().find(kind)->terminals.size());
     }
 }
 
 void TstComponent::mirroredTerminalPositions()
 {
     // Mirror negates local x before rotation. Terminal indices are unchanged.
-    Component m0(1, SymbolKind::OpAmp, QPointF(40, -30));
+    Component m0(1, SymbolIds::OpAmp, QPointF(40, -30));
     m0.setMirrored(true);
     QCOMPARE(m0.terminalPosition(0), QPointF(68, -38));
     QCOMPARE(m0.terminalPosition(1), QPointF(68, -22));
@@ -119,7 +119,7 @@ void TstComponent::mirroredTerminalPositions()
     QCOMPARE(m0.terminalPosition(3), QPointF(40, -46));
     QCOMPARE(m0.terminalPosition(4), QPointF(40, -14));
 
-    Component m90(1, SymbolKind::OpAmp, QPointF(40, -30));
+    Component m90(1, SymbolIds::OpAmp, QPointF(40, -30));
     m90.setMirrored(true);
     m90.setRotation(Rotation::Deg90);
     QCOMPARE(m90.terminalPosition(0), QPointF(48, -2));

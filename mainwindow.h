@@ -48,7 +48,7 @@ private slots:
     void onDrawWireModeTriggered();
     // Enters PlaceComponent mode and sets kind as the symbol to place -
     // connected to each symbol button in the dock (see createSymbolDock()).
-    void onPlaceComponentKindChanged(SymbolKind kind);
+    void onPlaceComponentKindChanged(const SymbolId &id);
     // Opens the reference+value edit dialog for componentId, pre-filled
     // from its current labels. Called from SchematicScene's double-click
     // handler (see SchematicScene::componentDoubleClicked()).

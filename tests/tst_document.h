@@ -87,6 +87,10 @@ private slots:
     // New components get the smallest unused "<prefix><n>" reference,
     // reusing numbers freed by renaming.
     void defaultReferencesUseSmallestUnusedPrefixNumber();
+
+    // An id that is not in the symbol library cannot be placed, and the
+    // failed attempt does not consume a component id.
+    void addComponentRejectsUnknownSymbolWithoutConsumingId();
 };
 
 #endif // TST_DOCUMENT_H

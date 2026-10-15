@@ -22,10 +22,10 @@ int netContaining(const QVector<Net> &nets, TerminalRef wanted)
 void TstDocument::connectivityUsesEndpointIdentity()
 {
     Document document;
-    const ComponentId a = document.addComponent(SymbolKind::Resistor, QPointF(0, 0));
-    const ComponentId b = document.addComponent(SymbolKind::Resistor, QPointF(100, 0));
-    const ComponentId c = document.addComponent(SymbolKind::Resistor, QPointF(50, -50), Rotation::Deg90);
-    const ComponentId d = document.addComponent(SymbolKind::Resistor, QPointF(50, 50), Rotation::Deg90);
+    const ComponentId a = document.addComponent(SymbolIds::Resistor, QPointF(0, 0));
+    const ComponentId b = document.addComponent(SymbolIds::Resistor, QPointF(100, 0));
+    const ComponentId c = document.addComponent(SymbolIds::Resistor, QPointF(50, -50), Rotation::Deg90);
+    const ComponentId d = document.addComponent(SymbolIds::Resistor, QPointF(50, 50), Rotation::Deg90);
     QVERIFY(document.addWire(makeTerminalEndpoint(a, 1), {}, makeTerminalEndpoint(b, 0)));
     QVERIFY(document.addWire(makeTerminalEndpoint(c, 1), {}, makeTerminalEndpoint(d, 0)));
 
@@ -43,8 +43,8 @@ void TstDocument::connectivityUsesEndpointIdentity()
 void TstDocument::movementPreservesOrthogonalRoutesAndNets()
 {
     Document document;
-    const ComponentId a = document.addComponent(SymbolKind::Resistor, QPointF(0, 0));
-    const ComponentId b = document.addComponent(SymbolKind::Resistor, QPointF(100, 0));
+    const ComponentId a = document.addComponent(SymbolIds::Resistor, QPointF(0, 0));
+    const ComponentId b = document.addComponent(SymbolIds::Resistor, QPointF(100, 0));
     const auto id = document.addWire(makeTerminalEndpoint(a, 1), {}, makeTerminalEndpoint(b, 0));
     QVERIFY(id);
     const QVector<Net> before = document.computeNets();
@@ -65,8 +65,8 @@ void TstDocument::movementPreservesOrthogonalRoutesAndNets()
 void TstDocument::coincidentDirectEndpointsRejectMove()
 {
     Document document;
-    const ComponentId a = document.addComponent(SymbolKind::Resistor, QPointF(0, 0));
-    const ComponentId b = document.addComponent(SymbolKind::Resistor, QPointF(80, 0));
+    const ComponentId a = document.addComponent(SymbolIds::Resistor, QPointF(0, 0));
+    const ComponentId b = document.addComponent(SymbolIds::Resistor, QPointF(80, 0));
     const auto id = document.addWire(makeTerminalEndpoint(a, 1), {}, makeTerminalEndpoint(b, 0));
     QVERIFY(id);
     const QVector<QPointF> before = document.wire(*id)->vertices;
@@ -79,8 +79,8 @@ void TstDocument::coincidentDirectEndpointsRejectMove()
 void TstDocument::movementCollapsesRedundantCorner()
 {
     Document document;
-    const ComponentId a = document.addComponent(SymbolKind::Resistor, QPointF(0, 0));
-    const ComponentId b = document.addComponent(SymbolKind::Resistor, QPointF(40, 40));
+    const ComponentId a = document.addComponent(SymbolIds::Resistor, QPointF(0, 0));
+    const ComponentId b = document.addComponent(SymbolIds::Resistor, QPointF(40, 40));
     const auto id = document.addWire(makeTerminalEndpoint(a, 1), {QPointF(20, 20)},
                                      makeTerminalEndpoint(b, 0));
     QVERIFY(id);
@@ -95,9 +95,9 @@ void TstDocument::movementCollapsesRedundantCorner()
 void TstDocument::componentDeletionCascadesAcrossBranches()
 {
     Document document;
-    const ComponentId a = document.addComponent(SymbolKind::Resistor, QPointF(0, 0));
-    const ComponentId b = document.addComponent(SymbolKind::Resistor, QPointF(100, 0));
-    const ComponentId c = document.addComponent(SymbolKind::Resistor, QPointF(60, 40));
+    const ComponentId a = document.addComponent(SymbolIds::Resistor, QPointF(0, 0));
+    const ComponentId b = document.addComponent(SymbolIds::Resistor, QPointF(100, 0));
+    const ComponentId c = document.addComponent(SymbolIds::Resistor, QPointF(60, 40));
     const auto wire = document.addWire(makeTerminalEndpoint(a, 1), {}, makeTerminalEndpoint(b, 0));
     QVERIFY(wire);
     const auto node = document.branchWireAt(*wire, QPointF(40, 0));
@@ -120,9 +120,9 @@ void TstDocument::componentDeletionCascadesAcrossBranches()
 void TstDocument::branchingSplitsRoutesAtInteriorPoints()
 {
     Document document;
-    const ComponentId a = document.addComponent(SymbolKind::Resistor, QPointF(0, 0));
-    const ComponentId b = document.addComponent(SymbolKind::Resistor, QPointF(100, 0));
-    const ComponentId c = document.addComponent(SymbolKind::Resistor, QPointF(60, 40));
+    const ComponentId a = document.addComponent(SymbolIds::Resistor, QPointF(0, 0));
+    const ComponentId b = document.addComponent(SymbolIds::Resistor, QPointF(100, 0));
+    const ComponentId c = document.addComponent(SymbolIds::Resistor, QPointF(60, 40));
     const auto wire = document.addWire(makeTerminalEndpoint(a, 1), {}, makeTerminalEndpoint(b, 0));
     QVERIFY(wire);
     const auto node = document.branchWireAt(*wire, QPointF(40, 0));
@@ -155,8 +155,8 @@ void TstDocument::branchingSplitsRoutesAtInteriorPoints()
 void TstDocument::invalidRoutesAreRejectedAtomically()
 {
     Document document;
-    const ComponentId a = document.addComponent(SymbolKind::Resistor, QPointF(0, 0));
-    const ComponentId b = document.addComponent(SymbolKind::Resistor, QPointF(100, 0));
+    const ComponentId a = document.addComponent(SymbolIds::Resistor, QPointF(0, 0));
+    const ComponentId b = document.addComponent(SymbolIds::Resistor, QPointF(100, 0));
     const int componentCount = document.components().size();
     const auto reject = [&document, a, b](const QVector<QPointF> &corners) {
         return !document.addWire(makeTerminalEndpoint(a, 1), corners, makeTerminalEndpoint(b, 0));
@@ -187,9 +187,9 @@ void TstDocument::gridSpacingMustBePositiveAndFinite()
 void TstDocument::addWireBranchingAppliesSplitsAtomically()
 {
     Document document;
-    const ComponentId a = document.addComponent(SymbolKind::Resistor, QPointF(0, 0));
-    const ComponentId b = document.addComponent(SymbolKind::Resistor, QPointF(100, 0));
-    const ComponentId c = document.addComponent(SymbolKind::Resistor, QPointF(50, 50));
+    const ComponentId a = document.addComponent(SymbolIds::Resistor, QPointF(0, 0));
+    const ComponentId b = document.addComponent(SymbolIds::Resistor, QPointF(100, 0));
+    const ComponentId c = document.addComponent(SymbolIds::Resistor, QPointF(50, 50));
     const auto wire = document.addWire(makeTerminalEndpoint(a, 1), {}, makeTerminalEndpoint(b, 0));
     QVERIFY(wire);
 
@@ -210,9 +210,9 @@ void TstDocument::addWireBranchingAppliesSplitsAtomically()
 void TstDocument::addWireBranchingFailureLeavesDocumentUnchanged()
 {
     Document document;
-    const ComponentId a = document.addComponent(SymbolKind::Resistor, QPointF(0, 0));
-    const ComponentId b = document.addComponent(SymbolKind::Resistor, QPointF(100, 0));
-    const ComponentId c = document.addComponent(SymbolKind::Resistor, QPointF(50, 50));
+    const ComponentId a = document.addComponent(SymbolIds::Resistor, QPointF(0, 0));
+    const ComponentId b = document.addComponent(SymbolIds::Resistor, QPointF(100, 0));
+    const ComponentId c = document.addComponent(SymbolIds::Resistor, QPointF(50, 50));
     const auto wire = document.addWire(makeTerminalEndpoint(a, 1), {}, makeTerminalEndpoint(b, 0));
     QVERIFY(wire);
     const int wiresBefore = document.wires().size();
@@ -250,7 +250,7 @@ void TstDocument::addWireBranchingFailureLeavesDocumentUnchanged()
 void TstDocument::setComponentLabelsTrimsBeforeValidationAndStorage()
 {
     Document document;
-    const ComponentId a = document.addComponent(SymbolKind::Resistor, QPointF(0, 0));
+    const ComponentId a = document.addComponent(SymbolIds::Resistor, QPointF(0, 0));
 
     QVERIFY(document.setComponentLabels(a, QStringLiteral(" R1 "), QStringLiteral(" 10k ")));
     QCOMPARE(document.component(a)->reference(), QStringLiteral("R1"));
@@ -260,7 +260,7 @@ void TstDocument::setComponentLabelsTrimsBeforeValidationAndStorage()
 void TstDocument::setComponentLabelsRejectsEmptyReference()
 {
     Document document;
-    const ComponentId a = document.addComponent(SymbolKind::Resistor, QPointF(0, 0));
+    const ComponentId a = document.addComponent(SymbolIds::Resistor, QPointF(0, 0));
     document.setComponentLabels(a, QStringLiteral("R1"), QStringLiteral("10k"));
 
     QVERIFY(!document.setComponentLabels(a, QString(), QStringLiteral("22k")));
@@ -273,8 +273,8 @@ void TstDocument::setComponentLabelsRejectsEmptyReference()
 void TstDocument::setComponentLabelsRejectsDuplicateReferenceButAllowsSelfRename()
 {
     Document document;
-    const ComponentId a = document.addComponent(SymbolKind::Resistor, QPointF(0, 0));
-    const ComponentId b = document.addComponent(SymbolKind::Resistor, QPointF(100, 0));
+    const ComponentId a = document.addComponent(SymbolIds::Resistor, QPointF(0, 0));
+    const ComponentId b = document.addComponent(SymbolIds::Resistor, QPointF(100, 0));
     QVERIFY(document.setComponentLabels(a, QStringLiteral("R1"), QString()));
     QVERIFY(document.setComponentLabels(b, QStringLiteral("R2"), QString()));
 
@@ -292,7 +292,7 @@ void TstDocument::setComponentLabelsRejectsDuplicateReferenceButAllowsSelfRename
 void TstDocument::setComponentLabelsValueOnlyEditSucceeds()
 {
     Document document;
-    const ComponentId a = document.addComponent(SymbolKind::Resistor, QPointF(0, 0));
+    const ComponentId a = document.addComponent(SymbolIds::Resistor, QPointF(0, 0));
     QVERIFY(document.setComponentLabels(a, QStringLiteral("R1"), QStringLiteral("10k")));
 
     QVERIFY(document.setComponentLabels(a, QStringLiteral("R1"), QStringLiteral("22k")));
@@ -323,8 +323,8 @@ void TstDocument::routeValidationRejectsCollinearBacktracking()
 
     // The same validator guards new routes: a reversing route is rejected.
     Document document;
-    const ComponentId a = document.addComponent(SymbolKind::Resistor, QPointF(0, 0));
-    const ComponentId b = document.addComponent(SymbolKind::Resistor, QPointF(100, 0));
+    const ComponentId a = document.addComponent(SymbolIds::Resistor, QPointF(0, 0));
+    const ComponentId b = document.addComponent(SymbolIds::Resistor, QPointF(100, 0));
     QVERIFY(!document.addWire(makeTerminalEndpoint(a, 1), {QPointF(90, 0)},
                               makeTerminalEndpoint(b, 0)));
     QVERIFY(document.wires().isEmpty());
@@ -333,8 +333,8 @@ void TstDocument::routeValidationRejectsCollinearBacktracking()
 void TstDocument::movementRejectsCollinearReversal()
 {
     Document document;
-    const ComponentId a = document.addComponent(SymbolKind::Resistor, QPointF(0, 0));
-    const ComponentId b = document.addComponent(SymbolKind::Resistor, QPointF(100, 0));
+    const ComponentId a = document.addComponent(SymbolIds::Resistor, QPointF(0, 0));
+    const ComponentId b = document.addComponent(SymbolIds::Resistor, QPointF(100, 0));
     // Terminals sit 20 units either side of the component origin: this route
     // runs (20,0) -> (60,0) -> (80,0) and keeps its direction.
     const auto id = document.addWire(makeTerminalEndpoint(a, 1), {QPointF(60, 0)},
@@ -356,10 +356,10 @@ void TstDocument::movementRejectsCollinearReversal()
 void TstDocument::addWireBranchingRejectsReversalWithoutSideEffects()
 {
     Document document;
-    const ComponentId a = document.addComponent(SymbolKind::Resistor, QPointF(0, 0));
-    const ComponentId b = document.addComponent(SymbolKind::Resistor, QPointF(100, 0));
+    const ComponentId a = document.addComponent(SymbolIds::Resistor, QPointF(0, 0));
+    const ComponentId b = document.addComponent(SymbolIds::Resistor, QPointF(100, 0));
     // d's terminal 1 is at (60,0).
-    const ComponentId d = document.addComponent(SymbolKind::Resistor, QPointF(40, 0));
+    const ComponentId d = document.addComponent(SymbolIds::Resistor, QPointF(40, 0));
     const auto wire = document.addWire(makeTerminalEndpoint(a, 1), {}, makeTerminalEndpoint(b, 0));
     QVERIFY(wire);
     const int wiresBefore = document.wires().size();
@@ -381,8 +381,8 @@ void TstDocument::addWireBranchingRejectsReversalWithoutSideEffects()
 void TstDocument::rotateAndMirrorUpdateRoutesTransactionally()
 {
     Document d;
-    const ComponentId a = d.addComponent(SymbolKind::Resistor, {0, 0});
-    const ComponentId b = d.addComponent(SymbolKind::Resistor, {40, 0}, Rotation::Deg180);
+    const ComponentId a = d.addComponent(SymbolIds::Resistor, {0, 0});
+    const ComponentId b = d.addComponent(SymbolIds::Resistor, {40, 0}, Rotation::Deg180);
     // b.0 is at (60,0); a.1 at (20,0).
     const auto w = d.addWire(makeTerminalEndpoint(a, 1), {}, makeTerminalEndpoint(b, 0));
     QVERIFY(w);
@@ -410,12 +410,12 @@ void TstDocument::rotateAndMirrorUpdateRoutesTransactionally()
 void TstDocument::defaultReferencesUseSmallestUnusedPrefixNumber()
 {
     Document d;
-    const ComponentId r1 = d.addComponent(SymbolKind::Resistor, {0, 0});
-    d.addComponent(SymbolKind::Resistor, {50, 0});
-    const ComponentId c1 = d.addComponent(SymbolKind::Capacitor, {100, 0});
-    const ComponentId g = d.addComponent(SymbolKind::Ground, {150, 0});
-    const ComponentId rv = d.addComponent(SymbolKind::Potentiometer, {200, 0});
-    const ComponentId u = d.addComponent(SymbolKind::OpAmp, {250, 0});
+    const ComponentId r1 = d.addComponent(SymbolIds::Resistor, {0, 0});
+    d.addComponent(SymbolIds::Resistor, {50, 0});
+    const ComponentId c1 = d.addComponent(SymbolIds::Capacitor, {100, 0});
+    const ComponentId g = d.addComponent(SymbolIds::Ground, {150, 0});
+    const ComponentId rv = d.addComponent(SymbolIds::Potentiometer, {200, 0});
+    const ComponentId u = d.addComponent(SymbolIds::OpAmp, {250, 0});
     QCOMPARE(d.component(r1)->reference(), QStringLiteral("R1"));
     QCOMPARE(d.components()[1].reference(), QStringLiteral("R2"));
     QCOMPARE(d.component(c1)->reference(), QStringLiteral("C1"));
@@ -424,6 +424,16 @@ void TstDocument::defaultReferencesUseSmallestUnusedPrefixNumber()
     QCOMPARE(d.component(u)->reference(), QStringLiteral("U1"));
 
     QVERIFY(d.setComponentLabels(r1, QStringLiteral("X"), QString()));
-    const ComponentId r3 = d.addComponent(SymbolKind::Resistor, {300, 0});
+    const ComponentId r3 = d.addComponent(SymbolIds::Resistor, {300, 0});
     QCOMPARE(d.component(r3)->reference(), QStringLiteral("R1")); // freed number reused
+}
+
+void TstDocument::addComponentRejectsUnknownSymbolWithoutConsumingId()
+{
+    Document document;
+    QCOMPARE(document.addComponent(SymbolId(QStringLiteral("NotARealSymbol")), QPointF(0, 0)),
+             kInvalidComponentId);
+    QCOMPARE(document.addComponent(SymbolId(), QPointF(0, 0)), kInvalidComponentId);
+    QVERIFY(document.components().isEmpty());
+    QCOMPARE(document.addComponent(SymbolIds::Resistor, QPointF(0, 0)), ComponentId(1));
 }

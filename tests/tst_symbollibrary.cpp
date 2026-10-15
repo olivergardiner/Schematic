@@ -149,6 +149,17 @@ void TstSymbolLibrary::categoryPathSplitsIntoSegments()
              QStringList({QStringLiteral("Semiconductors"), QStringLiteral("Diodes")}));
 }
 
+void TstSymbolLibrary::firstUnusedReferenceUsesSmallestFreeNumber()
+{
+    QCOMPARE(firstUnusedReference(QStringLiteral("R"), {}), QStringLiteral("R1"));
+    QCOMPARE(firstUnusedReference(QStringLiteral("R"), {QStringLiteral("R1"), QStringLiteral("R2")}),
+             QStringLiteral("R3"));
+    // A freed number is reused, and other prefixes are ignored.
+    QCOMPARE(firstUnusedReference(QStringLiteral("R"), {QStringLiteral("R2"), QStringLiteral("C1")}),
+             QStringLiteral("R1"));
+    QCOMPARE(firstUnusedReference(QStringLiteral("GND"), {QStringLiteral("GND1")}), QStringLiteral("GND2"));
+}
+
 void TstSymbolLibrary::findResolvesKnownIdsOnly()
 {
     const SymbolLibrary &library = builtinSymbolLibrary();

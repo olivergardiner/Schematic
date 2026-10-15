@@ -25,6 +25,9 @@ private slots:
     // A category is a '/'-separated path; libraryCategoryPath() splits it.
     void categoryPathSplitsIntoSegments();
 
+    // The default-reference helper picks the smallest free number.
+    void firstUnusedReferenceUsesSmallestFreeNumber();
+
     // find() resolves every built-in id and returns nullptr otherwise.
     void findResolvesKnownIdsOnly();
 

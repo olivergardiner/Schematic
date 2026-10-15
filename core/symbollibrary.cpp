@@ -57,6 +57,15 @@ QStringList libraryCategoryPath(const QString &category)
     return category.split(QLatin1Char('/'));
 }
 
+QString firstUnusedReference(const QString &prefix, const QSet<QString> &used)
+{
+    for (int n = 1;; ++n) {
+        const QString candidate = prefix + QString::number(n);
+        if (!used.contains(candidate))
+            return candidate;
+    }
+}
+
 QStringList validateLibrarySymbol(const LibrarySymbol &symbol)
 {
     QStringList errors;

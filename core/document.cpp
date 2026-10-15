@@ -1,5 +1,7 @@
 #include "document.h"
 
+#include "symbollibrary.h"
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -82,17 +84,18 @@ const WireRoute *Document::wire(WireId id) const
     return nullptr;
 }
 
-ComponentId Document::addComponent(SymbolKind kind, QPointF position, Rotation rotation)
+ComponentId Document::addComponent(const SymbolId &symbolId, QPointF position, Rotation rotation)
 {
-    if (m_nextComponentId == kInvalidComponentId)
+    const LibrarySymbol *symbol = builtinSymbolLibrary().find(symbolId);
+    if (!symbol || m_nextComponentId == kInvalidComponentId)
         return kInvalidComponentId;
     const ComponentId id = m_nextComponentId++;
-    Component item(id, kind, position);
+    Component item(id, symbolId, position);
     item.setRotation(rotation);
     QSet<QString> used;
     for (const Component &existing : m_components)
         used.insert(existing.reference());
-    item.setReference(firstUnusedReference(kind, used));
+    item.setReference(firstUnusedReference(symbol->referencePrefix, used));
     m_components.append(item);
     return id;
 }

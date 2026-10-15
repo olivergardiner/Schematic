@@ -3,7 +3,7 @@
 
 #include "identifiers.h"
 #include "pendingwireendpoint.h"
-#include "symbolkind.h"
+#include "symbolid.h"
 
 #include <QGraphicsScene>
 
@@ -57,8 +57,8 @@ public:
     EditMode editMode() const { return m_mode; }
     void setEditMode(EditMode mode);
 
-    // The SymbolKind placed by a click while editMode() == PlaceComponent.
-    void setPlaceComponentKind(SymbolKind kind) { m_placeKind = kind; }
+    // The symbol placed by a click while editMode() == PlaceComponent.
+    void setPlaceComponentKind(const SymbolId &id) { m_placeKind = id; }
 
     // Discards any in-progress wire (see DrawWire mode) with zero Document
     // calls - equivalent to pressing Escape. Exposed so MainWindow can
@@ -134,7 +134,7 @@ private:
 
     Document *m_document = nullptr;
     EditMode m_mode = EditMode::Select;
-    SymbolKind m_placeKind = SymbolKind::Resistor;
+    SymbolId m_placeKind = SymbolIds::Resistor;
 
     // Select-mode manual drag state: preview by moving only the dragged
     // symbol's items; attached wires reshape only once

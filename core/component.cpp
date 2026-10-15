@@ -1,5 +1,5 @@
 #include "component.h"
-#include "symboldefinition.h"
+#include "symbollibrary.h"
 
 #include <QtGlobal>
 
@@ -22,27 +22,28 @@ QPointF rotateOffset(QPointF localOffset, Rotation rotation)
     return localOffset;
 }
 
-Component::Component(ComponentId id, SymbolKind kind, QPointF position)
+Component::Component(ComponentId id, const SymbolId &symbolId, QPointF position)
     : m_id(id)
-    , m_kind(kind)
+    , m_symbolId(symbolId)
     , m_position(position)
 {
 }
 
 int Component::terminalCount() const
 {
-    return symbolTerminalCount(m_kind);
+    const LibrarySymbol *symbol = builtinSymbolLibrary().find(m_symbolId);
+    return symbol ? static_cast<int>(symbol->terminals.size()) : 0;
 }
 
 QPointF Component::terminalPosition(TerminalId terminal) const
 {
-    const SymbolDefinition &def = symbolDefinition(m_kind);
-    Q_ASSERT(terminal >= 0 && terminal < def.terminals.size());
-    if (terminal < 0 || terminal >= def.terminals.size())
+    const LibrarySymbol *symbol = builtinSymbolLibrary().find(m_symbolId);
+    Q_ASSERT(symbol && terminal >= 0 && terminal < symbol->terminals.size());
+    if (!symbol || terminal < 0 || terminal >= symbol->terminals.size())
         return m_position;
 
     // Apply mirroring if necessary - the local offset is mirrored (x negated) first, then rotated, then translated.
-    const QPointF local = def.terminals[terminal].offset;
+    const QPointF local = symbol->terminals[terminal].offset;
     const QPointF mirroredOffset = m_mirrored ? QPointF(-local.x(), local.y()) : local;
     return m_position + rotateOffset(mirroredOffset, m_rotation);
 }

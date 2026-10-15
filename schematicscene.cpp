@@ -4,7 +4,7 @@
 #include "component.h"
 #include "document.h"
 #include "routegeometry.h"
-#include "symboldefinition.h"
+#include "symbollibrary.h"
 #include "wireendpoint.h"
 #include "wireroute.h"
 
@@ -216,7 +216,10 @@ void SchematicScene::addJunctionItem(QPointF point)
 
 void SchematicScene::addComponentItems(const Component &component)
 {
-    const SymbolDefinition &def = symbolDefinition(component.kind());
+    const LibrarySymbol *symbol = builtinSymbolLibrary().find(component.symbolId());
+    if (!symbol)
+        return; // Unreachable for components created through Document's API.
+    const LibrarySymbol &def = *symbol;
     const qreal degrees = static_cast<qreal>(static_cast<int>(component.rotation()));
 
     // Symbol artwork is one rotated/translated group - a single Qt transform

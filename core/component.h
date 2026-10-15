@@ -2,7 +2,7 @@
 #define COMPONENT_H
 
 #include "identifiers.h"
-#include "symbolkind.h"
+#include "symbolid.h"
 
 #include <QPointF>
 #include <QString>
@@ -44,10 +44,10 @@ class Component
 {
 public:
     Component() = default;
-    Component(ComponentId id, SymbolKind kind, QPointF position);
+    Component(ComponentId id, const SymbolId &symbolId, QPointF position);
 
     ComponentId id() const { return m_id; }
-    SymbolKind kind() const { return m_kind; }
+    const SymbolId &symbolId() const { return m_symbolId; }
 
     QPointF position() const { return m_position; }
     void setPosition(QPointF position) { m_position = position; }
@@ -77,7 +77,7 @@ public:
 
 private:
     ComponentId m_id = kInvalidComponentId;
-    SymbolKind m_kind = SymbolKind::Resistor;
+    SymbolId m_symbolId;
     QPointF m_position;
     Rotation m_rotation = Rotation::Deg0;
     QString m_reference;

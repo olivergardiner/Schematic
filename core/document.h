@@ -34,7 +34,9 @@ public:
     const Component *component(ComponentId id) const;
     const WireRoute *wire(WireId id) const;
 
-    ComponentId addComponent(SymbolKind kind, QPointF position,
+    // Returns kInvalidComponentId (document unchanged, no id consumed) if
+    // symbolId is not in the built-in symbol library.
+    ComponentId addComponent(const SymbolId &symbolId, QPointF position,
                              Rotation rotation = Rotation::Deg0);
     bool moveComponent(ComponentId id, QPointF position);
     bool removeComponent(ComponentId id);

@@ -35,9 +35,9 @@ QJsonObject withComponentField(QJsonObject root, const QString &key, const QJson
 void TstDocumentJson::roundTripsBranchedDocument()
 {
     Document original;
-    const auto a = original.addComponent(SymbolKind::Resistor, {0, 0});
-    const auto b = original.addComponent(SymbolKind::Resistor, {100, 0});
-    const auto c = original.addComponent(SymbolKind::Resistor, {40, 50}, Rotation::Deg90);
+    const auto a = original.addComponent(SymbolIds::Resistor, {0, 0});
+    const auto b = original.addComponent(SymbolIds::Resistor, {100, 0});
+    const auto c = original.addComponent(SymbolIds::Resistor, {40, 50}, Rotation::Deg90);
     const auto wire = original.addWire(makeTerminalEndpoint(a, 1), {QPointF(40, 0)}, makeTerminalEndpoint(b, 0));
     QVERIFY(wire);
     const auto node = original.branchWireAt(*wire, {40, 0});
@@ -59,13 +59,13 @@ void TstDocumentJson::roundTripsBranchedDocument()
 void TstDocumentJson::rejectsInvalidAndRepairsStaleEndpoints()
 {
     Document existing;
-    existing.addComponent(SymbolKind::Diode, {5, 6});
+    existing.addComponent(SymbolIds::Diode, {5, 6});
     const DocumentLoadResult bad = Document::fromJsonBytes("{ broken");
     QVERIFY(!bad.errors.isEmpty());
     QCOMPARE(existing.components().size(), 1); // A failed factory cannot mutate its caller.
 
     Document source;
-    const auto id = source.addComponent(SymbolKind::Resistor, {0, 0});
+    const auto id = source.addComponent(SymbolIds::Resistor, {0, 0});
     QVERIFY(source.addWire(makeTerminalEndpoint(id, 1), {}, makeTerminalEndpoint(id, 0)));
     QJsonObject root = source.toJson();
     QJsonArray wires = root.value(QStringLiteral("wires")).toArray();
@@ -100,8 +100,8 @@ void TstDocumentJson::discardsOrphanNodes()
 void TstDocumentJson::rejectsInvalidIdsReferencesAndGeometry()
 {
     Document source;
-    const auto a = source.addComponent(SymbolKind::Resistor, {0, 0});
-    const auto b = source.addComponent(SymbolKind::Resistor, {100, 0});
+    const auto a = source.addComponent(SymbolIds::Resistor, {0, 0});
+    const auto b = source.addComponent(SymbolIds::Resistor, {100, 0});
     QVERIFY(source.addWire(makeTerminalEndpoint(a, 1), {}, makeTerminalEndpoint(b, 0)));
     const QJsonObject valid = source.toJson();
 
@@ -151,8 +151,8 @@ void TstDocumentJson::rejectsInvalidIdsReferencesAndGeometry()
 void TstDocumentJson::rejectsCollinearReversalOnLoad()
 {
     Document source;
-    const auto a = source.addComponent(SymbolKind::Resistor, {0, 0});
-    const auto b = source.addComponent(SymbolKind::Resistor, {100, 0});
+    const auto a = source.addComponent(SymbolIds::Resistor, {0, 0});
+    const auto b = source.addComponent(SymbolIds::Resistor, {100, 0});
     QVERIFY(source.addWire(makeTerminalEndpoint(a, 1), {}, makeTerminalEndpoint(b, 0)));
 
     QJsonObject root = source.toJson();
@@ -174,7 +174,7 @@ namespace {
 // Builds a version-1 document JSON whose components carry exactly the given
 // references (a null QString means the "reference" key is omitted). Component
 // ids are 1..N in the order given.
-QJsonObject documentWithReferences(const QVector<QPair<SymbolKind, QString>> &parts)
+QJsonObject documentWithReferences(const QVector<QPair<SymbolId, QString>> &parts)
 {
     Document source;
     for (int i = 0; i < parts.size(); ++i)
@@ -198,11 +198,11 @@ QJsonObject documentWithReferences(const QVector<QPair<SymbolKind, QString>> &pa
 void TstDocumentJson::generatesMissingReferences()
 {
     QJsonObject root = documentWithReferences({
-        {SymbolKind::Resistor, QString()},               // id 1: key missing
-        {SymbolKind::Resistor, QStringLiteral(" R1 ")},  // id 2: explicit, trimmed on load
-        {SymbolKind::Resistor, QStringLiteral("   ")},   // id 3: whitespace only
-        {SymbolKind::Capacitor, QStringLiteral("")},     // id 4: empty
-        {SymbolKind::Resistor, QStringLiteral("R3")},    // id 5: explicit, later in the file
+        {SymbolIds::Resistor, QString()},               // id 1: key missing
+        {SymbolIds::Resistor, QStringLiteral(" R1 ")},  // id 2: explicit, trimmed on load
+        {SymbolIds::Resistor, QStringLiteral("   ")},   // id 3: whitespace only
+        {SymbolIds::Capacitor, QStringLiteral("")},     // id 4: empty
+        {SymbolIds::Resistor, QStringLiteral("R3")},    // id 5: explicit, later in the file
     });
     QJsonArray components = root.value(QStringLiteral("components")).toArray();
     QJsonObject componentWithValue = components[1].toObject();
@@ -236,9 +236,9 @@ void TstDocumentJson::rejectsDuplicateReferences()
 {
     // Equal after trimming -> rejected, naming both components and the text.
     const DocumentLoadResult duplicate = Document::fromJson(documentWithReferences({
-        {SymbolKind::Resistor, QStringLiteral("X1")},
-        {SymbolKind::Diode, QStringLiteral("Y1")},
-        {SymbolKind::Capacitor, QStringLiteral(" X1")},
+        {SymbolIds::Resistor, QStringLiteral("X1")},
+        {SymbolIds::Diode, QStringLiteral("Y1")},
+        {SymbolIds::Capacitor, QStringLiteral(" X1")},
     }));
     QVERIFY(!duplicate.document);
     QCOMPARE(duplicate.errors.size(), 1);
@@ -250,8 +250,8 @@ void TstDocumentJson::rejectsDuplicateReferences()
     // Comparison is case-sensitive, so these are distinct and accepted
     // unchanged.
     const DocumentLoadResult distinct = Document::fromJson(documentWithReferences({
-        {SymbolKind::Resistor, QStringLiteral("r1")},
-        {SymbolKind::Resistor, QStringLiteral("R1")},
+        {SymbolIds::Resistor, QStringLiteral("r1")},
+        {SymbolIds::Resistor, QStringLiteral("R1")},
     }));
     QVERIFY2(distinct.errors.isEmpty(), qPrintable(distinct.errors.join(QLatin1Char('\n'))));
     QVERIFY(distinct.document);
@@ -276,8 +276,8 @@ void TstDocumentJson::serializesNodesInStableOrder()
 {
     // A long horizontal wire branched at many points creates many nodes.
     Document original;
-    const auto a = original.addComponent(SymbolKind::Resistor, {0, 0});
-    const auto b = original.addComponent(SymbolKind::Resistor, {600, 0});
+    const auto a = original.addComponent(SymbolIds::Resistor, {0, 0});
+    const auto b = original.addComponent(SymbolIds::Resistor, {600, 0});
     QVERIFY(original.addWire(makeTerminalEndpoint(a, 1), {}, makeTerminalEndpoint(b, 0)));
     for (int x = 50; x <= 500; x += 30) {
         WireId target = 0;
@@ -309,8 +309,8 @@ void TstDocumentJson::serializesNodesInStableOrder()
 void TstDocumentJson::writesV2AndRoundTripsMirroring()
 {
     Document d;
-    const auto a = d.addComponent(SymbolKind::Resistor, {0, 0});
-    const auto b = d.addComponent(SymbolKind::Resistor, {100, 0});
+    const auto a = d.addComponent(SymbolIds::Resistor, {0, 0});
+    const auto b = d.addComponent(SymbolIds::Resistor, {100, 0});
     QVERIFY(d.setComponentMirrored(a, true));
     QVERIFY(d.addWire(makeTerminalEndpoint(a, 1), {}, makeTerminalEndpoint(b, 0)));
     const QJsonObject root = d.toJson();
@@ -327,7 +327,7 @@ void TstDocumentJson::writesV2AndRoundTripsMirroring()
 void TstDocumentJson::loadsV1AsUnmirroredAndUpgradesOnSave()
 {
     Document d;
-    const auto a = d.addComponent(SymbolKind::Resistor, {0, 0});
+    const auto a = d.addComponent(SymbolIds::Resistor, {0, 0});
     const DocumentLoadResult loaded = Document::fromJson(asVersion1(d.toJson()));
     QVERIFY2(loaded.errors.isEmpty(), qPrintable(loaded.errors.join(QLatin1Char('\n'))));
     QVERIFY(loaded.document);
@@ -338,7 +338,7 @@ void TstDocumentJson::loadsV1AsUnmirroredAndUpgradesOnSave()
 void TstDocumentJson::rejectsInvalidVersionAndMirroredCombinations()
 {
     Document d;
-    d.addComponent(SymbolKind::Resistor, {0, 0});
+    d.addComponent(SymbolIds::Resistor, {0, 0});
     const QJsonObject v2 = d.toJson();
     const QJsonObject v1 = asVersion1(v2);
 
@@ -350,4 +350,94 @@ void TstDocumentJson::rejectsInvalidVersionAndMirroredCombinations()
     QVERIFY(!Document::fromJson(v3).document);
     QJsonObject v0 = v2; v0.insert(QStringLiteral("formatVersion"), 0);
     QVERIFY(!Document::fromJson(v0).document);
+}
+
+void TstDocumentJson::rejectsUnknownSymbolIdNamingIt()
+{
+    Document d;
+    d.addComponent(SymbolIds::Resistor, {0, 0});
+    QJsonObject root = d.toJson();
+    QJsonArray components = root.value(QStringLiteral("components")).toArray();
+    QJsonObject first = components[0].toObject();
+    first.insert(QStringLiteral("kind"), QStringLiteral("UnknownPart"));
+    components[0] = first;
+    root.insert(QStringLiteral("components"), components);
+
+    const DocumentLoadResult loaded = Document::fromJson(root);
+    QVERIFY(!loaded.document);
+    QCOMPARE(loaded.errors.size(), 1);
+    QVERIFY2(loaded.errors.first().contains(QStringLiteral("UnknownPart")), qPrintable(loaded.errors.first()));
+}
+
+void TstDocumentJson::loadsPreLibraryDocumentUnchanged()
+{
+    // Expected positions are worked out by hand from the symbol terminal
+    // offsets (rotation: (x,y)->(-y,x) for 90, (-x,-y) for 180; mirroring
+    // negates x first), not by calling the model.
+    const QByteArray json = R"JSON({
+  "formatVersion": 2,
+  "grid": { "spacing": 10 },
+  "components": [
+    { "id": 1, "kind": "Resistor",      "x": 0,   "y": 0,   "rotation": 0,   "mirrored": false, "reference": "R1",   "value": "10k" },
+    { "id": 2, "kind": "Capacitor",     "x": 100, "y": 0,   "rotation": 0,   "mirrored": false, "reference": "C1",   "value": "" },
+    { "id": 3, "kind": "Diode",         "x": 200, "y": 0,   "rotation": 90,  "mirrored": false, "reference": "D1",   "value": "" },
+    { "id": 4, "kind": "Ground",        "x": 200, "y": 60,  "rotation": 0,   "mirrored": false, "reference": "GND1", "value": "" },
+    { "id": 5, "kind": "OpAmp",         "x": 300, "y": 0,   "rotation": 0,   "mirrored": false, "reference": "U1",   "value": "" },
+    { "id": 6, "kind": "Jack",          "x": 400, "y": 0,   "rotation": 0,   "mirrored": false, "reference": "J1",   "value": "" },
+    { "id": 7, "kind": "Potentiometer", "x": 300, "y": 100, "rotation": 180, "mirrored": true,  "reference": "VR1",  "value": "100k" }
+  ],
+  "nodes": [],
+  "wires": [
+    { "id": 1, "points": [[20, 0], [80, 0]],
+      "start": { "component": 1, "terminal": 1 }, "end": { "component": 2, "terminal": 0 } },
+    { "id": 2, "points": [[120, 0], [120, -20], [200, -20]],
+      "start": { "component": 2, "terminal": 1 }, "end": { "component": 3, "terminal": 0 } },
+    { "id": 3, "points": [[200, 20], [200, 40]],
+      "start": { "component": 3, "terminal": 1 }, "end": { "component": 4, "terminal": 0 } },
+    { "id": 4, "points": [[328, 0], [380, 0]],
+      "start": { "component": 5, "terminal": 2 }, "end": { "component": 6, "terminal": 0 } }
+  ]
+})JSON";
+
+    const DocumentLoadResult loaded = Document::fromJsonBytes(json);
+    QVERIFY2(loaded.errors.isEmpty(), qPrintable(loaded.errors.join(QLatin1Char('\n'))));
+    QVERIFY(loaded.document);
+    // No warnings means every saved wire endpoint already matched the
+    // geometry derived from the symbol library.
+    QVERIFY2(loaded.warnings.isEmpty(), qPrintable(loaded.warnings.join(QLatin1Char('\n'))));
+    const Document &d = *loaded.document;
+    QCOMPARE(d.components().size(), 7);
+    QCOMPARE(d.wires().size(), 4);
+    QCOMPARE(d.nodes().size(), 0);
+
+    QCOMPARE(d.component(1)->symbolId(), SymbolIds::Resistor);
+    QCOMPARE(d.component(2)->symbolId(), SymbolIds::Capacitor);
+    QCOMPARE(d.component(3)->symbolId(), SymbolIds::Diode);
+    QCOMPARE(d.component(4)->symbolId(), SymbolIds::Ground);
+    QCOMPARE(d.component(5)->symbolId(), SymbolIds::OpAmp);
+    QCOMPARE(d.component(6)->symbolId(), SymbolIds::Jack);
+    QCOMPARE(d.component(7)->symbolId(), SymbolIds::Potentiometer);
+    QCOMPARE(d.component(1)->value(), QStringLiteral("10k"));
+    QCOMPARE(d.component(7)->reference(), QStringLiteral("VR1"));
+
+    QCOMPARE(d.component(3)->terminalPosition(0), QPointF(200, -20)); // anode, rotated 90
+    QCOMPARE(d.component(3)->terminalPosition(1), QPointF(200, 20));  // cathode
+    QCOMPARE(d.component(4)->terminalPosition(0), QPointF(200, 40));
+    QCOMPARE(d.component(5)->terminalPosition(2), QPointF(328, 0));
+    QCOMPARE(d.component(6)->terminalPosition(0), QPointF(380, 0));
+    QCOMPARE(d.component(7)->terminalPosition(0), QPointF(280, 100)); // mirrored, rotated 180
+    QCOMPARE(d.component(7)->terminalPosition(1), QPointF(320, 100));
+    QCOMPARE(d.component(7)->terminalPosition(2), QPointF(300, 120));
+
+    QCOMPARE(d.wire(2)->vertices,
+             QVector<QPointF>({QPointF(120, 0), QPointF(120, -20), QPointF(200, -20)}));
+    QCOMPARE(d.wire(3)->vertices, QVector<QPointF>({QPointF(200, 20), QPointF(200, 40)}));
+
+    // 17 terminals, four of them pairwise joined by wires.
+    QCOMPARE(d.computeNets().size(), 13);
+
+    // Saving and reloading is stable.
+    const DocumentLoadResult again = Document::fromJsonBytes(d.toJsonBytes());
+    QVERIFY(again.document);
+    QCOMPARE(again.document->toJsonBytes(), d.toJsonBytes());
 }

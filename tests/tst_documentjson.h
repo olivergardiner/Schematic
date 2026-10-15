@@ -37,6 +37,13 @@ private slots:
     // v1 must not contain mirrored; v2 requires a boolean one; unsupported
     // versions are rejected.
     void rejectsInvalidVersionAndMirroredCombinations();
+    // A document using an id that is not in the library is rejected, and
+    // the error names the id.
+    void rejectsUnknownSymbolIdNamingIt();
+    // A hand-written document in the pre-library format (all seven symbols,
+    // rotation, mirroring, four wires) loads with no warnings and derives
+    // the geometry worked out by hand from the symbol definitions.
+    void loadsPreLibraryDocumentUnchanged();
 };
 
 #endif

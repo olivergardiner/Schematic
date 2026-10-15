@@ -4,6 +4,7 @@
 
 #include "wireendpoint.h"
 #include "documentloadresult.h"
+#include "symbollibrary.h"
 
 #include <QApplication>
 #include <QMenuBar>
@@ -197,19 +198,18 @@ void MainWindow::createSymbolDock()
     auto *layout = new QVBoxLayout(container);
     layout->setContentsMargins(4, 4, 4, 4);
 
-    for (SymbolKind kind : {SymbolKind::Resistor, SymbolKind::Capacitor, SymbolKind::Diode,
-                            SymbolKind::Ground, SymbolKind::OpAmp, SymbolKind::Potentiometer,
-                            SymbolKind::Jack}) {
+    // One palette button per library symbol, in library (manifest) order.
+    for (const LibrarySymbol &symbol : builtinSymbolLibrary().symbols()) {
         // One QAction per symbol, added to m_modeGroup so it is mutually
         // exclusive with Select/Draw Wire, bound to a QToolButton via
         // setDefaultAction() (the standard Qt pattern for a button whose
         // checked state and click behaviour are entirely driven by its
         // action - no manual signal syncing needed).
-        auto *action = new QAction(symbolKindName(kind), this);
+        auto *action = new QAction(symbol.displayName, this);
         action->setCheckable(true);
         m_modeGroup->addAction(action);
-        connect(action, &QAction::triggered, this, [this, kind]() {
-            onPlaceComponentKindChanged(kind);
+        connect(action, &QAction::triggered, this, [this, id = symbol.id]() {
+            onPlaceComponentKindChanged(id);
         });
 
         auto *button = new QToolButton(container);
@@ -442,10 +442,10 @@ void MainWindow::onDrawWireModeTriggered()
     m_scene->setEditMode(SchematicScene::EditMode::DrawWire);
 }
 
-void MainWindow::onPlaceComponentKindChanged(SymbolKind kind)
+void MainWindow::onPlaceComponentKindChanged(const SymbolId &id)
 {
     m_scene->setEditMode(SchematicScene::EditMode::PlaceComponent);
-    m_scene->setPlaceComponentKind(kind);
+    m_scene->setPlaceComponentKind(id);
 }
 
 void MainWindow::onEditComponentLabels(ComponentId componentId)

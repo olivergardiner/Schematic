@@ -1,7 +1,7 @@
 #include "document.h"
 #include "documentloadresult.h"
 
-#include "symboldefinition.h"
+#include "symbollibrary.h"
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -52,7 +52,7 @@ QJsonObject Document::toJson() const
     QJsonArray components;
     for (const Component &item : m_components) {
         components.append(QJsonObject{{QStringLiteral("id"), static_cast<double>(item.id())},
-            {QStringLiteral("kind"), symbolKindName(item.kind())},
+            {QStringLiteral("kind"), item.symbolId().value()},
             {QStringLiteral("x"), item.position().x()}, {QStringLiteral("y"), item.position().y()},
             {QStringLiteral("rotation"), static_cast<int>(item.rotation())},
             {QStringLiteral("mirrored"), item.mirrored()},
@@ -114,9 +114,9 @@ DocumentLoadResult Document::fromJson(const QJsonObject &root)
         || spacing <= 0)
         error(QStringLiteral("grid.spacing must be a finite positive number"));
 
-    struct ParsedComponent { ComponentId id; SymbolKind kind; QPointF position; Rotation rotation; QString reference; QString value; bool mirrored; };
+    struct ParsedComponent { ComponentId id; SymbolId kind; QPointF position; Rotation rotation; QString reference; QString value; bool mirrored; };
     QVector<ParsedComponent> parsedComponents;
-    QHash<ComponentId, SymbolKind> kinds;
+    QHash<ComponentId, SymbolId> kinds;
     QSet<ComponentId> componentIds;
     const QJsonValue componentValue = root.value(QStringLiteral("components"));
     if (!componentValue.isArray()) error(QStringLiteral("components must be an array"));
@@ -127,11 +127,12 @@ DocumentLoadResult Document::fromJson(const QJsonObject &root)
             if (!value.isObject()) { error(path + QStringLiteral(" must be an object")); continue; }
             const QJsonObject obj = value.toObject();
             quint32 id = 0; qreal x = 0, y = 0;
-            const auto kind = symbolKindFromName(obj.value(QStringLiteral("kind")).toString());
+            const SymbolId kindId(obj.value(QStringLiteral("kind")).toString());
+            const LibrarySymbol *kind = builtinSymbolLibrary().find(kindId);
             const int rot = obj.value(QStringLiteral("rotation")).toInt(-1);
             bool valid = true;
             if (!idValue(obj.value(QStringLiteral("id")), &id) || componentIds.contains(id)) { error(path + QStringLiteral(" has an invalid or duplicate id")); valid = false; }
-            if (!kind) { error(path + QStringLiteral(" has an unknown kind")); valid = false; }
+            if (!kind) { error(path + QStringLiteral(" has an unknown symbol id \"%1\"").arg(kindId.value())); valid = false; }
             if (!number(obj.value(QStringLiteral("x")), &x) || !number(obj.value(QStringLiteral("y")), &y)) { error(path + QStringLiteral(" coordinates must be finite numbers")); valid = false; }
             if (rot != 0 && rot != 90 && rot != 180 && rot != 270) { error(path + QStringLiteral(" has an invalid rotation")); valid = false; }
             const QJsonValue reference = obj.value(QStringLiteral("reference"));
@@ -153,8 +154,8 @@ DocumentLoadResult Document::fromJson(const QJsonObject &root)
                 mirrored = obj.value(QStringLiteral("mirrored")).toBool();
             }
             if (!valid) continue;
-            componentIds.insert(id); kinds.insert(id, *kind);
-            parsedComponents.append({id, *kind, {x, y}, static_cast<Rotation>(rot),
+            componentIds.insert(id); kinds.insert(id, kindId);
+            parsedComponents.append({id, kindId, {x, y}, static_cast<Rotation>(rot),
                                      reference.toString(), valueField.toString().trimmed(), mirrored});
         }
     }
@@ -176,18 +177,19 @@ DocumentLoadResult Document::fromJson(const QJsonObject &root)
             if (existing == owners.cend()) { owners.insert(item.reference, i); continue; }
             const ParsedComponent &first = parsedComponents[existing.value()];
             error(QStringLiteral("Components %1 (id %2) and %3 (id %4) have the same reference \"%5\"")
-                      .arg(symbolKindName(first.kind)).arg(first.id)
-                      .arg(symbolKindName(item.kind)).arg(item.id).arg(item.reference));
+                      .arg(first.kind.value()).arg(first.id)
+                      .arg(item.kind.value()).arg(item.id).arg(item.reference));
         }
         QSet<QString> used;
         for (auto it = owners.cbegin(); it != owners.cend(); ++it) used.insert(it.key());
         for (ParsedComponent &item : parsedComponents) {
             if (!item.reference.isEmpty()) continue;
-            const QString candidate = firstUnusedReference(item.kind, used);
+            const QString candidate = firstUnusedReference(
+                builtinSymbolLibrary().find(item.kind)->referencePrefix, used);
             used.insert(candidate);
             item.reference = candidate;
             result.warnings.append(QStringLiteral("Component %1 (id %2) had no reference; generated \"%3\"")
-                                       .arg(symbolKindName(item.kind)).arg(item.id).arg(candidate));
+                                       .arg(item.kind.value()).arg(item.id).arg(candidate));
         }
     }
 
@@ -243,7 +245,7 @@ DocumentLoadResult Document::fromJson(const QJsonObject &root)
                     quint32 component = 0; qreal terminalNumber = 0;
                     if (idValue(ep.value(QStringLiteral("component")), &component) && number(ep.value(QStringLiteral("terminal")), &terminalNumber)
                         && std::floor(terminalNumber) == terminalNumber && terminalNumber <= std::numeric_limits<int>::max()
-                        && kinds.contains(component) && terminalNumber >= 0 && terminalNumber < symbolTerminalCount(kinds.value(component))) {
+                        && kinds.contains(component) && terminalNumber >= 0 && terminalNumber < builtinSymbolLibrary().find(kinds.value(component))->terminals.size()) {
                         *endpoint = makeTerminalEndpoint(component, static_cast<int>(terminalNumber)); return true;
                     }
                 }

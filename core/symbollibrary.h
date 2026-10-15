@@ -6,6 +6,7 @@
 
 #include <QHash>
 #include <QJsonObject>
+#include <QSet>
 #include <QString>
 #include <QStringList>
 #include <QVector>
@@ -43,6 +44,10 @@ QStringList libraryCategoryPath(const QString &category);
 // kind; finite coordinates; positive circle radius; non-empty, unique
 // terminal names; unique terminal offsets.
 QStringList validateLibrarySymbol(const LibrarySymbol &symbol);
+
+// Smallest-numbered unused "<prefix><n>" (n >= 1) not present in used. Shared
+// by Document::addComponent() and the loader so defaults and repairs agree.
+QString firstUnusedReference(const QString &prefix, const QSet<QString> &used);
 
 // An ordered collection of validated symbols with unique ids. Order is the
 // order symbols were added (for the built-in library, manifest order).
