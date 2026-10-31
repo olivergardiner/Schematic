@@ -1,6 +1,6 @@
 # Chunk J design note: SVG-based symbol authoring
 
-Status: **revised draft, awaiting approval.** No implementation starts until this note is approved (see AGENTS.md). Once approved, record settled points in DECISIONS.md and keep ROADMAP.md pointing here.
+Status: **approved design.** Implement only the next scoped step after its implementation plan is approved (see AGENTS.md). J1–J5 are proposed steps, not blanket authorization to implement them all.
 
 ## 1. Purpose and scope
 

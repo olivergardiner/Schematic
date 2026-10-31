@@ -6,7 +6,7 @@ This document describes open work and possible future directions. It is not a fi
 
 This is the default starting point for a coding request, not an authorization to implement multiple items at once. Confirm the requested scope before each substantial change, following [AGENTS.md](AGENTS.md). Keep the design and acceptance checks for the selected item short and specific.
 
-1. **Symbol library authoring.** Refine and approve the draft [symbol import design](docs/design/symbol-import.md), then implement its scoped steps. The intended workflow is to draw glyphs in an external SVG editor, import supported SVG, add symbol metadata and terminals, and save a validated library definition.
+1. **Symbol library authoring.** The approved [symbol import design](docs/design/symbol-import.md) is split into J1–J5. Next, prepare a scoped implementation plan for J1 (the `Path` primitive); each step needs its own approval before implementation.
 2. **Symbol library growth.** Add symbol groups through the same library format, authoring process, validation, and serialization path.
 3. **Reliability and usability polish.** Address the open grid, wire recovery, route retracing, save, warning, and title-bar issues below as focused follow-up work.
 
@@ -47,7 +47,7 @@ Agree the precise set, geometry, categories, and acceptance checks as part of th
 
 ## Symbol library authoring
 
-This is the next major feature area. The draft [symbol import design](docs/design/symbol-import.md) describes a restricted SVG profile, in-app metadata and terminal editing, conversion to the native symbol definition, library storage, and document embedding. Refine and approve the design before implementation; its J1–J5 steps are proposals, not authorization to begin each step. Inkscape or another SVG editor remains the drawing tool; the application does not include a general-purpose artwork editor in this scope.
+This is the next major feature area. The approved [symbol import design](docs/design/symbol-import.md) describes a restricted SVG profile, in-app metadata and terminal editing, conversion to the native symbol definition, library storage, and document embedding. Its J1–J5 steps are proposals; approve a scoped plan for each step before implementation. Inkscape or another SVG editor remains the drawing tool; the application does not include a general-purpose artwork editor in this scope.
 
 Exporting an individual symbol as SVG and its metadata sidecar supports authoring and round trips. Exporting a complete schematic to SVG is a separate required future capability; it is not part of the symbol-creation feature.
 

@@ -31,6 +31,13 @@ This file records choices that affect the document model, file compatibility, or
 - Default references are the kind's prefix plus the smallest unused number (`R1`, `VR1`, `GND1`). The potentiometer prefix is `VR`. Symbols can hide their reference label (library `showsReference`; Ground only for now) while keeping a unique internal reference; the scene does not draw a hidden label. This is a per-symbol library property and is not serialized.
 - The symbol palette separates category browsing from symbol display: a library-driven category tree filters a graphical symbol grid. Symbol thumbnails share the canvas renderer and use a fixed preview box while preserving each glyph's aspect ratio. Clicking a symbol keeps repeated click-to-place; dragging it to the canvas places one component through the undoable edit path.
 
+## Symbol library authoring
+
+- All symbols are entries in one library and use the same definition, validation, lookup, import/export, and document rules. Packaged and writable storage locations are distribution details, not separate symbol types; duplicate IDs are surfaced as conflicts rather than silently shadowed.
+- Custom glyphs are authored in an external SVG editor and imported through the approved restricted SVG profile. The importer applies SVG element transforms, subtracts the chosen origin from artwork and terminals, and stores a self-contained native symbol definition. The profile supports fill and `nonzero`/`evenodd` fill rules; arcs and ellipses convert to cubic paths within 0.1 scene units. Individual-symbol SVG export is part of authoring; complete-schematic SVG export is a separate future capability.
+- A symbol ID's immutable terminal signature is terminal count, order, names, and local positions. Any change to that signature requires a new ID. Glyph artwork and presentation metadata may change under the same ID because they do not change connectivity.
+- Project format v3 embeds the full definitions of every symbol used by a document, preserving its saved appearance. Versions 1 and 2 remain loadable and resolve symbols from the current library. On conflict, GUI loading offers the choices in [the symbol authoring design](docs/design/symbol-import.md); headless loading uses the embedded definition for that document.
+
 ## Milestone boundaries
 
 - The first usable milestone focuses on schematic presentation and editing. PCB layout, circuit simulation, automatic routing, and SVG-based symbol authoring are outside this milestone; symbol authoring is planned separately. The application does not include a general-purpose artwork editor.
