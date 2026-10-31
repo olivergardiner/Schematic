@@ -1,161 +1,71 @@
-# Roadmap and review findings
+# Roadmap
 
-This document is a working list, not a promise or a fixed schedule. The first usable milestone has its main model, rendering, editing, and JSON file workflows in place. A code review identified the issues below; each item records whether it remains open or has been addressed.
+This document describes open work and possible future directions. It is not a fixed schedule or a promise of delivery. Settled behavior and architecture belong in [DECISIONS.md](DECISIONS.md); project goals and collaboration guidance belong in [AGENTS.md](AGENTS.md).
 
-## Milestone 2 plan
+## Suggested implementation order
 
-The following M2 scope and decisions have been agreed. Work is divided into chunks A–I (E is split into E0–E3). Chunks A–D and E0 are complete. **Each chunk requires the user's approval before implementation begins; completion of one chunk does not authorize the next.** Keep each piece of work limited to that chunk and its stated acceptance checks.
+This is the default starting point for a coding request, not an authorization to implement multiple items at once. Confirm the requested scope before each substantial change, following [AGENTS.md](AGENTS.md). Keep the design and acceptance checks for the selected item short and specific.
 
-### Settled M2 decisions
+1. **Undo/redo design.** Agree the design note for dirty state, New/Open/save, selection restoration, and command boundaries before changing code.
+2. **Undo/redo implementation.** Establish the application-layer edit-commit path and integrate undo/redo. Verify model state and clean/dirty transitions, plus one-step undo for a component drag and branched wire.
+3. **Editing workflow.** Extract a shared symbol renderer, then add the grouped palette and drag-to-place. Follow with the frequent-action toolbar and wire-drawing feedback, all using the edit-commit path.
+4. **Selected library additions.** Add symbol groups when requested, as library data with focused validation and serialization coverage. Treat SVG import as a separate, later design and approval.
+5. **Reliability and usability polish.** Once the main editing workflow is functional, address the open grid, wire recovery, route retracing, save, warning, and title-bar issues below as focused follow-up work.
 
-- Horizontal mirroring is in M2. Arbitrary-angle rotation and vertical mirroring are not included.
-- The project format advances to version 2 in chunk D. The loader accepts versions 1 and 2. Version 1 components are unmirrored; a `mirrored` property is invalid in version 1. Version 2 requires a boolean `mirrored` field on every component. `toJson()` always writes version 2, including `mirrored: false` where appropriate; opening and resaving a v1 file therefore upgrades it to v2.
-- On load, a missing, empty, or whitespace-only reference is generated using the component kind's reference prefix and receives a warning. Generation is deterministic and avoids references already used by explicit labels or other generated labels.
-- Non-empty duplicate references are rejected with an error identifying both components (kind and component ID) and the conflicting reference. Comparison is case-sensitive after trimming, matching the existing edit rule. This avoids silently renaming user-authored labels.
-- Undo/redo is in M2. Its design note must settle clean/dirty state, selection restoration, command boundaries for drags and compound wire operations, and New/Open/save behavior before implementation.
-- The potentiometer's reference prefix is `VR`.
-- Symbols become library data rather than hard-coded C++ (chunk E0, subject to its design note). JFET is the first new symbol added once that library exists.
+The order can change when priorities change or a coding request targets another item. The detailed ordering belongs here; only durable model, file-format, and cross-cutting editing choices belong in `DECISIONS.md`.
 
-### Chunks and acceptance checks
+### Undo and redo
 
-**A — Repository and comment housekeeping** (done)
+Undo/redo is part of the next major editing iteration. Before implementation, agree a design covering clean/dirty state, New/Open/save behavior, selection restoration, and command boundaries. A component drag should undo as one action; a completed branched wire operation should also undo as one action. Keep `schematiccore` Qt Core-only and integrate `QUndoStack` in the application layer.
 
-- Replace code/test comments that cite obsolete numbered planning sections with durable explanations or links to `DECISIONS.md`.
-- Keep the mirroring decision clear: out of scope for milestone 1 and in scope for milestone 2 (format v2).
-- Add `CMakeUserPresets.json` to `.gitignore`; remove machine-specific paths from checked-in CMake/VS Code configuration and use a user preset for local Qt/compiler paths.
-- Done when no obsolete step-plan references remain and a clean configure succeeds using a user preset.
+### Editing workflow
 
-**B — File and document reliability** (done)
+- Add a graphical symbol palette grouped from library categories, with accessible names and useful tooltips.
+- Support drag-to-place at the snapped canvas position, using the same edit-commit path as other undoable changes.
+- Add a frequent-action toolbar for placement, rotation, mirroring, and other common edits. Keep zoom and grid spacing in secondary controls, with Ctrl+mouse-wheel as the primary zoom interaction.
+- Improve wire drawing feedback by highlighting valid terminals and making invalid draft points recoverable.
 
-- Add the window close prompt using the existing unsaved-change flow.
-- Check that `QSaveFile::write()` writes the complete byte array before committing.
-- Prevent grid-control signals from mutating a newly loaded/new document during UI synchronization, and preserve the file's supported grid precision in the control/model.
-- Serialize nodes in stable ID order.
-- Implement and test the settled loader label policy: generate missing/blank references deterministically with warnings, reject duplicate non-empty references naming both components, and trim loaded values consistently with label editing. Add reference-prefix metadata for the existing symbols as needed for deterministic generation; chunk D uses the same metadata for defaults on newly placed components.
-- Done when focused tests cover reference repair/duplicate rejection, precise grid round trips and stable node order, and the close prompt is checked manually.
+The palette and toolbar should use a shared renderer so their symbol artwork matches the canvas. Plan these changes together with undo/redo because they depend on a common edit-commit path.
 
-**C — Wire recovery, route reversal, and selection preservation** (done)
+### Reliability and usability
 
-- Keep a pending wire available for correction when a completion attempt is rejected; do not append duplicate consecutive vertices.
-- Preserve selected component identities across scene rebuilds. Current wire items are not selectable, so this chunk must not silently expand scope to wire selection.
-- Reject a collinear route that reverses direction (for example, `(0,0) → (50,0) → (30,0)`) through the shared route validator; ensure endpoint movement cannot commit such a route.
-- Done when model tests cover route reversals, a manual check confirms a rejected wire can be corrected, and selection survives edits that rebuild the scene.
+- Bound grid-rendering work for very small document grid spacing while preserving exact spacing for snapping.
+- Decide how users recover from an invalid vertex in a pending wire (for example, reject it with feedback or provide a remove-last-vertex action).
+- Decide whether component moves that retrace a route should be rejected or should collapse the retraced corner.
+- Add the `.schematic` suffix on save when a path has no extension.
+- Make persistent load warnings discoverable after the temporary status message expires.
+- Consider showing a concise document name in the window title instead of the full path.
 
-**D — Component transforms, references, and format v2** (done)
+## Symbol library growth
 
-- Add transactional `Document::rotateComponent()` and horizontal mirroring. Both update terminal-anchored route geometry atomically and reject a transform if any affected route becomes invalid.
-- Add a `mirrored` component property and implement the v1/v2 loading and v2 writing contract above. Mirror local symbol geometry horizontally before applying quadrant rotation; keep label text readable and do not mirror it.
-- Add per-kind reference prefixes (for example, R, C, D) for default references and a `showsReference` property for symbol kinds that should hide that label while retaining a unique internal reference.
-- Done when headless tests cover rotation/mirror terminal positions, transactional rejection, defaults, and v1/v2 round trips including invalid version/property combinations.
+The data-driven library is in place. Add symbols as library entries with focused validation and serialization coverage; preserve released IDs, terminal order, and terminal positions as described in [DECISIONS.md](DECISIONS.md).
 
-**E0 — Data-driven symbol library** (done)
+Potential additions, subject to selection and design when work is planned:
 
-- Write and approve a short design note before coding. The long-term goal is a maintainable, extensible library (transistors including MOSFETs, diode variants, valves, transconductance amps and more), so adding a symbol should be a data entry plus a test, not a C++ change.
-- Move symbol definitions into library data (JSON, embedded as Qt resources initially). Each entry has a stable string ID, display name, category, a /-separated path such as Semiconductors/Diodes (used by the palette in F), reference prefix, `showsReference`, primitives, and named terminals. A registry in `schematiccore` serves them (Qt Core only). `SymbolKind` as a closed enum is replaced by an ID-based handle.
-- The existing seven symbols keep their current names as IDs, so version 1 and 2 documents load unchanged. No format version bump in this chunk.
-- Terminals are referenced by index in saved wires, so a released symbol's terminal order and positions must never change; changed geometry gets a new ID. The note must decide whether to keep index references or move to names.
-- The note must also decide how an unknown symbol ID is handled on load, and where user library files could live later (on disk, embedded in documents). Neither is implemented in E0, but E0 must not block them.
-- Done when the seven existing symbols load from library data, all existing tests pass apart from renames for the new API, a library validation case for malformed category paths (empty segment, stray whitespace), library validation is tested (duplicate IDs, bad terminal definitions, missing prefix, malformed category paths), and a pre-E0 file loads identically.
-- Design note decisions: saved wires keep referencing terminals by index (no format change); an unknown symbol ID rejects the whole document with an error naming the ID; user libraries are not implemented, but `SymbolLibrary::loadFromDirectory()` already loads from a disk directory and built-in IDs cannot be shadowed, so disk libraries can be added later; embedding definitions in documents is deferred.
+- JFET, BJT, and MOSFET variants.
+- LED, Zener, and Schottky diodes; switches, inductors, and supply rails.
+- Triode and pentode valves, and transconductance amplifiers.
+- Input, output, and bidirectional signal ports. Their labels and direction should remain presentation metadata and must not infer electrical connectivity.
 
-**E1 — Transistors** (deferred)
+Agree the precise set, geometry, categories, and acceptance checks as part of the proposal for each group of symbols.
 
-- JFET first, then BJT (NPN/PNP) and MOSFET (N/P). Polarity and type variants are separate library entries, not flags.
-- Done when each symbol and its JSON round trip are covered by focused tests.
+## User-authored symbols
 
-**E2 — Diodes, passives, valves, and other devices** (deferred)
+An SVG import workflow is a possible later direction, beginning with a restricted SVG profile and a step for defining terminals. A draft design note is available at [docs/design/J-symbol-import.md](docs/design/J-symbol-import.md). Before implementation, settle import behavior, storage of artwork and terminal definitions, user library discovery, conflict handling, and document portability. The draft describes possible sub-steps; it is not an approved implementation plan.
 
-- LED, Zener and Schottky diodes (which go under Semiconductors/Diodes); switch, inductor, supply rail; triode and pentode valves; transconductance amp (OTA). Order and exact set to be agreed when E2 is approved.
-- Done when each symbol and its JSON round trip are covered by focused tests.
+## Other possible directions
 
-**E3 — Signal ports (design note first)** (deferred)
+- Export schematics to SVG, PNG, or PDF.
+- Add free-text annotations and callouts, and improve label placement for rotated or crowded symbols.
+- Support moving multiple selected components together.
+- Add UI and file-I/O tests where they fit the existing headless model-test setup.
 
-- Input, output and bidirectional signal ports. Direction and labels are presentation metadata; they do not infer or alter electrical connectivity.
-- Signal ports (input, output, bidirectional) and supply rails are expected to be imported symbols whose value label carries the text, with the reference hidden (as for Ground). No format change is planned. Revisit only if that proves insufficient (for example, text inside the glyph, or net connection by name).
+## Open design questions
 
-**H — Undo/redo design and core integration (schedule before F and G)**
+- Should a junction dot appear where multiple wire routes meet a component terminal? Current rendering derives dots from shared route endpoint identities with three or more wire ends.
+- Should future user libraries be loaded from disk, embedded in documents, or support both? Document portability and definition conflicts need to be resolved before user-authored symbols ship.
+- If future symbol features require per-instance metadata or net naming, what document-format changes and migration rules are needed?
 
-- Write and approve a design note before coding. It must define clean-index dirty state, New/Open/save interaction, selection restoration, and transaction boundaries: a component drag is one command and a completed branched wire operation is one command.
-- Keep `schematiccore` Qt Core-only. Put any `QUndoStack` or scene/controller integration in the application layer.
-- Establish a single edit-commit path and route existing edits plus the M2 model operations through it. This gives the palette drop and toolbar actions in F/G an undoable path from their first implementation.
-- Done when undo/redo tests cover model state and clean/dirty transitions, and manual checks confirm selection restoration and one-step undo for a drag and a branched wire.
+## Planning and status
 
-**F — Shared renderer, grouped palette, and drag-to-place**
-
-- Extract the current primitive path generation into a shared application-layer renderer used by both canvas and palette, so symbol artwork matches. Generate the sections from the library's category field (E0) rather than a hard-coded list.
-- Build grouped palette sections and nested groups generated from the library’s category paths (today’s top-level groups: Passives, Semiconductors, ICs, Connectors, Signals) with graphical symbols, accessible names, and tooltips.
-- Support dragging a palette symbol onto the canvas and placing it at the snapped drop position through the edit-commit path.
-- Done when palette artwork matches the canvas and a drop places one snapped, undoable component.
-
-**G — Frequent-action toolbar and interaction polish**
-
-- Add a graphical toolbar with in-code icons for frequent actions, including rotation and horizontal mirror. Enable transform actions only when one component is selected.
-- Move zoom and grid spacing controls to the View menu/secondary controls; Ctrl+mouse-wheel remains the primary zoom interaction.
-- Escape returns to Select mode; highlight valid terminals while drawing wires.
-- Done when a manual walkthrough covers placement, rotation, mirroring, undo, and wire drawing.
-
-**J — User-authored symbols via SVG import**
-
-- Design note: [docs/design/J-symbol-import.md](docs/design/J-symbol-import.md) (draft; must be approved before implementation).
-- Symbols are imported from plain SVG (a restricted profile, all transforms applied, out-of-profile content ignored with warnings) plus a sidecar JSON that carries metadata and terminals. The stored symbol is self-contained.
-- Sub-steps, each requiring approval: J1 `Path` primitive and `filled` flag; J2 headless importer and symbol exporter; J3 import dialog with click-to-place terminals; J4 registry, user library directory and failure policy; J5 document embedding (format v3) and conflict prompts.
-- Depends on F's shared renderer and H's edit-commit path.
-
-**I - Tidy up M2 comments**
-
-- Make sure that there are no stale references to chunks once M2 is complete
-- Remove finished-work notes from this file (completed chunk descriptions that no longer help) and any stale chunk references in code and tests.
-
-## Correctness and reliability follow-up
-
-The following items were confirmed by source review. Prioritize them before adding larger product features:
-
-1. **Protect unsaved work on window close.** Implemented (chunk B): `MainWindow::closeEvent()` calls `maybeSave()`. Manually verified.
-2. **Preserve a pending wire after rejected completion.** Fixed (chunk C): a rejected completion keeps the draft available for correction, and duplicate consecutive points are suppressed.
-3. **Validate route reversals.** Fixed (chunk C): the shared route validator rejects collinear backtracking, and endpoint movement uses the same validator. Covered by model tests.
-4. **Apply label normalization while loading.** Fixed (chunk B), covered by tests: missing/blank references are generated from per-kind prefixes with a warning; duplicate non-empty references are rejected with an error naming both components; references and values are trimmed.
-5. **Preserve grid precision on open.** Fixed (chunk B): the control is synchronized with signals blocked, so loading cannot rewrite the document value, and the file value round-trips exactly (tested). The spin box shows 4 decimals and is limited to 0.1-1000, so a valid file value outside that range displays clamped but is kept unchanged in the model.
-6. **Check the full save write.** Fixed (chunk B): a short or failed `QSaveFile::write()` cancels the save instead of committing. Not covered by an automated test (no practical way to force a short write headlessly).
-7. **Make serialized node order stable.** Fixed (chunk B): `toJson()` writes nodes in ascending ID order (tested).
-8. **Bound grid-rendering work for very small spacing.** The loader accepts every finite positive spacing, while `SchematicView::drawBackground()` currently emits one line per scene-space interval. A file with spacing such as `0.001` can therefore cause an enormous number of grid lines per repaint. Adapt grid drawing to zoom (skip minor lines or use a coarser visual grid below a screen-space threshold) while retaining the document's exact spacing for snapping.
-9. **Recover from a bad vertex in a pending wire.** While drawing, a click that would reverse direction on the last segment is accepted into the draft, and nothing removes it. Either reject such a click at click time with a status message (reusing the route validator), or add a remove-last-vertex action. Backspace is already bound to delete-selection, so that action needs another key or a context check.
-10. **Component moves that retrace a route.** Moving a component along a wire's axis past the route's next vertex is now rejected. Decide whether to leave this or collapse the retraced vertex automatically (as the existing redundant-corner collapse does), and cover the decision with a model test.
-
-Smaller file/UI follow-ups from the review:
-
-- Add the `.schematic` suffix when saving if the chosen path has no extension.
-- Consider showing a shorter document name rather than the full path in the title bar.
-- Make persistent load warnings discoverable after the temporary status-bar message expires (for example, retain them in a log or document notice).
-
-## Decisions to settle before changing the model or file contract
-
-- **Symbol geometry compatibility:** version 1 derives route endpoints from current built-in terminal positions. Moving a terminal offset can make an existing saved route invalid on load. Freeze geometry before public files exist, or design explicit symbol-definition versioning/migration before changing it. Settled by E0: a released symbol's terminal order and positions are frozen, and changed geometry gets a new symbol ID, so existing files keep resolving.
-- **Junction dots at component terminals:** decide whether a terminal shared by multiple wire routes should display a dot. Current derived dots are based on shared route endpoint identities with three or more wire ends.
-- **Off-grid terminals:** op-amp terminal offsets are not all grid multiples. This follows the world-coordinate design decision; changing offsets for grid alignment would alter symbol geometry and saved-wire compatibility, so do not do it as a cosmetic fix.
-- **Document compatibility for future symbols and transforms:** custom symbol definitions, changed terminal positions, and mirroring affect how documents reopen. Choose how definitions are versioned or stored with documents before shipping these capabilities. Partly settled by E0: symbol IDs are stable and an unknown ID rejects the document with an error naming it; storing or embedding definitions in documents is still open.
-
-## Later presentation and editing features
-
-These are product ideas from review, not confirmed requirements for the first milestone:
-
-- SVG, PNG, or PDF export.
-- Free-text annotations and callouts; improved label placement for rotated or crowded symbols.
-- Escape-to-Select behavior and moving multiple selected components together.
-- Automated UI/file-I/O tests where they can be added without undermining the existing headless model-test setup.
-
-## Editing and symbol-library direction
-
-The following are user-requested directions for the next product iteration. Details can be planned before implementation:
-
-- **Maintainable symbol libraries:** the symbol set should grow without code changes (see E0). Categories drive the palette, variants such as N/P-channel or LED versus Zener are separate entries, and user-maintained library files are a later step once the library format and compatibility rules are settled.
-- **Grouped symbol palette:** organize symbols into groups driven by the library's category paths, such as Passives, Semiconductors, ICs, Connectors, and Signals. Signals can include ground and supply symbols plus labelled input, output, and bidirectional signal connectors. Signal labels and direction are presentation metadata; they must not infer electrical connectivity.
-- **Drag-to-place palette:** users should be able to drag a symbol from the palette onto the canvas to place it, rather than selecting a text item and clicking to place. Show the actual graphical symbol in the palette instead of a text-only name; retain accessible names and tooltips.
-- **Frequent-action toolbar:** replace text-heavy controls with a graphical toolbar focused on common editing actions. Use recognizable icons, tooltips, and consider visible text labels for less familiar actions. Show rotation and mirroring controls when a component is selected. Keep zoom and grid-spacing controls in the View menu or other secondary controls; Ctrl+mouse-wheel remains the primary zoom interaction.
-- **Rotation and mirroring:** these should be document-model operations, not render-only transforms. They change terminal positions and may invalidate connected routes, so apply the same transactional validation used for component movement. Decide how mirroring affects terminal identities and labels before implementation.
-- **User-authored symbols:** start with an SVG import workflow and a Schematic step for identifying connection points, rather than building a full drawing editor immediately. Before implementation, decide how SVG artwork and terminal definitions are packaged or embedded so documents remain usable when the original external SVG is moved or changed. Symbol geometry, terminal identity, and file compatibility need a dedicated design plan.
-- **Wire-drawing feedback:** highlight available terminals while drawing wires.
-
-## Repository and release readiness
-
-- Checked-in CMake presets and VS Code configuration no longer contain machine-specific paths: Qt kit paths go in a git-ignored `CMakeUserPresets.json`, and VS Code launch/deploy tasks read `QT_BIN_DIR` (see README and CLAUDE.md).
-- Keep this roadmap and [DECISIONS.md](DECISIONS.md) as the repository source of truth. Update or remove items as code and decisions change.
+For substantial work, inspect the current code and propose a short, reviewable plan before implementation. Each proposal should state scope, design choices that are costly to change, and acceptance checks. Follow the approval process in [AGENTS.md](AGENTS.md). Update this roadmap when priorities or open questions change; record settled cross-cutting choices in [DECISIONS.md](DECISIONS.md).

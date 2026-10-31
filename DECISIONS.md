@@ -34,4 +34,5 @@ This file records choices that affect the document model, file compatibility, or
 
 - The first usable milestone focuses on schematic presentation and editing. PCB layout, circuit simulation, automatic routing, and user-authored symbols are out of scope.
 - Undo/redo is included in milestone 2, with its own design note covering clean/dirty state, selection restoration, and command boundaries before implementation. Wire-corner reshaping, net naming, arbitrary-angle rotation, vertical mirroring, and a full symbol editor remain deferred.
+- Application-layer edits use a single commit path so undo/redo, palette placement, and toolbar actions share consistent document updates. `schematiccore` remains Qt Core-only; UI undo-stack integration belongs in the application layer.
 - Grid and terminal placement should follow the world-coordinate contract above; do not move terminals onto a grid solely to make snapping simpler.
