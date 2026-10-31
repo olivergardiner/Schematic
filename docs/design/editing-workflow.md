@@ -1,6 +1,6 @@
 # Editing workflow design
 
-Status: **draft, awaiting review.** This note proposes a shared symbol renderer, a category-driven palette with drag-to-place, a frequent-action toolbar, and clearer wire-drawing feedback. No implementation starts until the design is approved (see [AGENTS.md](../../AGENTS.md)). Once approved, record durable model or interaction choices in [DECISIONS.md](../../DECISIONS.md) and track implementation in [ROADMAP.md](../../ROADMAP.md).
+Status: **approved design.** Implementation still needs its own scoped plan and approval (see [AGENTS.md](../../AGENTS.md)). Durable interaction choices are recorded in [DECISIONS.md](../../DECISIONS.md); [ROADMAP.md](../../ROADMAP.md) tracks the implementation work.
 
 ## 1. Purpose and scope
 
@@ -47,13 +47,15 @@ The concrete renderer API (for example, returning paths versus painting directly
 
 ### 5.1 Organization
 
-Build a tree from `libraryCategoryPath(symbol.category)`: each path segment is a category node and each symbol is a leaf under its final segment. A symbol with category `Passives` appears directly in that group; `Semiconductors/Diodes` appears under the nested Diodes group.
+Use a two-pane dock: a compact category tree on the left and a graphical symbol grid on the right. Build the tree from `libraryCategoryPath(symbol.category)`: each path segment is a category node. A symbol with category `Passives` belongs directly to that group; `Semiconductors/Diodes` belongs to the nested Diodes category.
 
-Use the category strings as presentation labels, preserving library spelling and order. Populate symbol leaves in manifest/library order. Do not hard-code top-level category lists; new library entries should appear in the palette without UI code changes.
+Selecting a category filters the symbol grid. Selecting a parent includes its descendants, displayed in groups headed by their immediate child categories so the user can distinguish Diodes from Transistors while browsing Semiconductors. A leaf category displays its symbols without an extra heading. Symbols appear once in any selected view.
 
-### 5.2 Symbol rows and interaction
+Use category strings as presentation labels, preserving library spelling and order. Populate category groups and symbols in first-seen/library order. Do not hard-code top-level category lists; new library entries should appear without palette-specific code changes.
 
-- Each leaf shows the shared-renderer thumbnail and the symbol display name.
+### 5.2 Symbol tiles and interaction
+
+- Each tile shows a shared-renderer thumbnail in one standard fixed-size box, with the symbol display name beside or below it. Preserve artwork aspect ratio and center it inside the box; do not vary tile dimensions by symbol shape.
 - Keep the display name as the accessible name and provide a tooltip. Category rows are accessible grouping labels.
 - A normal click on a symbol retains the current repeated PlaceComponent mode for users who prefer click-then-place.
 - Dragging a symbol leaf starts a Qt drag carrying a versioned MIME value containing only its stable symbol ID. Use the thumbnail as the drag pixmap.
@@ -62,7 +64,7 @@ Use the category strings as presentation labels, preserving library spelling and
 
 ### 5.3 Category and thumbnail sizing
 
-Use a consistent icon size and row height so sections scan cleanly. Scale each symbol independently into the preview box while preserving its aspect ratio. Long names remain visible through tooltips and accessible names; do not enlarge rows unpredictably for one symbol.
+Use a consistent thumbnail box and tile size so the grid scans cleanly. Scale each symbol independently into the preview box while preserving its aspect ratio. Long names remain visible through tooltips and accessible names; do not enlarge tiles unpredictably for one symbol. The category tree and symbol grid should be separated by an adjustable splitter; the symbol grid scrolls when the dock is short or narrow.
 
 ## 6. Canvas drop and placement
 
@@ -94,13 +96,13 @@ Toolbar mode actions and palette click-to-place remain mutually exclusive. A pal
 
 ### 8.1 Escape behavior
 
-Proposed behavior: Escape cancels the current wire draft (if any) and returns to Select mode in one press. It does not undo a committed edit. Keep the toolbar's checked mode synchronized when Escape changes modes. This replaces the current behavior where Escape only discards the wire preview and leaves Draw Wire selected.
+Agreed behavior: Escape cancels the current wire draft (if any) and returns to Select mode in one press. It does not undo a committed edit. Keep the toolbar's checked mode synchronized when Escape changes modes. This replaces the current behavior where Escape only discards the wire preview and leaves Draw Wire selected.
 
 ### 8.2 Connection-point feedback
 
-While Draw Wire mode is active, render a small, zoom-stable marker at each component terminal so available connection points are easy to see. Use an overlay or scene items that are not selectable and are not part of the document. While a wire draft is active, distinguish the current candidate under the pointer from other terminals.
+While Draw Wire mode is active, render a small, zoom-stable marker at each component terminal so available connection points are easy to see. Use an overlay or scene items that are not selectable and are not part of the document. While a wire draft is active, distinguish the current candidate under the pointer from other terminals, explicit nodes, and branch sites on wire segments.
 
-The markers are visual hints only. They do not reserve terminals, promise that every route to them will validate, or change endpoint identity. Existing explicit nodes and wire-segment branch targets remain valid wire starts/ends; this first feedback pass need only mark component terminals. The existing status messages continue to explain a rejected completion.
+The markers and hover cue are visual hints only. They do not reserve terminals, promise that every route to them will validate, or change endpoint identity. The hover cue identifies the candidate node or point on a wire segment under the pointer; wire segments do not receive persistent markers because every point along them can be a branch site. The existing status messages continue to explain a rejected completion.
 
 ## 9. Undo, selection, and state boundaries
 
@@ -128,10 +130,3 @@ Each substantial stage should have its own short implementation plan and approva
 - Escape cancels a pending wire and returns to Select; wire-terminal markers appear only in Draw Wire mode, track the document after edits/undo, and do not affect hit testing or connectivity.
 - View-only actions do not change dirty state. `schematiccore` continues to link Qt Core only and all existing headless model tests pass.
 - Manual walkthrough covers palette navigation, click placement, drag placement, undo/redo, transforms, wire feedback, rejected placement, and Escape behavior.
-
-## 12. Decisions to confirm
-
-1. Is a nested tree the preferred palette layout, with normal click retaining repeated PlaceComponent mode and drag providing one-off placement?
-2. Should Escape cancel a wire draft and switch to Select in the same press, as proposed?
-3. Should the first wire-feedback pass highlight only component terminals, leaving existing nodes and wire-segment branch targets without markers?
-4. Is one uniform thumbnail box with symbol name beside it the right balance for symbols with different aspect ratios?

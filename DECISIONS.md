@@ -29,6 +29,7 @@ This file records choices that affect the document model, file compatibility, or
 - Double-click opens the reference/value dialog. F2 renames the reference of exactly one selected component.
 - Component transforms include quadrant rotation and horizontal mirroring. Mirroring is applied to local symbol geometry before rotation; text labels remain readable. Transform operations update connected routes transactionally.
 - Default references are the kind's prefix plus the smallest unused number (`R1`, `VR1`, `GND1`). The potentiometer prefix is `VR`. Symbols can hide their reference label (library `showsReference`; Ground only for now) while keeping a unique internal reference; the scene does not draw a hidden label. This is a per-symbol library property and is not serialized.
+- The symbol palette separates category browsing from symbol display: a library-driven category tree filters a graphical symbol grid. Symbol thumbnails share the canvas renderer and use a fixed preview box while preserving each glyph's aspect ratio. Clicking a symbol keeps repeated click-to-place; dragging it to the canvas places one component through the undoable edit path.
 
 ## Milestone boundaries
 
@@ -38,4 +39,5 @@ This file records choices that affect the document model, file compatibility, or
 - The first undo/redo implementation stores before/after `Document` snapshots in application-layer commands. Each successful user-intent edit is one command (including a full component drag, multi-component deletion, or branched wire operation); rejected and no-op edits create none. Selection is restored by component ID and remains UI state.
 - The first undo/redo implementation does not restore wire-item selection after a scene rebuild.
 - The undo stack's clean index is the dirty-state source. Successful Save/Save As marks the current index clean; failed or cancelled file operations do not. New and successful Open reset the history. Grid-spacing changes are individually undoable; the first version has no history-size limit. Restoring a snapshot also restores document-local ID counters, so IDs from undone edits may be reused.
+- Escape cancels an in-progress wire and returns the editor to Select mode. During wire drawing, persistent markers identify component terminals and a hover cue identifies the current terminal, explicit node, or wire-segment branch site under the pointer. These cues do not alter connectivity or promise that a completed route will validate.
 - Grid and terminal placement should follow the world-coordinate contract above; do not move terminals onto a grid solely to make snapping simpler.

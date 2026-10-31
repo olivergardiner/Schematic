@@ -6,7 +6,7 @@ This document describes open work and possible future directions. It is not a fi
 
 This is the default starting point for a coding request, not an authorization to implement multiple items at once. Confirm the requested scope before each substantial change, following [AGENTS.md](AGENTS.md). Keep the design and acceptance checks for the selected item short and specific.
 
-1. **Editing workflow.** Review [the draft design note](docs/design/editing-workflow.md), then extract a shared symbol renderer, add the grouped palette and drag-to-place, and follow with toolbar and wire feedback through the established edit-commit path.
+1. **Editing workflow.** Implement [the approved design](docs/design/editing-workflow.md), starting with the shared renderer and split category/palette layout, then drag-to-place, toolbar actions, and wire feedback through the established edit-commit path.
 2. **Selected library additions.** Add symbol groups when requested, as library data with focused validation and serialization coverage. Treat SVG import as a separate, later design and approval.
 3. **Reliability and usability polish.** Once the main editing workflow is functional, address the open grid, wire recovery, route retracing, save, warning, and title-bar issues below as focused follow-up work.
 
