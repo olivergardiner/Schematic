@@ -1,5 +1,6 @@
 #include "schematicscene.h"
 #include "schematicitems.h"
+#include "symbolrenderer.h"
 
 #include "component.h"
 #include "document.h"
@@ -78,41 +79,6 @@ QPointF closestPointOnSegment(QPointF p, QPointF a, QPointF b)
         return QPointF(a.x(), qBound(lo, p.y(), hi));
     }
     return a; // Unreachable for a validated orthogonal route.
-}
-
-QPainterPath primitivePath(const SymbolPrimitive &primitive)
-{
-    QPainterPath path;
-    switch (primitive.kind) {
-    case PrimitiveKind::Line:
-        if (primitive.points.size() == 2) {
-            path.moveTo(primitive.points[0]);
-            path.lineTo(primitive.points[1]);
-        }
-        break;
-    case PrimitiveKind::Polyline:
-        if (!primitive.points.isEmpty()) {
-            path.moveTo(primitive.points.first());
-            for (int i = 1; i < primitive.points.size(); ++i)
-                path.lineTo(primitive.points[i]);
-        }
-        break;
-    case PrimitiveKind::Polygon:
-        if (!primitive.points.isEmpty()) {
-            path.moveTo(primitive.points.first());
-            for (int i = 1; i < primitive.points.size(); ++i)
-                path.lineTo(primitive.points[i]);
-            path.closeSubpath();
-        }
-        break;
-    case PrimitiveKind::Circle:
-        if (!primitive.points.isEmpty()) {
-            const QPointF centre = primitive.points.first();
-            path.addEllipse(centre, primitive.radius, primitive.radius);
-        }
-        break;
-    }
-    return path;
 }
 
 } // namespace
@@ -232,14 +198,10 @@ void SchematicScene::addComponentItems(const Component &component)
     // rotate-then-translate contract (see component.h/component.cpp
     // rotateOffset()).
     auto *artwork = new ComponentItem(component.id());
-    for (const SymbolPrimitive &primitive : def.primitives) {
-        const QPainterPath path = primitivePath(primitive);
-        if (path.isEmpty())
-            continue;
-        auto *primitiveItem = new QGraphicsPathItem(path);
+    for (const RenderedSymbolPrimitive &primitive : SymbolRenderer::primitives(def)) {
+        auto *primitiveItem = new QGraphicsPathItem(primitive.path);
         primitiveItem->setPen(QPen(Qt::black, kLineWidth));
-        if (primitive.kind == PrimitiveKind::Polygon)
-            primitiveItem->setBrush(Qt::white);
+        primitiveItem->setBrush(primitive.filled ? QBrush(Qt::white) : QBrush(Qt::NoBrush));
         artwork->addToGroup(primitiveItem);
     }
     artwork->setPos(component.position());
@@ -255,9 +217,7 @@ void SchematicScene::addComponentItems(const Component &component)
     // "Symbols and labels"). Each is tagged with the same ComponentId (see
     // schematicitems.h) so a click on a label maps back to this component for
     // selection/dragging/deletion - see componentItemAt().
-    QRectF localBounds;
-    for (const SymbolPrimitive &primitive : def.primitives)
-        localBounds = localBounds.united(primitivePath(primitive).boundingRect());
+    const QRectF localBounds = SymbolRenderer::bounds(def);
 
     QFont font;
     font.setPixelSize(static_cast<int>(kLabelPixelSize));

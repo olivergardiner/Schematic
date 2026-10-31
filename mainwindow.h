@@ -6,6 +6,7 @@
 #include "schematicscene.h"
 #include "identifiers.h"
 
+#include <QHash>
 #include <QMainWindow>
 
 class QLabel;
@@ -15,8 +16,12 @@ class QToolButton;
 class QAction;
 class QActionGroup;
 class QCloseEvent;
+class QScrollArea;
 class SchematicScene;
 class SchematicView;
+class QTreeWidget;
+class QTreeWidgetItem;
+class QVBoxLayout;
 
 class MainWindow : public QMainWindow
 {
@@ -63,6 +68,7 @@ private:
     void createToolBar();
     void createSymbolDock();
     void createStatusBar();
+    void populateSymbolGrid(const QString &categoryPath);
     void updateWindowTitle();
     // Pushes m_document's grid spacing into the toolbar spin box and the
     // view *without* emitting valueChanged(), so loading/creating a document
@@ -101,6 +107,12 @@ private:
     // that symbol as the kind to place, replacing the old separate
     // "Place" toggle + combo box.
     QActionGroup   *m_modeGroup        = nullptr;
+    QTreeWidget    *m_categoryTree     = nullptr;
+    QScrollArea    *m_symbolScrollArea = nullptr;
+    QWidget        *m_symbolGridContent = nullptr;
+    QVBoxLayout    *m_symbolSectionsLayout = nullptr;
+    QHash<QString, QTreeWidgetItem *> m_categoryItems;
+    QHash<SymbolId, QAction *> m_symbolActions;
 
     QString m_currentFilePath;
     DocumentEditController *m_editController = nullptr;

@@ -5,10 +5,10 @@
             "name": "Launch Schematic (MSVC Debug)",
             "type": "cppvsdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/Debug/Schematic.exe",
+            "program": "${workspaceFolder}/build-vs2022/Debug/Schematic.exe",
             "args": [],
             "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/build/Debug",
+            "cwd": "${workspaceFolder}/build-vs2022/Debug",
             "environment": [
                 { "name": "PATH", "value": "${env:QT_BIN_DIR};${env:PATH}" }
             ],
@@ -18,10 +18,10 @@
             "name": "Launch Schematic (MSVC Release)",
             "type": "cppvsdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/Release/Schematic.exe",
+            "program": "${workspaceFolder}/build-vs2022/Release/Schematic.exe",
             "args": [],
             "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/build/Release",
+            "cwd": "${workspaceFolder}/build-vs2022/Release",
             "environment": [
                 { "name": "PATH", "value": "${env:QT_BIN_DIR};${env:PATH}" }
             ],

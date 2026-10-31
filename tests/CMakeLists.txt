@@ -40,3 +40,21 @@ target_link_libraries(schematicundo_tests
 )
 
 add_test(NAME schematicundo_tests COMMAND schematicundo_tests)
+
+# Shared symbol artwork conversion and palette preview painting. QImage keeps
+# these renderer checks headless while still exercising Qt Gui painting.
+qt_add_executable(schematicrenderer_tests
+    tst_symbolrenderer.cpp
+    ../symbolrenderer.cpp
+    ../symbolrenderer.h
+)
+
+target_link_libraries(schematicrenderer_tests
+    PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Test
+        schematiccore
+)
+
+add_test(NAME schematicrenderer_tests COMMAND schematicrenderer_tests)

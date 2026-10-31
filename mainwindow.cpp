@@ -5,6 +5,7 @@
 #include "wireendpoint.h"
 #include "documentloadresult.h"
 #include "symbollibrary.h"
+#include "symbolrenderer.h"
 
 #include <QApplication>
 #include <QMenuBar>
@@ -30,6 +31,13 @@
 #include <QDialogButtonBox>
 #include <QInputDialog>
 #include <QSignalBlocker>
+#include <QGridLayout>
+#include <QPainter>
+#include <QPixmap>
+#include <QScrollArea>
+#include <QSplitter>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
 
 #include <utility>
 
@@ -210,34 +218,152 @@ void MainWindow::createSymbolDock()
     dock->setObjectName("symbolDock");
     dock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
 
-    auto *container = new QWidget(dock);
-    auto *layout = new QVBoxLayout(container);
-    layout->setContentsMargins(4, 4, 4, 4);
+    auto *splitter = new QSplitter(Qt::Horizontal, dock);
+    m_categoryTree = new QTreeWidget(splitter);
+    m_categoryTree->setHeaderHidden(true);
+    m_categoryTree->setMinimumWidth(105);
+    m_symbolScrollArea = new QScrollArea(splitter);
+    m_symbolScrollArea->setWidgetResizable(true);
+    m_symbolScrollArea->setMinimumWidth(150);
+    m_symbolGridContent = new QWidget(m_symbolScrollArea);
+    m_symbolSectionsLayout = new QVBoxLayout(m_symbolGridContent);
+    m_symbolSectionsLayout->setContentsMargins(4, 4, 4, 4);
+    m_symbolSectionsLayout->setSpacing(8);
+    m_symbolScrollArea->setWidget(m_symbolGridContent);
+    splitter->addWidget(m_categoryTree);
+    splitter->addWidget(m_symbolScrollArea);
+    splitter->setStretchFactor(0, 0);
+    splitter->setStretchFactor(1, 1);
+    splitter->setSizes({130, 250});
 
-    // One palette button per library symbol, in library (manifest) order.
+    // Keep one placement action per symbol so checked state survives category
+    // changes that recreate the visible tile widgets.
     for (const LibrarySymbol &symbol : builtinSymbolLibrary().symbols()) {
-        // One QAction per symbol, added to m_modeGroup so it is mutually
-        // exclusive with Select/Draw Wire, bound to a QToolButton via
-        // setDefaultAction() (the standard Qt pattern for a button whose
-        // checked state and click behaviour are entirely driven by its
-        // action - no manual signal syncing needed).
         auto *action = new QAction(symbol.displayName, this);
         action->setCheckable(true);
         m_modeGroup->addAction(action);
         connect(action, &QAction::triggered, this, [this, id = symbol.id]() {
             onPlaceComponentKindChanged(id);
         });
+        m_symbolActions.insert(symbol.id, action);
 
-        auto *button = new QToolButton(container);
-        button->setDefaultAction(action);
-        button->setToolButtonStyle(Qt::ToolButtonTextOnly);
-        button->setMinimumWidth(96);
-        layout->addWidget(button);
+        QString path;
+        QTreeWidgetItem *parent = nullptr;
+        for (const QString &segment : libraryCategoryPath(symbol.category)) {
+            path = path.isEmpty() ? segment : path + QLatin1Char('/') + segment;
+            QTreeWidgetItem *category = m_categoryItems.value(path, nullptr);
+            if (!category) {
+                category = parent ? new QTreeWidgetItem(parent)
+                                  : new QTreeWidgetItem(m_categoryTree);
+                category->setText(0, segment);
+                category->setData(0, Qt::UserRole, path);
+                category->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+                m_categoryItems.insert(path, category);
+            }
+            parent = category;
+        }
     }
-    layout->addStretch(1);
 
-    dock->setWidget(container);
+    connect(m_categoryTree, &QTreeWidget::currentItemChanged, this,
+            [this](QTreeWidgetItem *current, QTreeWidgetItem *) {
+                if (current)
+                    populateSymbolGrid(current->data(0, Qt::UserRole).toString());
+            });
+    m_categoryTree->expandAll();
+    if (m_categoryTree->topLevelItemCount() > 0) {
+        QTreeWidgetItem *firstCategory = m_categoryTree->topLevelItem(0);
+        m_categoryTree->setCurrentItem(firstCategory);
+        populateSymbolGrid(firstCategory->data(0, Qt::UserRole).toString());
+    }
+
+    dock->setWidget(splitter);
     addDockWidget(Qt::LeftDockWidgetArea, dock);
+}
+
+void MainWindow::populateSymbolGrid(const QString &categoryPath)
+{
+    if (!m_symbolScrollArea)
+        return;
+
+    QWidget *oldContent = m_symbolScrollArea->takeWidget();
+    delete oldContent;
+    m_symbolGridContent = new QWidget(m_symbolScrollArea);
+    m_symbolSectionsLayout = new QVBoxLayout(m_symbolGridContent);
+    m_symbolSectionsLayout->setContentsMargins(4, 4, 4, 4);
+    m_symbolSectionsLayout->setSpacing(8);
+
+    struct PaletteSection
+    {
+        QString title;
+        QVector<const LibrarySymbol *> symbols;
+    };
+    QVector<PaletteSection> sections;
+    QHash<QString, int> sectionIndices;
+    const QStringList selectedPath = libraryCategoryPath(categoryPath);
+    const QString descendantPrefix = categoryPath + QLatin1Char('/');
+
+    for (const LibrarySymbol &symbol : builtinSymbolLibrary().symbols()) {
+        if (symbol.category != categoryPath && !symbol.category.startsWith(descendantPrefix))
+            continue;
+
+        QString sectionTitle;
+        if (symbol.category != categoryPath) {
+            const QStringList symbolPath = libraryCategoryPath(symbol.category);
+            if (symbolPath.size() > selectedPath.size())
+                sectionTitle = symbolPath.at(selectedPath.size());
+        }
+        int sectionIndex = sectionIndices.value(sectionTitle, -1);
+        if (sectionIndex < 0) {
+            sectionIndex = sections.size();
+            sectionIndices.insert(sectionTitle, sectionIndex);
+            sections.append({sectionTitle, {}});
+        }
+        sections[sectionIndex].symbols.append(&symbol);
+    }
+
+    constexpr int kGridColumns = 2;
+    const QSize thumbnailSize(64, 48);
+    for (const PaletteSection &section : sections) {
+        if (!section.title.isEmpty()) {
+            auto *heading = new QLabel(section.title, m_symbolGridContent);
+            QFont headingFont = heading->font();
+            headingFont.setBold(true);
+            heading->setFont(headingFont);
+            m_symbolSectionsLayout->addWidget(heading);
+        }
+
+        auto *grid = new QGridLayout;
+        grid->setContentsMargins(0, 0, 0, 0);
+        grid->setSpacing(4);
+        for (int i = 0; i < section.symbols.size(); ++i) {
+            const LibrarySymbol &symbol = *section.symbols.at(i);
+            QAction *action = m_symbolActions.value(symbol.id, nullptr);
+            if (!action)
+                continue;
+
+            QPixmap thumbnail(thumbnailSize);
+            thumbnail.fill(Qt::transparent);
+            {
+                QPainter painter(&thumbnail);
+                SymbolRenderer::paintPreview(&painter, symbol,
+                                             QRectF(QPointF(0, 0), thumbnailSize));
+            }
+            action->setIcon(QIcon(thumbnail));
+            action->setToolTip(symbol.displayName);
+
+            auto *button = new QToolButton(m_symbolGridContent);
+            button->setDefaultAction(action);
+            button->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+            button->setIconSize(thumbnailSize);
+            button->setFixedSize(112, 88);
+            button->setAccessibleName(symbol.displayName);
+            button->setToolTip(symbol.displayName);
+            grid->addWidget(button, i / kGridColumns, i % kGridColumns);
+        }
+        m_symbolSectionsLayout->addLayout(grid);
+    }
+    m_symbolSectionsLayout->addStretch(1);
+    m_symbolScrollArea->setWidget(m_symbolGridContent);
 }
 
 void MainWindow::createStatusBar()
