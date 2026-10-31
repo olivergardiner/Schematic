@@ -6,6 +6,7 @@
 #include "documentloadresult.h"
 #include "symbollibrary.h"
 #include "symbolrenderer.h"
+#include "symbolmimedata.h"
 
 #include <QApplication>
 #include <QMenuBar>
@@ -15,6 +16,8 @@
 #include <QLabel>
 #include <QToolButton>
 #include <QDoubleSpinBox>
+#include <QDrag>
+#include <QMouseEvent>
 #include <QMessageBox>
 #include <QFileDialog>
 #include <QCloseEvent>
@@ -47,6 +50,64 @@ namespace {
 // control only displays it at this precision, and loading never writes the
 // displayed value back into the document.
 constexpr int kGridSpinDecimals = 4;
+
+class SymbolTileButton final : public QToolButton
+{
+public:
+    SymbolTileButton(QAction *action, SymbolId id, QWidget *parent)
+        : QToolButton(parent)
+        , m_id(std::move(id))
+    {
+        setDefaultAction(action);
+    }
+
+protected:
+    void mousePressEvent(QMouseEvent *event) override
+    {
+        if (event->button() == Qt::LeftButton) {
+            m_pressPosition = event->position().toPoint();
+            m_dragStarted = false;
+        }
+        QToolButton::mousePressEvent(event);
+    }
+
+    void mouseMoveEvent(QMouseEvent *event) override
+    {
+        if (!m_dragStarted && (event->buttons() & Qt::LeftButton)
+            && (event->position().toPoint() - m_pressPosition).manhattanLength()
+                   >= QApplication::startDragDistance()) {
+            m_dragStarted = true;
+            setDown(false);
+
+            QDrag drag(this);
+            drag.setMimeData(SymbolMimeData::create(m_id));
+            const QPixmap pixmap = icon().pixmap(iconSize());
+            drag.setPixmap(pixmap);
+            drag.setHotSpot(QPoint(pixmap.width() / 2, pixmap.height() / 2));
+            drag.exec(Qt::CopyAction);
+            setDown(false);
+            event->accept();
+            return;
+        }
+        QToolButton::mouseMoveEvent(event);
+    }
+
+    void mouseReleaseEvent(QMouseEvent *event) override
+    {
+        if (m_dragStarted) {
+            m_dragStarted = false;
+            setDown(false);
+            event->accept();
+            return;
+        }
+        QToolButton::mouseReleaseEvent(event);
+    }
+
+private:
+    SymbolId m_id;
+    QPoint m_pressPosition;
+    bool m_dragStarted = false;
+};
 } // namespace
 
 MainWindow::MainWindow(QWidget *parent)
@@ -72,6 +133,10 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onEditComponentLabels);
     connect(m_scene, &SchematicScene::selectionChanged,
             this, &MainWindow::updateRenameActionEnabled);
+    connect(m_view, &SchematicView::symbolDropped, this,
+            [this](const SymbolId &id, const QPointF &position) {
+                m_scene->placeComponentAt(id, position);
+            });
 
     resize(1000, 700);
     updateWindowTitle();
@@ -351,8 +416,7 @@ void MainWindow::populateSymbolGrid(const QString &categoryPath)
             action->setIcon(QIcon(thumbnail));
             action->setToolTip(symbol.displayName);
 
-            auto *button = new QToolButton(m_symbolGridContent);
-            button->setDefaultAction(action);
+            auto *button = new SymbolTileButton(action, symbol.id, m_symbolGridContent);
             button->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
             button->setIconSize(thumbnailSize);
             button->setFixedSize(112, 88);

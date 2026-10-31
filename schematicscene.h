@@ -64,6 +64,10 @@ public:
     EditMode editMode() const { return m_mode; }
     void setEditMode(EditMode mode);
 
+    // Adds one snapped symbol instance through the same undoable path as
+    // click-to-place. Used by palette drops without changing the active mode.
+    bool placeComponentAt(const SymbolId &id, QPointF scenePos);
+
     // The symbol placed by a click while editMode() == PlaceComponent.
     void setPlaceComponentKind(const SymbolId &id) { m_placeKind = id; }
 

@@ -110,6 +110,28 @@ void SchematicScene::setEditMode(EditMode mode)
     m_mode = mode;
 }
 
+bool SchematicScene::placeComponentAt(const SymbolId &id, QPointF scenePos)
+{
+    if (!m_document)
+        return false;
+    const LibrarySymbol *symbol = builtinSymbolLibrary().find(id);
+    if (!symbol)
+        return false;
+
+    const QPointF snapped = snapToGrid(scenePos);
+    ComponentId added = kInvalidComponentId;
+    return commitEdit(tr("Place %1").arg(symbol->displayName),
+                      [this, id, snapped, &added]() {
+        if (!m_document)
+            return false;
+        added = m_document->addComponent(id, snapped);
+        return added != kInvalidComponentId;
+    }, [&added]() {
+        return added == kInvalidComponentId ? QVector<ComponentId>{}
+                                            : QVector<ComponentId>{added};
+    });
+}
+
 void SchematicScene::cancelPendingWire()
 {
     if (!m_wireActive)
@@ -557,18 +579,7 @@ void SchematicScene::mousePressEvent(QGraphicsSceneMouseEvent *event)
             break;
         }
         case EditMode::PlaceComponent: {
-            const QPointF snapped = snapToGrid(event->scenePos());
-            const SymbolId kind = m_placeKind;
-            ComponentId added = kInvalidComponentId;
-            commitEdit(tr("Place component"), [this, kind, snapped, &added]() {
-                if (!m_document)
-                    return false;
-                added = m_document->addComponent(kind, snapped);
-                return added != kInvalidComponentId;
-            }, [&added]() {
-                return added == kInvalidComponentId ? QVector<ComponentId>{}
-                                                    : QVector<ComponentId>{added};
-            });
+            placeComponentAt(m_placeKind, event->scenePos());
             return;
         }
         case EditMode::DrawWire:

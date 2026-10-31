@@ -1,5 +1,9 @@
 #include "schematicview.h"
+#include "symbolmimedata.h"
 
+#include <QDragEnterEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
 #include <QMouseEvent>
 #include <QWheelEvent>
 #include <QPainter>
@@ -24,6 +28,43 @@ SchematicView::SchematicView(QWidget *parent)
     // Escape/Delete (handled by SchematicScene::keyPressEvent(), which only
     // ever receives events the view forwards) would silently do nothing.
     setFocusPolicy(Qt::StrongFocus);
+    setAcceptDrops(true);
+    viewport()->setAcceptDrops(true);
+}
+
+void SchematicView::dragEnterEvent(QDragEnterEvent *event)
+{
+    if (SymbolMimeData::read(event->mimeData())) {
+        event->setDropAction(Qt::CopyAction);
+        event->accept();
+        return;
+    }
+    event->ignore();
+}
+
+void SchematicView::dragMoveEvent(QDragMoveEvent *event)
+{
+    if (SymbolMimeData::read(event->mimeData())) {
+        event->setDropAction(Qt::CopyAction);
+        event->accept();
+        return;
+    }
+    event->ignore();
+}
+
+void SchematicView::dropEvent(QDropEvent *event)
+{
+    const std::optional<SymbolId> id = SymbolMimeData::read(event->mimeData());
+    if (!id) {
+        event->ignore();
+        return;
+    }
+
+    const QPoint viewportPosition = event->position().toPoint();
+    emit symbolDropped(*id, mapToScene(viewportPosition));
+    setFocus(Qt::MouseFocusReason);
+    event->setDropAction(Qt::CopyAction);
+    event->accept();
 }
 
 void SchematicView::applyZoom(qreal factor)

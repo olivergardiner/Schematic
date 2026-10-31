@@ -83,6 +83,7 @@ qt_add_executable(Schematic
     schematicitems.h
     schematicview.cpp
     schematicview.h
+    symbolmimedata.h
     symbolrenderer.cpp
     symbolrenderer.h
     documenteditcontroller.cpp

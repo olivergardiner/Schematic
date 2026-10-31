@@ -1,8 +1,12 @@
 #include "../symbolrenderer.h"
+#include "../symbolmimedata.h"
 
 #include <QImage>
+#include <QMimeData>
 #include <QPainter>
 #include <QtTest>
+
+#include <memory>
 
 class SymbolRendererTests : public QObject
 {
@@ -10,6 +14,7 @@ class SymbolRendererTests : public QObject
 
 private slots:
     void previewFitsTargetAndPaintsArtwork();
+    void symbolMimeDataCarriesKnownVersionedId();
 };
 
 void SymbolRendererTests::previewFitsTargetAndPaintsArtwork()
@@ -33,6 +38,28 @@ void SymbolRendererTests::previewFitsTargetAndPaintsArtwork()
         }
     }
     QVERIFY(paintedPixels > 0);
+}
+
+void SymbolRendererTests::symbolMimeDataCarriesKnownVersionedId()
+{
+    std::unique_ptr<QMimeData> mimeData(SymbolMimeData::create(SymbolIds::OpAmp));
+    QCOMPARE(QString::fromLatin1(SymbolMimeData::kSymbolIdMimeType),
+             QStringLiteral("application/vnd.schematic.symbol-id-v1"));
+    QCOMPARE(mimeData->formats(), QStringList{QString::fromLatin1(
+                 SymbolMimeData::kSymbolIdMimeType)});
+    const std::optional<SymbolId> decoded = SymbolMimeData::read(mimeData.get());
+    QVERIFY(decoded);
+    QCOMPARE(decoded->value(), SymbolIds::OpAmp.value());
+
+    QMimeData unknown;
+    unknown.setData(QString::fromLatin1(SymbolMimeData::kSymbolIdMimeType),
+                    QByteArrayLiteral("unknown-symbol"));
+    QVERIFY(!SymbolMimeData::read(&unknown));
+
+    QMimeData wrongVersion;
+    wrongVersion.setData(QStringLiteral("application/vnd.schematic.symbol-id-v2"),
+                         SymbolIds::OpAmp.value().toUtf8());
+    QVERIFY(!SymbolMimeData::read(&wrongVersion));
 }
 
 QTEST_GUILESS_MAIN(SymbolRendererTests)

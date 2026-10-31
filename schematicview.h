@@ -1,6 +1,8 @@
 #ifndef SCHEMATICVIEW_H
 #define SCHEMATICVIEW_H
 
+#include "symbolid.h"
+
 #include <QGraphicsView>
 
 // SchematicView renders the SchematicScene and provides the interactive
@@ -30,6 +32,7 @@ public slots:
 signals:
     void zoomFactorChanged(qreal factor);
     void mouseScenePositionChanged(const QPointF &scenePos);
+    void symbolDropped(const SymbolId &id, const QPointF &scenePos);
 
 protected:
     void wheelEvent(QWheelEvent *event) override;
@@ -37,6 +40,9 @@ protected:
     void mousePressEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
     void drawBackground(QPainter *painter, const QRectF &rect) override;
+    void dragEnterEvent(QDragEnterEvent *event) override;
+    void dragMoveEvent(QDragMoveEvent *event) override;
+    void dropEvent(QDropEvent *event) override;
 
 private:
     void applyZoom(qreal factor);
