@@ -6,17 +6,13 @@ This document describes open work and possible future directions. It is not a fi
 
 This is the default starting point for a coding request, not an authorization to implement multiple items at once. Confirm the requested scope before each substantial change, following [AGENTS.md](AGENTS.md). Keep the design and acceptance checks for the selected item short and specific.
 
-1. **Undo/redo design.** Agree the design note for dirty state, New/Open/save, selection restoration, and command boundaries before changing code.
-2. **Undo/redo implementation.** Establish the application-layer edit-commit path and integrate undo/redo. Verify model state and clean/dirty transitions, plus one-step undo for a component drag and branched wire.
-3. **Editing workflow.** Extract a shared symbol renderer, then add the grouped palette and drag-to-place. Follow with the frequent-action toolbar and wire-drawing feedback, all using the edit-commit path.
-4. **Selected library additions.** Add symbol groups when requested, as library data with focused validation and serialization coverage. Treat SVG import as a separate, later design and approval.
-5. **Reliability and usability polish.** Once the main editing workflow is functional, address the open grid, wire recovery, route retracing, save, warning, and title-bar issues below as focused follow-up work.
+1. **Editing workflow.** Extract a shared symbol renderer, then add the grouped palette and drag-to-place. Follow with the frequent-action toolbar and wire-drawing feedback, using the established edit-commit path.
+2. **Selected library additions.** Add symbol groups when requested, as library data with focused validation and serialization coverage. Treat SVG import as a separate, later design and approval.
+3. **Reliability and usability polish.** Once the main editing workflow is functional, address the open grid, wire recovery, route retracing, save, warning, and title-bar issues below as focused follow-up work.
 
 The order can change when priorities change or a coding request targets another item. The detailed ordering belongs here; only durable model, file-format, and cross-cutting editing choices belong in `DECISIONS.md`.
 
-### Undo and redo
-
-Undo/redo is part of the next major editing iteration. Before implementation, agree a design covering clean/dirty state, New/Open/save behavior, selection restoration, and command boundaries. A component drag should undo as one action; a completed branched wire operation should also undo as one action. Keep `schematiccore` Qt Core-only and integrate `QUndoStack` in the application layer.
+Undo/redo is implemented per [its approved design](docs/design/undo-redo.md). The remaining items below are open; each substantial change still needs a scoped plan and approval.
 
 ### Editing workflow
 
@@ -25,7 +21,7 @@ Undo/redo is part of the next major editing iteration. Before implementation, ag
 - Add a frequent-action toolbar for placement, rotation, mirroring, and other common edits. Keep zoom and grid spacing in secondary controls, with Ctrl+mouse-wheel as the primary zoom interaction.
 - Improve wire drawing feedback by highlighting valid terminals and making invalid draft points recoverable.
 
-The palette and toolbar should use a shared renderer so their symbol artwork matches the canvas. Plan these changes together with undo/redo because they depend on a common edit-commit path.
+The palette and toolbar should use a shared renderer so their symbol artwork matches the canvas. They should use the established edit-commit path so new actions are undoable from introduction.
 
 ### Reliability and usability
 

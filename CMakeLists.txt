@@ -83,6 +83,8 @@ qt_add_executable(Schematic
     schematicitems.h
     schematicview.cpp
     schematicview.h
+    documenteditcontroller.cpp
+    documenteditcontroller.h
 )
 
 target_link_libraries(Schematic

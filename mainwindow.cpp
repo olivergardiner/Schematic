@@ -31,6 +31,8 @@
 #include <QInputDialog>
 #include <QSignalBlocker>
 
+#include <utility>
+
 namespace {
 // Decimal places shown by the grid-spacing spin box. The document stores
 // the exact spacing (any finite positive value the file format accepts); the
@@ -44,6 +46,7 @@ MainWindow::MainWindow(QWidget *parent)
     , m_scene(new SchematicScene(this))
     , m_view(new SchematicView(this))
 {
+    m_editController = new DocumentEditController(&m_document, this);
     m_view->setScene(m_scene);
     setCentralWidget(m_view);
 
@@ -56,7 +59,6 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_view, &SchematicView::zoomFactorChanged, this, &MainWindow::onZoomFactorChanged);
     connect(m_view, &SchematicView::mouseScenePositionChanged,
             this, &MainWindow::onMouseScenePositionChanged);
-    connect(m_scene, &SchematicScene::documentEdited, this, &MainWindow::onDocumentEdited);
     connect(m_scene, &SchematicScene::statusMessage, this, &MainWindow::onSceneStatusMessage);
     connect(m_scene, &SchematicScene::componentDoubleClicked,
             this, &MainWindow::onEditComponentLabels);
@@ -71,6 +73,20 @@ MainWindow::MainWindow(QWidget *parent)
     // indirectly - see the m_document declaration comment in mainwindow.h.
     m_scene->bindDocument(&m_document);
     m_view->setGridSpacing(m_document.gridSpacing());
+    m_scene->setEditCommitter([this](const QString &description,
+                                     const std::function<bool()> &operation,
+                                     std::function<QVector<ComponentId>()> afterSelection) {
+        return m_editController->commit(description, operation, std::move(afterSelection));
+    });
+    m_editController->setSelectionCallbacks(
+        [this]() { return m_scene->selectedComponentIds(); },
+        [this](const QVector<ComponentId> &selection) {
+            m_scene->restoreAfterDocumentChange(selection);
+            syncGridControls();
+            updateWindowTitle();
+        });
+    connect(m_editController->undoStack(), &QUndoStack::cleanChanged,
+            this, &MainWindow::updateWindowTitle);
     updateRenameActionEnabled();
 }
 
@@ -107,12 +123,12 @@ void MainWindow::createMenus()
     exitAction->setShortcut(QKeySequence::Quit);
 
     auto *editMenu = menuBar()->addMenu(tr("&Edit"));
-    auto *undoAction = editMenu->addAction(tr("&Undo"));
+    auto *undoAction = m_editController->undoStack()->createUndoAction(this, tr("&Undo"));
     undoAction->setShortcut(QKeySequence::Undo);
-    undoAction->setEnabled(false);
-    auto *redoAction = editMenu->addAction(tr("&Redo"));
+    editMenu->addAction(undoAction);
+    auto *redoAction = m_editController->undoStack()->createRedoAction(this, tr("&Redo"));
     redoAction->setShortcut(QKeySequence::Redo);
-    redoAction->setEnabled(false);
+    editMenu->addAction(redoAction);
 
     editMenu->addSeparator();
     m_renameAction = editMenu->addAction(tr("&Rename..."), this,
@@ -236,7 +252,8 @@ void MainWindow::createStatusBar()
 void MainWindow::updateWindowTitle()
 {
     const QString name = m_currentFilePath.isEmpty() ? tr("Untitled") : m_currentFilePath;
-    setWindowTitle(QString("%1%2 - Schematic").arg(m_documentModified ? "*" : "", name));
+    const bool modified = m_editController && !m_editController->undoStack()->isClean();
+    setWindowTitle(QString("%1%2 - Schematic").arg(modified ? "*" : "", name));
 }
 
 void MainWindow::syncGridControls()
@@ -263,7 +280,7 @@ void MainWindow::closeEvent(QCloseEvent *event)
 
 bool MainWindow::maybeSave()
 {
-    if (!m_documentModified)
+    if (m_editController->undoStack()->isClean())
         return true;
 
     const auto result = QMessageBox::warning(this, tr("Schematic"),
@@ -287,9 +304,9 @@ void MainWindow::onNew()
 
     m_document = Document();
     m_scene->bindDocument(&m_document);
+    m_editController->resetHistory();
     syncGridControls();
     m_currentFilePath.clear();
-    m_documentModified = false;
     updateWindowTitle();
 }
 
@@ -318,9 +335,9 @@ void MainWindow::onOpen()
 
     m_document = *result.document;
     m_scene->bindDocument(&m_document);
+    m_editController->resetHistory();
     syncGridControls();
     m_currentFilePath = path;
-    m_documentModified = false;
     updateWindowTitle();
 
     if (!result.warnings.isEmpty())
@@ -366,7 +383,7 @@ bool MainWindow::onSave()
 
     if (!writeDocumentTo(m_currentFilePath))
         return false;
-    m_documentModified = false;
+    m_editController->setClean();
     updateWindowTitle();
     return true;
 }
@@ -384,7 +401,7 @@ bool MainWindow::onSaveAs()
     if (!writeDocumentTo(path))
         return false;
     m_currentFilePath = path;
-    m_documentModified = false;
+    m_editController->setClean();
     updateWindowTitle();
     return true;
 }
@@ -409,12 +426,6 @@ void MainWindow::onMouseScenePositionChanged(const QPointF &scenePos)
                                   .arg(scenePos.y(), 0, 'f', 1));
 }
 
-void MainWindow::onDocumentEdited()
-{
-    m_documentModified = true;
-    updateWindowTitle();
-}
-
 void MainWindow::onSceneStatusMessage(const QString &message)
 {
     statusBar()->showMessage(message, 3000);
@@ -423,13 +434,12 @@ void MainWindow::onSceneStatusMessage(const QString &message)
 void MainWindow::onGridSpacingChanged(double spacing)
 {
     const qreal previousSpacing = m_document.gridSpacing();
-    if (!m_document.setGridSpacing(spacing))
+    if (qFuzzyCompare(previousSpacing, spacing))
         return;
+    m_editController->commit(tr("Change grid spacing"), [this, spacing]() {
+        return m_document.setGridSpacing(spacing);
+    });
     m_view->setGridSpacing(m_document.gridSpacing());
-    if (!qFuzzyCompare(previousSpacing, m_document.gridSpacing())) {
-        m_documentModified = true;
-        updateWindowTitle();
-    }
 }
 
 void MainWindow::onSelectModeTriggered()
@@ -471,10 +481,18 @@ void MainWindow::onEditComponentLabels(ComponentId componentId)
     layout->addWidget(buttons);
 
     while (dialog.exec() == QDialog::Accepted) {
-        if (m_document.setComponentLabels(componentId, referenceEdit->text(), valueEdit->text())) {
-            m_scene->refreshAfterExternalEdit(); // Marks modified via onDocumentEdited().
+        const QString reference = referenceEdit->text();
+        const QString value = valueEdit->text();
+        if (m_editController->commit(tr("Edit component labels"),
+                [this, componentId, reference, value]() {
+                    return m_document.setComponentLabels(componentId, reference, value);
+                })) {
             return;
         }
+        const Component *current = m_document.component(componentId);
+        if (current && current->reference() == reference.trimmed()
+            && current->value() == value.trimmed())
+            return;
         QMessageBox::warning(&dialog, tr("Schematic"),
             tr("The reference must be non-empty and unique among components."));
     }
@@ -495,12 +513,19 @@ void MainWindow::onRenameSelectedComponent()
     if (!ok)
         return;
 
-    if (!m_document.setComponentLabels(*selected, newReference, component->value())) {
+    if (!m_editController->commit(tr("Rename component"),
+            [this, id = *selected, newReference]() {
+                const Component *current = m_document.component(id);
+                return current && m_document.setComponentLabels(id, newReference,
+                                                                 current->value());
+            })) {
+        const Component *current = m_document.component(*selected);
+        if (current && current->reference() == newReference.trimmed())
+            return;
         QMessageBox::warning(this, tr("Schematic"),
             tr("The reference must be non-empty and unique among components."));
         return;
     }
-    m_scene->refreshAfterExternalEdit();
 }
 
 void MainWindow::updateRenameActionEnabled()

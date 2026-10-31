@@ -157,16 +157,21 @@ void SchematicScene::cancelPendingWire()
     }
 }
 
-void SchematicScene::rebuild()
+void SchematicScene::rebuild(const QVector<ComponentId> *selectionOverride)
 {
     // Items are recreated from scratch, so remember which components were
     // selected by their stable model ID and reselect the survivors below.
-    // Wire selection is intentionally not preserved here (wire IDs change
-    // when a route is split).
+    // Only component selection is preserved. Wire items remain selectable,
+    // but this rebuild path does not yet restore selected wire identities.
     QSet<ComponentId> selectedComponents;
     for (QGraphicsItem *item : selectedItems()) {
         if (auto *component = qgraphicsitem_cast<ComponentItem *>(item))
             selectedComponents.insert(component->componentId());
+    }
+    if (selectionOverride) {
+        selectedComponents.clear();
+        for (ComponentId id : *selectionOverride)
+            selectedComponents.insert(id);
     }
 
     clear();
@@ -439,14 +444,14 @@ void SchematicScene::endDrag()
     // mousePressEvent() just set up for a plain select-click.
     if (m_dragCurrentSnappedPosition == m_dragOriginalPosition)
         return;
-    if (m_document) {
-        if (m_document->moveComponent(m_dragComponentId, m_dragCurrentSnappedPosition))
-            emit documentEdited();
-        else
-            emit statusMessage(tr("That move would break an existing wire connection."));
+    const bool committed = commitEdit(tr("Move component"), [this]() {
+        return m_document && m_document->moveComponent(m_dragComponentId,
+                                                        m_dragCurrentSnappedPosition);
+    });
+    if (!committed) {
+        emit statusMessage(tr("That move would break an existing wire connection."));
+        rebuild(); // Restore the preview position after a rejected/no-op move.
     }
-    rebuild(); // Whether the move committed or was rejected, the scene must
-               // reflect the document's actual current state.
 }
 
 void SchematicScene::extendPendingWire(QPointF scenePos)
@@ -523,12 +528,17 @@ void SchematicScene::extendPendingWire(QPointF scenePos)
         Q_UNREACHABLE();
     }
 
-    const auto result = m_document->addWireBranching(m_pendingStart, interior, end);
-    if (result) {
+    std::optional<WireId> result;
+    const bool committed = commitEdit(tr("Draw wire"), [this, &interior, &end, &result]() {
+        if (!m_document)
+            return false;
+        result = m_document->addWireBranching(m_pendingStart, interior, end);
+        if (!result)
+            return false;
         cancelPendingWire();
-        emit documentEdited();
-        rebuild();
-    } else {
+        return true;
+    });
+    if (!committed) {
         // The Document is unchanged on rejection (addWireBranching() is
         // atomic) and m_pendingStart/m_pendingVertices were not modified
         // above, so the draft and its preview stay available: the user can
@@ -542,21 +552,30 @@ void SchematicScene::deleteSelection()
 {
     if (!m_document)
         return;
-    bool changed = false;
     const QList<QGraphicsItem *> selected = selectedItems();
-    for (QGraphicsItem *item : selected) {
-        if (auto *component = qgraphicsitem_cast<ComponentItem *>(item)) {
-            if (m_document->removeComponent(component->componentId()))
-                changed = true;
-        } else if (auto *wire = qgraphicsitem_cast<WireItem *>(item)) {
-            if (m_document->removeWire(wire->wireId()))
-                changed = true;
+    const bool committed = commitEdit(tr("Delete selection"), [this, selected]() {
+        bool changed = false;
+        for (QGraphicsItem *item : selected) {
+            if (auto *component = qgraphicsitem_cast<ComponentItem *>(item)) {
+                if (m_document->removeComponent(component->componentId()))
+                    changed = true;
+            } else if (auto *wire = qgraphicsitem_cast<WireItem *>(item)) {
+                if (m_document->removeWire(wire->wireId()))
+                    changed = true;
+            }
         }
-    }
-    if (changed) {
-        emit documentEdited();
-        rebuild();
-    }
+        return changed;
+    });
+    Q_UNUSED(committed);
+}
+
+bool SchematicScene::commitEdit(const QString &description,
+                                const std::function<bool()> &operation,
+                                std::function<QVector<ComponentId>()> afterSelection)
+{
+    if (!m_editCommitter)
+        return false;
+    return m_editCommitter(description, operation, std::move(afterSelection));
 }
 
 void SchematicScene::mousePressEvent(QGraphicsSceneMouseEvent *event)
@@ -579,9 +598,17 @@ void SchematicScene::mousePressEvent(QGraphicsSceneMouseEvent *event)
         }
         case EditMode::PlaceComponent: {
             const QPointF snapped = snapToGrid(event->scenePos());
-            m_document->addComponent(m_placeKind, snapped);
-            emit documentEdited();
-            rebuild();
+            const SymbolId kind = m_placeKind;
+            ComponentId added = kInvalidComponentId;
+            commitEdit(tr("Place component"), [this, kind, snapped, &added]() {
+                if (!m_document)
+                    return false;
+                added = m_document->addComponent(kind, snapped);
+                return added != kInvalidComponentId;
+            }, [&added]() {
+                return added == kInvalidComponentId ? QVector<ComponentId>{}
+                                                    : QVector<ComponentId>{added};
+            });
             return;
         }
         case EditMode::DrawWire:
@@ -650,13 +677,6 @@ void SchematicScene::mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event)
     QGraphicsScene::mouseDoubleClickEvent(event);
 }
 
-void SchematicScene::refreshAfterExternalEdit()
-{
-    if (!m_document)
-        return;
-    rebuild();
-    emit documentEdited();
-}
 
 std::optional<ComponentId> SchematicScene::singleSelectedComponent() const
 {
@@ -669,6 +689,23 @@ std::optional<ComponentId> SchematicScene::singleSelectedComponent() const
         }
     }
     return found;
+}
+
+QVector<ComponentId> SchematicScene::selectedComponentIds() const
+{
+    QVector<ComponentId> selected;
+    for (QGraphicsItem *item : selectedItems()) {
+        if (auto *component = qgraphicsitem_cast<ComponentItem *>(item))
+            selected.append(component->componentId());
+    }
+    return selected;
+}
+
+void SchematicScene::restoreAfterDocumentChange(const QVector<ComponentId> &selection)
+{
+    cancelPendingWire();
+    rebuild(&selection);
+    emit selectionChanged();
 }
 
 void SchematicScene::keyPressEvent(QKeyEvent *event)

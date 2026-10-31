@@ -7,7 +7,10 @@
 
 #include <QGraphicsScene>
 
+#include <functional>
 #include <optional>
+#include <utility>
+#include <QVector>
 
 class Document;
 class Component;
@@ -29,6 +32,9 @@ class SchematicScene : public QGraphicsScene
     Q_OBJECT
 
 public:
+    using EditCommitter = std::function<bool(const QString &, const std::function<bool()> &,
+                                             std::function<QVector<ComponentId>()>)>;
+
     enum class EditMode
     {
         Select,
@@ -53,6 +59,7 @@ public:
     // file. Holding onto a stale pointer past that point is
     // undefined behaviour; this class has no way to detect it.
     void bindDocument(Document *document);
+    void setEditCommitter(EditCommitter committer) { m_editCommitter = std::move(committer); }
 
     EditMode editMode() const { return m_mode; }
     void setEditMode(EditMode mode);
@@ -70,21 +77,13 @@ public:
     // if zero or more than one component is currently selected. Used by
     // MainWindow to drive the Rename (F2) action's enabled state and target.
     std::optional<ComponentId> singleSelectedComponent() const;
+    QVector<ComponentId> selectedComponentIds() const;
 
-    // Rebuilds scene items from the bound Document and emits
-    // documentEdited(). For edits MainWindow makes directly against the
-    // Document outside of this class's own mouse/keyboard handlers (e.g.
-    // Document::setComponentLabels() from the label-edit dialog or the
-    // Rename action). A no-op if no
-    // document is bound.
-    void refreshAfterExternalEdit();
+    // Restores a model snapshot in place, then rebuilds and reselects the
+    // listed components that still exist.
+    void restoreAfterDocumentChange(const QVector<ComponentId> &selection);
 
 signals:
-    // Emitted after any interactive edit is successfully committed to the
-    // bound Document (place, move, delete, draw/branch a wire, or grid
-    // spacing - see MainWindow). Not emitted for edits that Document
-    // rejected, nor for the initial bindDocument() rebuild.
-    void documentEdited();
     // A short, user-facing explanation of why the in-progress interaction
     // did nothing (e.g. "Start a wire from a terminal, node, or existing
     // wire.") - MainWindow may surface this in a status bar.
@@ -112,7 +111,7 @@ private:
         QPointF point;
     };
 
-    void rebuild();
+    void rebuild(const QVector<ComponentId> *selectionOverride = nullptr);
     void addWireItems(const WireRoute &route);
     void addJunctionItem(QPointF point);
     void addComponentItems(const Component &component);
@@ -131,8 +130,11 @@ private:
 
     void extendPendingWire(QPointF scenePos);
     void deleteSelection();
+    bool commitEdit(const QString &description, const std::function<bool()> &operation,
+                    std::function<QVector<ComponentId>()> afterSelection = {});
 
     Document *m_document = nullptr;
+    EditCommitter m_editCommitter;
     EditMode m_mode = EditMode::Select;
     SymbolId m_placeKind = SymbolIds::Resistor;
 

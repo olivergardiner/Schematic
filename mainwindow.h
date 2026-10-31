@@ -2,6 +2,7 @@
 #define MAINWINDOW_H
 
 #include "document.h"
+#include "documenteditcontroller.h"
 #include "schematicscene.h"
 #include "identifiers.h"
 
@@ -38,9 +39,6 @@ private slots:
     void onAbout();
     void onZoomFactorChanged(qreal factor);
     void onMouseScenePositionChanged(const QPointF &scenePos);
-    // Marks the document modified and refreshes the title bar after any
-    // edit SchematicScene commits (see SchematicScene::documentEdited()).
-    void onDocumentEdited();
     // Surfaces SchematicScene::statusMessage() in the status bar.
     void onSceneStatusMessage(const QString &message);
     void onGridSpacingChanged(double spacing);
@@ -77,8 +75,8 @@ private:
     // write failure (disk full, permission denied, etc.) can never leave a
     // partially-written or corrupted file at path. Shows a QMessageBox on
     // failure. Does not touch
-    // m_currentFilePath or m_documentModified; callers (onSave()/
-    // onSaveAs()) are responsible for committing those only on success.
+    // m_currentFilePath or the undo stack clean index; callers (onSave()/
+    // onSaveAs()) update them only on success.
     bool writeDocumentTo(const QString &path);
 
     SchematicScene *m_scene = nullptr;
@@ -105,7 +103,7 @@ private:
     QActionGroup   *m_modeGroup        = nullptr;
 
     QString m_currentFilePath;
-    bool    m_documentModified = false;
+    DocumentEditController *m_editController = nullptr;
 
     // The single Document instance this window edits, starting out empty.
     // Bound to m_scene via SchematicScene::bindDocument() immediately in

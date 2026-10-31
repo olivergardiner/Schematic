@@ -22,3 +22,21 @@ target_link_libraries(schematiccore_tests
 )
 
 add_test(NAME schematiccore_tests COMMAND schematiccore_tests)
+
+# The application-layer undo controller uses QUndoStack (Qt Gui), while the
+# schematiccore tests above remain Core + Test only.
+qt_add_executable(schematicundo_tests
+    tst_documenteditcontroller.cpp
+    ../documenteditcontroller.cpp
+    ../documenteditcontroller.h
+)
+
+target_link_libraries(schematicundo_tests
+    PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Test
+        schematiccore
+)
+
+add_test(NAME schematicundo_tests COMMAND schematicundo_tests)
