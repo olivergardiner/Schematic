@@ -6,7 +6,7 @@ This document describes open work and possible future directions. It is not a fi
 
 This is the default starting point for a coding request, not an authorization to implement multiple items at once. Confirm the requested scope before each substantial change, following [AGENTS.md](AGENTS.md). Keep the design and acceptance checks for the selected item short and specific.
 
-1. **Editing workflow.** Continue [the approved design](docs/design/editing-workflow.md). The shared renderer, split category/palette layout, and drag-to-place are implemented; next are toolbar actions and wire feedback through the established edit-commit path.
+1. **Editing workflow.** The approved design in [docs/design/editing-workflow.md](docs/design/editing-workflow.md) is implemented. Continue with selected library additions unless priorities change.
 2. **Selected library additions.** Add symbol groups when requested, as library data with focused validation and serialization coverage. Treat SVG import as a separate, later design and approval.
 3. **Reliability and usability polish.** Once the main editing workflow is functional, address the open grid, wire recovery, route retracing, save, warning, and title-bar issues below as focused follow-up work.
 
@@ -18,10 +18,10 @@ Undo/redo is implemented per [its approved design](docs/design/undo-redo.md). Th
 
 - **Implemented:** Extract the shared symbol renderer and replace the flat text list with a category tree and graphical symbol grid.
 - **Implemented:** Drag a palette symbol to the snapped canvas position through the shared undoable placement path.
-- Add a frequent-action toolbar for placement, rotation, mirroring, and other common edits. Keep zoom and grid spacing in secondary controls, with Ctrl+mouse-wheel as the primary zoom interaction.
-- Improve wire drawing feedback by highlighting valid terminals and making invalid draft points recoverable.
+- **Implemented:** Provide separate, movable File, Tools, Edit, and View toolbars; show or hide toolbars and dock panels from View > Toolbars; restore their layout between sessions. Keep zoom in the View menu/Ctrl+wheel.
+- **Implemented:** Show terminal markers and a hover cue for candidate wire connections; Escape cancels a draft and returns to Select.
 
-The palette already shares the canvas renderer. Drag-to-place uses the established edit-commit path; toolbar actions should use it so they are undoable from introduction.
+Palette placement and toolbar edits use the established edit-commit path so they are undoable from introduction.
 
 ### Reliability and usability
 

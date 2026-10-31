@@ -14,6 +14,7 @@
 #include <QKeyEvent>
 #include <QLineF>
 #include <QPainterPath>
+#include <QPainter>
 #include <QPen>
 #include <QSet>
 
@@ -108,6 +109,8 @@ void SchematicScene::setEditMode(EditMode mode)
     cancelPendingWire();
     clearSelection();
     m_mode = mode;
+    update();
+    emit editModeChanged(m_mode);
 }
 
 bool SchematicScene::placeComponentAt(const SymbolId &id, QPointF scenePos)
@@ -134,8 +137,13 @@ bool SchematicScene::placeComponentAt(const SymbolId &id, QPointF scenePos)
 
 void SchematicScene::cancelPendingWire()
 {
-    if (!m_wireActive)
+    const bool hadCandidate = m_hasWireHoverCandidate;
+    m_hasWireHoverCandidate = false;
+    if (!m_wireActive) {
+        if (hadCandidate)
+            update();
         return;
+    }
     m_wireActive = false;
     m_pendingVertices.clear();
     if (m_wirePreviewItem) {
@@ -143,6 +151,62 @@ void SchematicScene::cancelPendingWire()
         delete m_wirePreviewItem;
         m_wirePreviewItem = nullptr;
     }
+    update();
+}
+
+void SchematicScene::setWireHoverCandidate(bool visible, QPointF point)
+{
+    if (m_hasWireHoverCandidate == visible
+        && (!visible || closeEnough(m_wireHoverCandidate, point)))
+        return;
+    m_hasWireHoverCandidate = visible;
+    m_wireHoverCandidate = point;
+    update();
+}
+
+void SchematicScene::drawForeground(QPainter *painter, const QRectF &rect)
+{
+    QGraphicsScene::drawForeground(painter, rect);
+    if (m_mode != EditMode::DrawWire || !m_document || !painter)
+        return;
+
+    const qreal viewScale = std::hypot(painter->worldTransform().m11(),
+                                       painter->worldTransform().m12());
+    if (viewScale <= 0.0)
+        return;
+    const qreal terminalRadius = 4.0 / viewScale;
+    const qreal candidateRadius = 7.0 / viewScale;
+
+    painter->save();
+    painter->setRenderHint(QPainter::Antialiasing, true);
+    QPen terminalPen(QColor(35, 105, 155));
+    terminalPen.setCosmetic(true);
+    terminalPen.setWidth(1);
+    painter->setPen(terminalPen);
+    painter->setBrush(QColor(225, 242, 252));
+    for (const Component &component : m_document->components()) {
+        for (TerminalId terminal = 0; terminal < component.terminalCount(); ++terminal) {
+            const QPointF point = component.terminalPosition(terminal);
+            if (rect.adjusted(-terminalRadius, -terminalRadius,
+                              terminalRadius, terminalRadius).contains(point))
+                painter->drawEllipse(point, terminalRadius, terminalRadius);
+        }
+    }
+
+    if (m_wireActive && m_hasWireHoverCandidate) {
+        QPen candidatePen(QColor(190, 95, 0));
+        candidatePen.setCosmetic(true);
+        candidatePen.setWidth(2);
+        painter->setPen(candidatePen);
+        painter->setBrush(QColor(255, 218, 130));
+        QPolygonF diamond;
+        diamond << QPointF(m_wireHoverCandidate.x(), m_wireHoverCandidate.y() - candidateRadius)
+                << QPointF(m_wireHoverCandidate.x() + candidateRadius, m_wireHoverCandidate.y())
+                << QPointF(m_wireHoverCandidate.x(), m_wireHoverCandidate.y() + candidateRadius)
+                << QPointF(m_wireHoverCandidate.x() - candidateRadius, m_wireHoverCandidate.y());
+        painter->drawPolygon(diamond);
+    }
+    painter->restore();
 }
 
 void SchematicScene::rebuild(const QVector<ComponentId> *selectionOverride)
@@ -454,6 +518,7 @@ void SchematicScene::extendPendingWire(QPointF scenePos)
         m_wireActive = true;
         m_pendingVertices.clear();
         m_pendingVertices.append(hit.point);
+        setWireHoverCandidate(true, hit.point);
         switch (hit.kind) {
         case HitKind::Terminal:
             m_pendingStart = makeTerminalEndpoint(hit.terminal.component, hit.terminal.terminal);
@@ -602,6 +667,7 @@ void SchematicScene::mouseMoveEvent(QGraphicsSceneMouseEvent *event)
         // hit-test/corner-insertion rule extendPendingWire() uses on click,
         // so the preview always matches what a click there would commit.
         const HitResult hit = hitTestConnection(event->scenePos());
+        setWireHoverCandidate(hit.kind != HitKind::None, hit.point);
         const QPointF target = hit.kind != HitKind::None ? hit.point
                                                           : snapToGrid(event->scenePos());
         QVector<QPointF> preview = m_pendingVertices;
@@ -625,6 +691,8 @@ void SchematicScene::mouseMoveEvent(QGraphicsSceneMouseEvent *event)
         m_wirePreviewItem->setPath(path);
         return;
     }
+    if (m_hasWireHoverCandidate)
+        setWireHoverCandidate(false);
     QGraphicsScene::mouseMoveEvent(event);
 }
 
@@ -682,7 +750,7 @@ void SchematicScene::restoreAfterDocumentChange(const QVector<ComponentId> &sele
 void SchematicScene::keyPressEvent(QKeyEvent *event)
 {
     if (event->key() == Qt::Key_Escape) {
-        cancelPendingWire();
+        setEditMode(EditMode::Select);
         event->accept();
         return;
     }

@@ -16,6 +16,7 @@ class QToolButton;
 class QAction;
 class QActionGroup;
 class QCloseEvent;
+class QMenu;
 class QScrollArea;
 class SchematicScene;
 class SchematicView;
@@ -49,6 +50,8 @@ private slots:
     void onGridSpacingChanged(double spacing);
     void onSelectModeTriggered();
     void onDrawWireModeTriggered();
+    void onRotateSelectedComponent();
+    void onMirrorSelectedComponent();
     // Enters PlaceComponent mode and sets kind as the symbol to place -
     // connected to each symbol button in the dock (see createSymbolDock()).
     void onPlaceComponentKindChanged(const SymbolId &id);
@@ -68,9 +71,12 @@ private:
     void createToolBar();
     void createSymbolDock();
     void createStatusBar();
+    void populateToolbarsMenu();
+    void restoreWindowLayout();
+    void saveWindowLayout();
     void populateSymbolGrid(const QString &categoryPath);
     void updateWindowTitle();
-    // Pushes m_document's grid spacing into the toolbar spin box and the
+    // Pushes m_document's grid spacing into the View toolbar spin box and the
     // view *without* emitting valueChanged(), so loading/creating a document
     // can never route the control's (rounded/clamped) value back into the
     // model through onGridSpacingChanged(). Only user edits of the control
@@ -93,6 +99,11 @@ private:
     QDoubleSpinBox *m_gridSpacingSpin  = nullptr;
     QAction        *m_selectAction     = nullptr;
     QAction        *m_drawWireAction   = nullptr;
+    QAction        *m_undoAction       = nullptr;
+    QAction        *m_redoAction       = nullptr;
+    QAction        *m_rotateAction     = nullptr;
+    QAction        *m_mirrorAction     = nullptr;
+    QMenu          *m_toolbarsMenu     = nullptr;
     // Rename (F2) is a QAction owned by MainWindow itself (not m_view) with
     // Qt::WindowShortcut context, so it fires regardless of whether focus
     // is in the canvas or the symbol dock - both are descendants of this

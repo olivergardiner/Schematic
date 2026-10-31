@@ -92,6 +92,7 @@ signals:
     // did nothing (e.g. "Start a wire from a terminal, node, or existing
     // wire.") - MainWindow may surface this in a status bar.
     void statusMessage(const QString &message);
+    void editModeChanged(SchematicScene::EditMode mode);
     // Emitted when a ComponentItem or its label is double-clicked in
     // Select mode - MainWindow opens the reference/value edit dialog for
     // componentId in response (see MainWindow::onEditComponentLabels()).
@@ -103,6 +104,7 @@ protected:
     void mouseReleaseEvent(QGraphicsSceneMouseEvent *event) override;
     void mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
+    void drawForeground(QPainter *painter, const QRectF &rect) override;
 
 private:
     enum class HitKind { None, Terminal, Node, WireSegment };
@@ -123,6 +125,7 @@ private:
     QPointF snapToGrid(QPointF point) const;
     qreal hitToleranceInSceneUnits() const;
     HitResult hitTestConnection(QPointF scenePos) const;
+    void setWireHoverCandidate(bool visible, QPointF point = {});
     // Finds the enclosing ComponentItem/ComponentLabelItem (if any) for an
     // item returned by itemAt(), so a click on either a symbol or its
     // labels drives the same select/drag/delete behaviour.
@@ -164,6 +167,8 @@ private:
     PendingWireEndpoint m_pendingStart;
     QVector<QPointF> m_pendingVertices;
     QGraphicsPathItem *m_wirePreviewItem = nullptr;
+    bool m_hasWireHoverCandidate = false;
+    QPointF m_wireHoverCandidate;
 };
 
 #endif // SCHEMATICSCENE_H

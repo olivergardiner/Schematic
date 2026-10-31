@@ -3,7 +3,33 @@
 #include "../schematicscene.h"
 
 #include <QGraphicsItem>
+#include <QGraphicsSceneMouseEvent>
+#include <QKeyEvent>
 #include <QtTest>
+
+class TestSchematicScene : public SchematicScene
+{
+public:
+    using SchematicScene::keyPressEvent;
+
+    void pressAt(QPointF point)
+    {
+        QGraphicsSceneMouseEvent event(QEvent::GraphicsSceneMousePress);
+        event.setScenePos(point);
+        event.setButton(Qt::LeftButton);
+        event.setButtons(Qt::LeftButton);
+        mousePressEvent(&event);
+    }
+
+    void pressEscape()
+    {
+        QKeyEvent event(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+        keyPressEvent(&event);
+        Q_ASSERT(event.isAccepted());
+    }
+
+    using SchematicScene::mousePressEvent;
+};
 
 class SymbolPlacementTests : public QObject
 {
@@ -12,6 +38,7 @@ class SymbolPlacementTests : public QObject
 private slots:
     void dropPlacementSnapsSelectsAndUndoRedoes();
     void unknownSymbolIsRejectedWithoutHistory();
+    void escapeCancelsDraftAndReturnsToSelect();
 };
 
 void SymbolPlacementTests::dropPlacementSnapsSelectsAndUndoRedoes()
@@ -78,6 +105,41 @@ void SymbolPlacementTests::unknownSymbolIsRejectedWithoutHistory()
                                     QPointF(13, 17)));
     QVERIFY(document.components().isEmpty());
     QCOMPARE(edits.undoStack()->count(), 0);
+}
+
+void SymbolPlacementTests::escapeCancelsDraftAndReturnsToSelect()
+{
+    Document document;
+    const ComponentId left = document.addComponent(SymbolIds::Resistor, QPointF(0, 0));
+    const ComponentId right = document.addComponent(SymbolIds::Resistor, QPointF(100, 0));
+    QVERIFY(left != kInvalidComponentId);
+    QVERIFY(right != kInvalidComponentId);
+
+    DocumentEditController edits(&document);
+    TestSchematicScene scene;
+    scene.bindDocument(&document);
+    scene.setEditCommitter([&edits](const QString &description,
+                                    const std::function<bool()> &operation,
+                                    std::function<QVector<ComponentId>()> afterSelection) {
+        return edits.commit(description, operation, std::move(afterSelection));
+    });
+    QVector<SchematicScene::EditMode> modeChanges;
+    connect(&scene, &SchematicScene::editModeChanged, &scene,
+            [&modeChanges](SchematicScene::EditMode mode) { modeChanges.append(mode); });
+
+    scene.setEditMode(SchematicScene::EditMode::DrawWire);
+    scene.pressAt(document.component(left)->terminalPosition(0));
+    scene.pressEscape();
+    QCOMPARE(scene.editMode(), SchematicScene::EditMode::Select);
+    QCOMPARE(modeChanges.size(), 2);
+    QVERIFY(modeChanges.last() == SchematicScene::EditMode::Select);
+
+    // A first click after re-entering Draw Wire must start a fresh draft. If
+    // Escape left the earlier draft active, this click would complete a wire.
+    scene.setEditMode(SchematicScene::EditMode::DrawWire);
+    scene.pressAt(document.component(right)->terminalPosition(0));
+    QVERIFY(document.wires().isEmpty());
+    scene.pressEscape();
 }
 
 QTEST_MAIN(SymbolPlacementTests)

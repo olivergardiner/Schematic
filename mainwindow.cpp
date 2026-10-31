@@ -36,11 +36,15 @@
 #include <QSignalBlocker>
 #include <QGridLayout>
 #include <QPainter>
+#include <QPainterPath>
 #include <QPixmap>
 #include <QScrollArea>
 #include <QSplitter>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
+#include <QSettings>
+#include <QStyle>
+#include <QtMath>
 
 #include <utility>
 
@@ -50,6 +54,109 @@ namespace {
 // control only displays it at this precision, and loading never writes the
 // displayed value back into the document.
 constexpr int kGridSpinDecimals = 4;
+
+QIcon transformIcon(bool mirror)
+{
+    QPixmap pixmap(32, 32);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    QPen pen(QColor(35, 45, 55), 2.2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+    painter.setPen(pen);
+    painter.setBrush(QColor(35, 45, 55));
+
+    if (mirror) {
+        painter.setPen(QPen(QColor(100, 110, 120), 1.5, Qt::DashLine));
+        painter.drawLine(16, 5, 16, 27);
+        painter.setPen(pen);
+        painter.drawLine(14, 16, 5, 16);
+        painter.drawPolygon(QPolygonF{QPointF(3, 16), QPointF(8, 12), QPointF(8, 20)});
+        painter.drawLine(18, 16, 27, 16);
+        painter.drawPolygon(QPolygonF{QPointF(29, 16), QPointF(24, 12), QPointF(24, 20)});
+    } else {
+        const QRectF arc(6, 6, 20, 20);
+        painter.drawArc(arc, 35 * 16, 285 * 16);
+        painter.drawPolygon(QPolygonF{QPointF(24, 5), QPointF(29, 7), QPointF(24, 12)});
+    }
+    return QIcon(pixmap);
+}
+
+QIcon historyIcon(bool redo)
+{
+    const QIcon themed = QIcon::fromTheme(redo ? QStringLiteral("edit-redo")
+                                               : QStringLiteral("edit-undo"));
+    if (!themed.isNull())
+        return themed;
+
+    QPixmap pixmap(32, 32);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    const QColor color(35, 45, 55);
+    painter.setPen(QPen(color, 2.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    painter.setBrush(Qt::NoBrush);
+    const QRectF arc(8, 8, 16, 16);
+    const int start = redo ? 135 : 45;
+    const int sweep = redo ? -270 : 270;
+    painter.drawArc(arc, start * 16, sweep * 16);
+
+    const qreal angle = qDegreesToRadians(static_cast<qreal>(start + sweep));
+    const QPointF center(16, 16);
+    const QPointF tip(center.x() + 8 * qCos(angle), center.y() - 8 * qSin(angle));
+    const qreal direction = redo ? -1.0 : 1.0;
+    const QPointF tangent(-qSin(angle) * direction, -qCos(angle) * direction);
+    const QPointF normal(-tangent.y(), tangent.x());
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(color);
+    painter.drawPolygon(QPolygonF{tip,
+                                  tip - tangent * 5.5 + normal * 3.5,
+                                  tip - tangent * 5.5 - normal * 3.5});
+    return QIcon(pixmap);
+}
+
+QIcon selectToolIcon()
+{
+    QPixmap pixmap(32, 32);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    QPolygonF pointer{QPointF(7, 4), QPointF(7, 25), QPointF(12, 20),
+                      QPointF(16, 29), QPointF(20, 27), QPointF(16, 18),
+                      QPointF(24, 18)};
+    painter.setPen(QPen(Qt::white, 3, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    painter.setBrush(QColor(35, 45, 55));
+    painter.drawPolygon(pointer);
+    return QIcon(pixmap);
+}
+
+QIcon wireToolIcon()
+{
+    QPixmap pixmap(32, 32);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    const QColor color(35, 45, 55);
+    painter.setPen(QPen(color, 2.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    painter.drawPolyline(QPolygonF{QPointF(5, 8), QPointF(16, 8), QPointF(16, 24),
+                                  QPointF(27, 24)});
+    painter.setBrush(Qt::white);
+    painter.drawEllipse(QPointF(5, 8), 3, 3);
+    painter.drawEllipse(QPointF(27, 24), 3, 3);
+    return QIcon(pixmap);
+}
+
+QIcon gridIcon()
+{
+    QPixmap pixmap(20, 20);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setPen(QPen(QColor(35, 45, 55), 1.4));
+    painter.drawRect(QRect(3, 3, 14, 14));
+    painter.drawLine(10, 3, 10, 17);
+    painter.drawLine(3, 10, 17, 10);
+    return QIcon(pixmap);
+}
 
 class SymbolTileButton final : public QToolButton
 {
@@ -124,6 +231,8 @@ MainWindow::MainWindow(QWidget *parent)
     createToolBar();
     createSymbolDock();
     createStatusBar();
+    populateToolbarsMenu();
+    restoreWindowLayout();
 
     connect(m_view, &SchematicView::zoomFactorChanged, this, &MainWindow::onZoomFactorChanged);
     connect(m_view, &SchematicView::mouseScenePositionChanged,
@@ -133,12 +242,20 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onEditComponentLabels);
     connect(m_scene, &SchematicScene::selectionChanged,
             this, &MainWindow::updateRenameActionEnabled);
+    connect(m_scene, &SchematicScene::editModeChanged, this,
+            [this](SchematicScene::EditMode mode) {
+                if (mode == SchematicScene::EditMode::Select && m_selectAction)
+                    m_selectAction->setChecked(true);
+                else if (mode == SchematicScene::EditMode::DrawWire && m_drawWireAction)
+                    m_drawWireAction->setChecked(true);
+            });
     connect(m_view, &SchematicView::symbolDropped, this,
             [this](const SymbolId &id, const QPointF &position) {
                 m_scene->placeComponentAt(id, position);
             });
 
-    resize(1000, 700);
+    if (!restoreGeometry(QSettings().value(QStringLiteral("window/geometry")).toByteArray()))
+        resize(1000, 700);
     updateWindowTitle();
 
     // m_document starts out empty (default-constructed); bind it to the
@@ -196,12 +313,18 @@ void MainWindow::createMenus()
     exitAction->setShortcut(QKeySequence::Quit);
 
     auto *editMenu = menuBar()->addMenu(tr("&Edit"));
-    auto *undoAction = m_editController->undoStack()->createUndoAction(this, tr("&Undo"));
-    undoAction->setShortcut(QKeySequence::Undo);
-    editMenu->addAction(undoAction);
-    auto *redoAction = m_editController->undoStack()->createRedoAction(this, tr("&Redo"));
-    redoAction->setShortcut(QKeySequence::Redo);
-    editMenu->addAction(redoAction);
+    m_undoAction = m_editController->undoStack()->createUndoAction(this, tr("&Undo"));
+    m_undoAction->setObjectName("undoAction");
+    m_undoAction->setShortcut(QKeySequence::Undo);
+    m_undoAction->setIcon(historyIcon(false));
+    m_undoAction->setToolTip(tr("Undo"));
+    editMenu->addAction(m_undoAction);
+    m_redoAction = m_editController->undoStack()->createRedoAction(this, tr("&Redo"));
+    m_redoAction->setObjectName("redoAction");
+    m_redoAction->setShortcut(QKeySequence::Redo);
+    m_redoAction->setIcon(historyIcon(true));
+    m_redoAction->setToolTip(tr("Redo"));
+    editMenu->addAction(m_redoAction);
 
     editMenu->addSeparator();
     m_renameAction = editMenu->addAction(tr("&Rename..."), this,
@@ -226,6 +349,8 @@ void MainWindow::createMenus()
     auto *zoomResetAction = viewMenu->addAction(tr("&Reset Zoom"), m_view, &SchematicView::zoomReset);
     zoomResetAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_0));
 
+    m_toolbarsMenu = viewMenu->addMenu(tr("Toolbars"));
+
     auto *helpMenu = menuBar()->addMenu(tr("&Help"));
     helpMenu->addAction(tr("&About"), this, &MainWindow::onAbout);
     helpMenu->addAction(tr("About &Qt"), qApp, &QApplication::aboutQt);
@@ -233,16 +358,21 @@ void MainWindow::createMenus()
 
 void MainWindow::createToolBar()
 {
-    auto *toolBar = addToolBar(tr("Main"));
-    toolBar->setObjectName("mainToolBar");
-    toolBar->addAction(tr("New"), this, &MainWindow::onNew);
-    toolBar->addAction(tr("Open"), this, &MainWindow::onOpen);
-    toolBar->addAction(tr("Save"), this, &MainWindow::onSave);
-    toolBar->addSeparator();
-    toolBar->addAction(tr("Zoom In"), m_view, &SchematicView::zoomIn);
-    toolBar->addAction(tr("Zoom Out"), m_view, &SchematicView::zoomOut);
-    toolBar->addAction(tr("Fit"), m_view, &SchematicView::zoomToFit);
-    toolBar->addSeparator();
+    auto *fileToolBar = addToolBar(tr("File"));
+    fileToolBar->setObjectName("fileToolBar");
+    fileToolBar->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    QAction *newAction = fileToolBar->addAction(style()->standardIcon(QStyle::SP_FileIcon),
+                                                tr("New"), this, &MainWindow::onNew);
+    newAction->setObjectName("newAction");
+    newAction->setToolTip(tr("New schematic"));
+    QAction *openAction = fileToolBar->addAction(style()->standardIcon(QStyle::SP_DirOpenIcon),
+                                                 tr("Open"), this, &MainWindow::onOpen);
+    openAction->setObjectName("openAction");
+    openAction->setToolTip(tr("Open schematic"));
+    QAction *saveAction = fileToolBar->addAction(style()->standardIcon(QStyle::SP_DialogSaveButton),
+                                                 tr("Save"), this, &MainWindow::onSave);
+    saveAction->setObjectName("saveAction");
+    saveAction->setToolTip(tr("Save schematic"));
 
     // m_modeGroup also gathers the per-symbol placement actions added in
     // createSymbolDock(), so Select/DrawWire/each-symbol-button are all
@@ -251,20 +381,52 @@ void MainWindow::createToolBar()
     m_modeGroup = new QActionGroup(this);
     m_modeGroup->setExclusive(true);
 
-    m_selectAction = toolBar->addAction(tr("Select"));
+    auto *toolToolBar = addToolBar(tr("Tools"));
+    toolToolBar->setObjectName("toolsToolBar");
+    toolToolBar->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    m_selectAction = toolToolBar->addAction(selectToolIcon(), tr("Select"));
+    m_selectAction->setObjectName("selectToolAction");
+    m_selectAction->setToolTip(tr("Select and move components"));
     m_selectAction->setCheckable(true);
     m_selectAction->setChecked(true);
     m_modeGroup->addAction(m_selectAction);
     connect(m_selectAction, &QAction::triggered, this, &MainWindow::onSelectModeTriggered);
 
-    m_drawWireAction = toolBar->addAction(tr("Draw Wire"));
+    m_drawWireAction = toolToolBar->addAction(wireToolIcon(), tr("Draw Wire"));
+    m_drawWireAction->setObjectName("drawWireToolAction");
+    m_drawWireAction->setToolTip(tr("Draw orthogonal wires between terminals"));
     m_drawWireAction->setCheckable(true);
     m_modeGroup->addAction(m_drawWireAction);
     connect(m_drawWireAction, &QAction::triggered, this, &MainWindow::onDrawWireModeTriggered);
 
-    toolBar->addSeparator();
-    auto *gridLabel = new QLabel(tr("Grid spacing:"), this);
-    toolBar->addWidget(gridLabel);
+    auto *editToolBar = addToolBar(tr("Edit"));
+    editToolBar->setObjectName("editToolBar");
+    editToolBar->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    editToolBar->addAction(m_undoAction);
+    editToolBar->addAction(m_redoAction);
+    editToolBar->addSeparator();
+
+    m_rotateAction = editToolBar->addAction(transformIcon(false), tr("Rotate 90°"));
+    m_rotateAction->setObjectName("rotateComponentAction");
+    m_rotateAction->setToolTip(tr("Rotate the selected component 90 degrees clockwise"));
+    m_rotateAction->setStatusTip(m_rotateAction->toolTip());
+    connect(m_rotateAction, &QAction::triggered,
+            this, &MainWindow::onRotateSelectedComponent);
+    m_mirrorAction = editToolBar->addAction(transformIcon(true), tr("Mirror"));
+    m_mirrorAction->setObjectName("mirrorComponentAction");
+    m_mirrorAction->setToolTip(tr("Toggle horizontal mirroring of the selected component"));
+    m_mirrorAction->setStatusTip(m_mirrorAction->toolTip());
+    connect(m_mirrorAction, &QAction::triggered,
+            this, &MainWindow::onMirrorSelectedComponent);
+
+    auto *viewToolBar = addToolBar(tr("View"));
+    viewToolBar->setObjectName("viewToolBar");
+    viewToolBar->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    auto *gridLabel = new QLabel(this);
+    gridLabel->setPixmap(gridIcon().pixmap(16, 16));
+    gridLabel->setAccessibleName(tr("Grid spacing"));
+    gridLabel->setToolTip(tr("Grid spacing"));
+    viewToolBar->addWidget(gridLabel);
     m_gridSpacingSpin = new QDoubleSpinBox(this);
     m_gridSpacingSpin->setRange(0.1, 1000.0);
     m_gridSpacingSpin->setDecimals(kGridSpinDecimals);
@@ -274,7 +436,33 @@ void MainWindow::createToolBar()
            "lines are drawn every 10 minor intervals."));
     connect(m_gridSpacingSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
             this, &MainWindow::onGridSpacingChanged);
-    toolBar->addWidget(m_gridSpacingSpin);
+    viewToolBar->addWidget(m_gridSpacingSpin);
+}
+
+void MainWindow::restoreWindowLayout()
+{
+    const QSettings settings;
+    const QByteArray state = settings.value(QStringLiteral("window/state")).toByteArray();
+    if (!state.isEmpty())
+        restoreState(state, 2);
+}
+
+void MainWindow::saveWindowLayout()
+{
+    QSettings settings;
+    settings.setValue(QStringLiteral("window/geometry"), saveGeometry());
+    settings.setValue(QStringLiteral("window/state"), saveState(2));
+}
+
+void MainWindow::populateToolbarsMenu()
+{
+    if (!m_toolbarsMenu)
+        return;
+
+    for (QToolBar *toolBar : findChildren<QToolBar *>())
+        m_toolbarsMenu->addAction(toolBar->toggleViewAction());
+    for (QDockWidget *dock : findChildren<QDockWidget *>())
+        m_toolbarsMenu->addAction(dock->toggleViewAction());
 }
 
 void MainWindow::createSymbolDock()
@@ -462,10 +650,12 @@ void MainWindow::syncGridControls()
 
 void MainWindow::closeEvent(QCloseEvent *event)
 {
-    if (maybeSave())
+    if (maybeSave()) {
+        saveWindowLayout();
         event->accept();
-    else
+    } else {
         event->ignore();
+    }
 }
 
 bool MainWindow::maybeSave()
@@ -642,6 +832,45 @@ void MainWindow::onDrawWireModeTriggered()
     m_scene->setEditMode(SchematicScene::EditMode::DrawWire);
 }
 
+void MainWindow::onRotateSelectedComponent()
+{
+    const std::optional<ComponentId> selected = m_scene->singleSelectedComponent();
+    if (!selected)
+        return;
+    const Component *component = m_document.component(*selected);
+    if (!component)
+        return;
+
+    const Rotation nextRotation = static_cast<Rotation>(
+        (static_cast<int>(component->rotation()) + 90) % 360);
+    if (!m_editController->commit(tr("Rotate component 90 degrees"),
+            [this, id = *selected, nextRotation]() {
+                return m_document.rotateComponent(id, nextRotation);
+            })) {
+        statusBar()->showMessage(
+            tr("That component cannot be rotated without breaking a wire connection."), 3500);
+    }
+}
+
+void MainWindow::onMirrorSelectedComponent()
+{
+    const std::optional<ComponentId> selected = m_scene->singleSelectedComponent();
+    if (!selected)
+        return;
+    const Component *component = m_document.component(*selected);
+    if (!component)
+        return;
+
+    const bool mirrored = !component->mirrored();
+    if (!m_editController->commit(tr("Mirror component horizontally"),
+            [this, id = *selected, mirrored]() {
+                return m_document.setComponentMirrored(id, mirrored);
+            })) {
+        statusBar()->showMessage(
+            tr("That component cannot be mirrored without breaking a wire connection."), 3500);
+    }
+}
+
 void MainWindow::onPlaceComponentKindChanged(const SymbolId &id)
 {
     m_scene->setEditMode(SchematicScene::EditMode::PlaceComponent);
@@ -720,5 +949,11 @@ void MainWindow::onRenameSelectedComponent()
 
 void MainWindow::updateRenameActionEnabled()
 {
-    m_renameAction->setEnabled(m_scene->singleSelectedComponent().has_value());
+    const bool oneComponentSelected = m_scene->singleSelectedComponent().has_value();
+    if (m_renameAction)
+        m_renameAction->setEnabled(oneComponentSelected);
+    if (m_rotateAction)
+        m_rotateAction->setEnabled(oneComponentSelected);
+    if (m_mirrorAction)
+        m_mirrorAction->setEnabled(oneComponentSelected);
 }

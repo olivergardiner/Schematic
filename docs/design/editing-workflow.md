@@ -1,6 +1,6 @@
 # Editing workflow design
 
-Status: **approved design; stages 1 and 2 implemented.** Remaining implementation stages need their own scoped plan and approval (see [AGENTS.md](../../AGENTS.md)). Durable interaction choices are recorded in [DECISIONS.md](../../DECISIONS.md); [ROADMAP.md](../../ROADMAP.md) tracks the implementation work.
+Status: **approved design; stages 1–3 implemented.** Durable interaction choices are recorded in [DECISIONS.md](../../DECISIONS.md); [ROADMAP.md](../../ROADMAP.md) tracks remaining product work.
 
 ## 1. Purpose and scope
 
@@ -118,7 +118,7 @@ Each substantial stage should have its own short implementation plan and approva
 
 1. **Shared renderer and palette — implemented.** Extract the renderer, build the category tree and graphical symbol leaves, and preserve click-to-place behavior.
 2. **Drag-to-place — implemented.** Add the stable-ID drag payload and canvas drop path through the edit controller. Verify snapping, selection, and undo/redo.
-3. **Toolbar and interaction feedback.** Add transform actions, move zoom/grid controls to secondary UI, synchronize Escape-to-Select, and highlight wire terminals.
+3. **Toolbar and interaction feedback — implemented.** Add transform actions, move zoom/grid controls to secondary UI, synchronize Escape-to-Select, and highlight wire terminals.
 
 ## 11. Acceptance checks
 
