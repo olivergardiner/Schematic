@@ -15,7 +15,7 @@ The intended editor should provide a sensible configurable grid, standard symbol
 - Use world/scene units for symbol geometry, component positions, and terminal positions. Grid spacing controls snapping and grid-line spacing; it does not scale symbols. Right-angle rotations preserve axis-aligned symbol geometry, but do not imply that every terminal lies on a grid intersection.
 - Milestone-1 wire routes are orthogonal. The wire tool should insert deterministic corners for diagonal pointer movement. When loading, derive route endpoint coordinates from their terminal or node identities; warn on stale serialized endpoint coordinates and validate the resulting route geometry.
 - Net groups and junction dots are derived from explicit topology; persistent net IDs and a separately persisted junction list are not required for milestone 1.
-- Symbols are library data rather than hard-coded C++: each has a stable string ID, a category path, a reference prefix and named terminals, served by a registry in `schematiccore`. The aim is a maintainable, extensible library (transistors, diode variants, valves, transconductance amps and more). A released symbol's terminal order and positions must not change, because saved wires refer to terminals by index; changed geometry gets a new ID. The built-in symbols are JSON entries under `core/symbols/`; to add one, add its file, list it in `manifest.json` and in the CMake resource list, and add a test.
+- Symbols are library data rather than hard-coded C++: each has a stable string ID, a category path, a reference prefix and named terminals, served by a registry in `schematiccore`. All entries should use the same definition, validation, lookup, and management path regardless of how they are distributed. The aim is a maintainable, extensible library (transistors, diode variants, valves, transconductance amps and more). A released symbol's terminal count, order, names, and positions must not change under the same ID, because saved wires refer to terminals by index; glyph artwork and presentation metadata may change without changing the ID. The initial collection is currently JSON under `core/symbols/`, embedded as Qt resources and listed in a manifest and the CMake resource list. This is packaging for the current collection, not a different kind of symbol. Until the SVG authoring workflow is implemented, adding an entry to that collection requires adding its file, updating the manifest and CMake resource list, and adding a test.
 - Undo/redo was deferred from milestone 1 and is in milestone 2; its design note (ROADMAP chunk H) must be approved before implementation.
 
 ## First usable milestone
@@ -25,12 +25,12 @@ Keep the initial milestone focused on:
 - A canvas with pan, zoom, and grid snapping.
 - Configurable grid spacing, stored with the document and changeable through a simple UI control.
 - Selection, moving, and deletion.
-- Built-in symbols: resistor, capacitor, diode, ground, op-amp, potentiometer, and input/output jack.
+- Initial symbol library contents: resistor, capacitor, diode, ground, op-amp, potentiometer, and input/output jack.
 - Editable component reference and value labels.
 - Terminal-connected wires with corners, branches, and visible junction dots.
 - Saving and reopening in a documented, versioned project format.
 
-No PCB features, simulation, automatic routing, or user-authored symbol editor are in scope for this milestone.
+No PCB features, simulation, automatic routing, or general-purpose artwork editor are in scope for this milestone. SVG-based symbol authoring is planned separately in the roadmap.
 
 ## Collaboration and implementation workflow
 

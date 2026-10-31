@@ -6,9 +6,9 @@ This document describes open work and possible future directions. It is not a fi
 
 This is the default starting point for a coding request, not an authorization to implement multiple items at once. Confirm the requested scope before each substantial change, following [AGENTS.md](AGENTS.md). Keep the design and acceptance checks for the selected item short and specific.
 
-1. **Editing workflow.** The approved design in [docs/design/editing-workflow.md](docs/design/editing-workflow.md) is implemented. Continue with selected library additions unless priorities change.
-2. **Selected library additions.** Add symbol groups when requested, as library data with focused validation and serialization coverage. Treat SVG import as a separate, later design and approval.
-3. **Reliability and usability polish.** Once the main editing workflow is functional, address the open grid, wire recovery, route retracing, save, warning, and title-bar issues below as focused follow-up work.
+1. **Symbol library authoring.** Refine and approve the draft [symbol import design](docs/design/symbol-import.md), then implement its scoped steps. The intended workflow is to draw glyphs in an external SVG editor, import supported SVG, add symbol metadata and terminals, and save a validated library definition.
+2. **Symbol library growth.** Add symbol groups through the same library format, authoring process, validation, and serialization path.
+3. **Reliability and usability polish.** Address the open grid, wire recovery, route retracing, save, warning, and title-bar issues below as focused follow-up work.
 
 The order can change when priorities change or a coding request targets another item. The detailed ordering belongs here; only durable model, file-format, and cross-cutting editing choices belong in `DECISIONS.md`.
 
@@ -34,7 +34,7 @@ Palette placement and toolbar edits use the established edit-commit path so they
 
 ## Symbol library growth
 
-The data-driven library is in place. Add symbols as library entries with focused validation and serialization coverage; preserve released IDs, terminal order, and terminal positions as described in [DECISIONS.md](DECISIONS.md).
+The data-driven library is in place. All entries should use the same format and management path. Add symbol groups with focused validation and serialization coverage; preserve released IDs, terminal order, and terminal positions as described in [DECISIONS.md](DECISIONS.md).
 
 Potential additions, subject to selection and design when work is planned:
 
@@ -45,13 +45,15 @@ Potential additions, subject to selection and design when work is planned:
 
 Agree the precise set, geometry, categories, and acceptance checks as part of the proposal for each group of symbols.
 
-## User-authored symbols
+## Symbol library authoring
 
-An SVG import workflow is a possible later direction, beginning with a restricted SVG profile and a step for defining terminals. A draft design note is available at [docs/design/J-symbol-import.md](docs/design/J-symbol-import.md). Before implementation, settle import behavior, storage of artwork and terminal definitions, user library discovery, conflict handling, and document portability. The draft describes possible sub-steps; it is not an approved implementation plan.
+This is the next major feature area. The draft [symbol import design](docs/design/symbol-import.md) describes a restricted SVG profile, in-app metadata and terminal editing, conversion to the native symbol definition, library storage, and document embedding. Refine and approve the design before implementation; its J1–J5 steps are proposals, not authorization to begin each step. Inkscape or another SVG editor remains the drawing tool; the application does not include a general-purpose artwork editor in this scope.
+
+Exporting an individual symbol as SVG and its metadata sidecar supports authoring and round trips. Exporting a complete schematic to SVG is a separate required future capability; it is not part of the symbol-creation feature.
 
 ## Other possible directions
 
-- Export schematics to SVG, PNG, or PDF.
+- Export complete schematics to SVG (required future capability); PNG and PDF export are also possible later formats.
 - Add free-text annotations and callouts, and improve label placement for rotated or crowded symbols.
 - Support moving multiple selected components together.
 - Add UI and file-I/O tests where they fit the existing headless model-test setup.
@@ -59,7 +61,6 @@ An SVG import workflow is a possible later direction, beginning with a restricte
 ## Open design questions
 
 - Should a junction dot appear where multiple wire routes meet a component terminal? Current rendering derives dots from shared route endpoint identities with three or more wire ends.
-- Should future user libraries be loaded from disk, embedded in documents, or support both? Document portability and definition conflicts need to be resolved before user-authored symbols ship.
 - If future symbol features require per-instance metadata or net naming, what document-format changes and migration rules are needed?
 
 ## Planning and status
