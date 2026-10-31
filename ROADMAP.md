@@ -58,20 +58,20 @@ The following M2 scope and decisions have been agreed. Work is divided into chun
 - Done when the seven existing symbols load from library data, all existing tests pass apart from renames for the new API, a library validation case for malformed category paths (empty segment, stray whitespace), library validation is tested (duplicate IDs, bad terminal definitions, missing prefix, malformed category paths), and a pre-E0 file loads identically.
 - Design note decisions: saved wires keep referencing terminals by index (no format change); an unknown symbol ID rejects the whole document with an error naming the ID; user libraries are not implemented, but `SymbolLibrary::loadFromDirectory()` already loads from a disk directory and built-in IDs cannot be shadowed, so disk libraries can be added later; embedding definitions in documents is deferred.
 
-**E1 — Transistors**
+**E1 — Transistors** (deferred)
 
 - JFET first, then BJT (NPN/PNP) and MOSFET (N/P). Polarity and type variants are separate library entries, not flags.
 - Done when each symbol and its JSON round trip are covered by focused tests.
 
-**E2 — Diodes, passives, valves, and other devices**
+**E2 — Diodes, passives, valves, and other devices** (deferred)
 
 - LED, Zener and Schottky diodes (which go under Semiconductors/Diodes); switch, inductor, supply rail; triode and pentode valves; transconductance amp (OTA). Order and exact set to be agreed when E2 is approved.
 - Done when each symbol and its JSON round trip are covered by focused tests.
 
-**E3 — Signal ports (design note first)**
+**E3 — Signal ports (design note first)** (deferred)
 
 - Input, output and bidirectional signal ports. Direction and labels are presentation metadata; they do not infer or alter electrical connectivity.
-- These likely need per-instance properties and a format change, so they get their own design note.
+- Signal ports (input, output, bidirectional) and supply rails are expected to be imported symbols whose value label carries the text, with the reference hidden (as for Ground). No format change is planned. Revisit only if that proves insufficient (for example, text inside the glyph, or net connection by name).
 
 **H — Undo/redo design and core integration (schedule before F and G)**
 
@@ -93,6 +93,13 @@ The following M2 scope and decisions have been agreed. Work is divided into chun
 - Move zoom and grid spacing controls to the View menu/secondary controls; Ctrl+mouse-wheel remains the primary zoom interaction.
 - Escape returns to Select mode; highlight valid terminals while drawing wires.
 - Done when a manual walkthrough covers placement, rotation, mirroring, undo, and wire drawing.
+
+**J — User-authored symbols via SVG import**
+
+- Design note: [docs/design/J-symbol-import.md](docs/design/J-symbol-import.md) (draft; must be approved before implementation).
+- Symbols are imported from plain SVG (a restricted profile, all transforms applied, out-of-profile content ignored with warnings) plus a sidecar JSON that carries metadata and terminals. The stored symbol is self-contained.
+- Sub-steps, each requiring approval: J1 `Path` primitive and `filled` flag; J2 headless importer and symbol exporter; J3 import dialog with click-to-place terminals; J4 registry, user library directory and failure policy; J5 document embedding (format v3) and conflict prompts.
+- Depends on F's shared renderer and H's edit-commit path.
 
 **I - Tidy up M2 comments**
 
