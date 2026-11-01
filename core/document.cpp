@@ -58,6 +58,30 @@ bool moveRouteEndpoint(WireRoute *route, bool start, QPointF position)
 
 } // namespace
 
+int Document::terminalCount(const Component &item) const
+{
+    const auto *definition = symbol(item.symbolId());
+    return definition ? item.terminalCount(*definition) : 0;
+}
+
+QPointF Document::terminalPosition(const Component &item, TerminalId terminal) const
+{
+    const auto *definition = symbol(item.symbolId());
+    Q_ASSERT(definition);
+    return definition ? item.terminalPosition(terminal, *definition) : item.position();
+}
+
+bool Document::useSymbol(const LibrarySymbol &definition, QStringList *errors)
+{
+    const auto *current = symbol(definition.id);
+    if (current && !sameTerminalSignature(*current, definition)) {
+        if (errors) errors->append(QStringLiteral("Document symbol terminal signature cannot change"));
+        return false;
+    }
+    return m_symbols.find(definition.id) ? m_symbols.replace(definition, errors)
+                                         : m_symbols.add(definition, errors);
+}
+
 bool Document::setGridSpacing(qreal spacing)
 {
     if (!std::isfinite(spacing) || spacing <= 0.0)
@@ -86,7 +110,11 @@ const WireRoute *Document::wire(WireId id) const
 
 ComponentId Document::addComponent(const SymbolId &symbolId, QPointF position, Rotation rotation)
 {
-    const LibrarySymbol *symbol = builtinSymbolLibrary().find(symbolId);
+    const LibrarySymbol *symbol = m_symbols.find(symbolId);
+    if (!symbol && m_nextComponentId != kInvalidComponentId) {
+        symbol = applicationSymbolLibrary().find(symbolId);
+        if (symbol) { QStringList errors; m_symbols.add(*symbol, &errors); symbol = m_symbols.find(symbolId); }
+    }
     if (!symbol || m_nextComponentId == kInvalidComponentId)
         return kInvalidComponentId;
     const ComponentId id = m_nextComponentId++;
@@ -140,12 +168,12 @@ bool Document::commitComponentChange(ComponentId id, const Component &changed)
     for (WireRoute &route : candidateWires) {
         if (isTerminal(route.start) && std::get<TerminalRef>(route.start).component == id) {
             const TerminalRef ref = std::get<TerminalRef>(route.start);
-            if (!moveRouteEndpoint(&route, true, changed.terminalPosition(ref.terminal)))
+            if (!moveRouteEndpoint(&route, true, terminalPosition(changed, ref.terminal)))
                 return false;
         }
         if (isTerminal(route.end) && std::get<TerminalRef>(route.end).component == id) {
             const TerminalRef ref = std::get<TerminalRef>(route.end);
-            if (!moveRouteEndpoint(&route, false, changed.terminalPosition(ref.terminal)))
+            if (!moveRouteEndpoint(&route, false, terminalPosition(changed, ref.terminal)))
                 return false;
         }
     }
@@ -447,7 +475,7 @@ QVector<Net> Document::computeNets() const
     };
 
     for (const Component &item : m_components) {
-        for (TerminalId terminal = 0; terminal < item.terminalCount(); ++terminal)
+        for (TerminalId terminal = 0; terminal < terminalCount(item); ++terminal)
             ensure(makeTerminalEndpoint(item.id(), terminal));
     }
     for (const WireRoute &route : m_wires) {
@@ -506,9 +534,9 @@ bool Document::endpointPosition(const WireEndpoint &endpoint, QPointF *position)
     if (isTerminal(endpoint)) {
         const TerminalRef ref = std::get<TerminalRef>(endpoint);
         const Component *item = component(ref.component);
-        if (!item || ref.terminal < 0 || ref.terminal >= item->terminalCount())
+        if (!item || ref.terminal < 0 || ref.terminal >= terminalCount(*item))
             return false;
-        *position = item->terminalPosition(ref.terminal);
+        *position = terminalPosition(*item, ref.terminal);
         return true;
     }
     const auto it = m_nodes.constFind(std::get<NodeId>(endpoint));

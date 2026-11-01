@@ -1,6 +1,6 @@
 # Chunk J design note: SVG-based symbol authoring
 
-Status: **approved design.** Implement only the next scoped step after its implementation plan is approved (see AGENTS.md). J1–J5 are proposed steps, not blanket authorization to implement them all.
+Status: **approved design.** J1–J4 are implemented. The [approved J4 implementation plan](symbol-import-j4-plan.md) records automated verification and the outstanding manual visual walkthrough. J5 symbol content will have its own scoped plan.
 
 ## 1. Purpose and scope
 
@@ -123,7 +123,7 @@ These stop the import: not well-formed XML; unreadable or invalid sidecar; no dr
 - **Failure policy.** Invalid entries are skipped with a reported error; other valid entries remain available. A malformed manifest or unreadable collection is reported without silently replacing the active registry with a partial collection.
 - **Re-import rule.** Re-importing any existing ID is allowed only if the terminal signature (count, order, names, positions) is unchanged, so artwork and presentation metadata can be refined but the symbol's electrical interface cannot change. Any terminal-signature change requires a new ID. This is enforced at import time.
 
-## 8. Documents, embedding and conflicts (J5)
+## 8. Documents, embedding and conflicts (J4)
 
 ### 8.1 Embedding (format v3)
 
@@ -132,7 +132,7 @@ These stop the import: not well-formed XML; unreadable or invalid sidecar; no dr
 
 ### 8.2 Per-document symbol set
 
-Each `Document` resolves symbols from its own set: its embedded entries layered over the registry. `Component::terminalPosition()` and every other symbol lookup must therefore go through the document's set rather than a global. This is the largest structural change in J and J5 begins with a short implementation plan for it.
+Each `Document` resolves symbols from its own set: its embedded entries layered over the registry. `Component::terminalPosition()` and every other symbol lookup must therefore go through the document's set rather than a global. This is the largest structural change in J and is covered by the J4 implementation plan.
 
 ### 8.3 Conflicts on open
 
@@ -162,15 +162,15 @@ The exporter writes any `LibrarySymbol` as a profile SVG plus its sidecar, with 
 
 Each step needs the user's approval before it starts.
 
-- **J1: Path primitive.** `Path` kind, `filled` flag and fill rule, validation and bounds, scene rendering, library JSON parsing. Done when all existing symbols render and load unchanged, and focused tests cover segment validation, bounds, fill-rule behavior, and `filled` defaults.
-- **J2: Importer and exporter (headless).** SVG parsing per the profile, origin normalization, full transform application, sidecar parsing, warning/error reporting, and the individual-symbol exporter. Done when fixture SVGs from the stated Inkscape workflow (nested groups, each transform type, arcs within tolerance, ellipses, rounded rects, fill rules, ignored elements, malformed input) produce expected primitives, and every current library entry survives export then re-import with equivalent primitives and terminals within the curve tolerance. If this step proves too large, the exporter becomes J2b.
-- **J3: Import dialog.** Preview, origin selection, click-to-place terminals, metadata editing, warnings, and safe writing of the symbol package. Done when a manual walkthrough covers importing a new symbol, setting the origin, placing and reordering terminals, and seeing warnings for an off-grid terminal and an ignored element.
-- **J4: Registry and library storage.** Single symbol lookup, common entry format across library sources, per-entry failure policy, palette refresh, and re-import freeze rule. Done when all existing tests pass against the new lookup, an invalid entry is skipped without blocking valid entries, duplicate IDs are reported, and re-importing with changed terminals is rejected.
-- **J5: Embedding and conflicts.** Per-document symbol set, format v3, conflict reporting and the prompts in 8.3. Done when model tests cover v1/v2/v3 loading, embedded-symbol validation, each conflict row, and v3 round trips, and the prompts are checked manually.
+- **J1: Path primitive (implemented).** `Path` kind, `filled` flag and fill rule, validation and bounds, scene rendering, and library JSON parsing. Existing symbols load and render unchanged; focused tests cover segment validation, bounds, fill-rule behavior, and `filled` defaults.
+- **J2: Importer and exporter (headless, implemented).** SVG parsing per the profile, origin normalization, transforms, sidecar parsing, warning/error reporting, and individual-symbol export are implemented in `core/symbolsvg.*`. Core fixtures cover nested transforms, each transform type, path commands, arc and ellipse tolerance, rounded rectangles, fill rules, ignored elements, malformed input, and export/re-import of every current library entry. The approved [J2 implementation plan](symbol-import-j2-plan.md) records implementation details and verification.
+- **J3: Import dialog (implemented).** Preview, origin selection, click-to-place terminals, metadata editing, warnings, and safe writing of the symbol package. The [J3 implementation plan](symbol-import-j3-plan.md) records the scope and verification. Core and package-store tests pass; the full manual import walkthrough remains to be checked.
+- **J4: Document embedding and conflicts (implemented).** Per-document symbol set, format v3, conflict reporting and the prompts in 8.3. The [J4 implementation plan](symbol-import-j4-plan.md) defines the model, serialization, registry override, and UI seams. The registry and writable-library foundation originally described as J4 was implemented with J3.
+- **J5: Symbol content (future).** Add selected symbol groups through the established library authoring path, with focused geometry and validation checks for each approved group.
 
 ## 12. Dependencies
 
-J3 needs F's shared renderer (the artwork-source seam) and H's edit-commit path for placing imported symbols. J4 must not start until J2 and J3 are accepted.
+J3 uses F's shared renderer (the artwork-source seam). The imported library becomes available to placement and document lookup through the registry foundation implemented alongside J3. Document embedding remains separate.
 
 ## 13. Decisions recorded from review
 

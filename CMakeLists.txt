@@ -32,6 +32,8 @@ add_library(schematiccore STATIC
     core/symbolid.h
     core/symbollibrary.h
     core/symbollibrary.cpp
+    core/symbolsvg.h
+    core/symbolsvg.cpp
     core/component.h
     core/component.cpp
     core/terminalref.h
@@ -86,6 +88,12 @@ qt_add_executable(Schematic
     symbolmimedata.h
     symbolrenderer.cpp
     symbolrenderer.h
+    symbolpackagestore.cpp
+    symbolpackagestore.h
+    symbolimportdialog.cpp
+    symbolimportdialog.h
+    symbolpreviewwidget.cpp
+    symbolpreviewwidget.h
     documenteditcontroller.cpp
     documenteditcontroller.h
 )

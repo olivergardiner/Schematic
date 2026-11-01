@@ -34,6 +34,9 @@ private slots:
     // validateLibrarySymbol() reports each class of bad definition.
     void validationRejectsBadDefinitions();
 
+    // Path segments are validated and their bounds use exact cubic extrema.
+    void pathPrimitiveValidatesAndBoundsCurvesExactly();
+
     // A valid symbol passes, and add() refuses duplicate ids without
     // changing the library.
     void addRejectsDuplicateIds();
@@ -43,6 +46,13 @@ private slots:
 
     // Directory loading works from disk and is all-or-nothing.
     void loadFromDirectoryIsAllOrNothing();
+
+    // SVG conversion follows the restricted profile and round-trips symbols.
+    void symbolSvgImportHandlesShapesTransformsAndWarnings();
+    void symbolSvgImportAppliesTransformsAndConvertsEllipses();
+    void symbolSvgImportRejectsMalformedInputs();
+    void symbolSvgRoundTripsBuiltinLibrary();
+    void symbolJsonSerializationAndArtworkOnlyImportRoundTrip();
 };
 
 #endif // TST_SYMBOLLIBRARY_H

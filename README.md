@@ -45,3 +45,9 @@ Alternatively, pass `-DCMAKE_PREFIX_PATH=<Qt kit>` to `cmake --preset default` d
 - [DECISIONS.md](DECISIONS.md): settled technical and interaction decisions.
 - [ROADMAP.md](ROADMAP.md): current review findings, open decisions, and later product ideas.
 - [CLAUDE.md](CLAUDE.md): local development environment and repository conventions.
+
+## Project format
+
+Saved .schematic files use JSON format version 3. The symbols array contains exactly one validated converted definition per used symbol ID, ordered by ID. Components, explicit nodes and orthogonal wire routes retain their identity-based connectivity. Documents resolve geometry and artwork from their own symbol snapshots. Versions 1 and 2 remain readable and upgrade on save.
+
+On opening v3, differing or missing library symbols are reviewed together. Embedded definitions can remain document-local; compatible definitions can update the library or be replaced by the active library version. Different terminal signatures cannot update the library. Library changes are staged as a batch; packaged replacements require an explicit persisted override. Cancelled conflict review leaves the open document unchanged.

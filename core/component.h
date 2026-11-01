@@ -28,7 +28,7 @@ enum class Rotation {
     Deg270 = 270,
 };
 
-// A single placed instance of a built-in symbol. Component owns no Qt scene
+// A single placed instance of a library symbol. Component owns no Qt scene
 // state (no QGraphicsItem, no signals) - see AGENTS.md "keep the schematic
 // document model independent of Qt rendering items and input handling".
 //
@@ -40,6 +40,8 @@ enum class Rotation {
 // component size. The Qt view layer is responsible for any pixel-per-unit
 // scaling when painting (via its own zoom transform), independent of this
 // model.
+struct LibrarySymbol;
+
 class Component
 {
 public:
@@ -64,8 +66,8 @@ public:
     bool mirrored() const { return m_mirrored; }
     void setMirrored(bool mirrored) { m_mirrored = mirrored; }
 
-    // Number of terminals this component's symbol kind defines.
-    int terminalCount() const;
+    // Geometry always uses the caller-provided document symbol definition.
+    int terminalCount(const LibrarySymbol &symbol) const;
 
     // World/scene-space position of the given terminal (see the coordinate
     // contract above - no scaling is applied), computed by rotating the
@@ -73,7 +75,7 @@ public:
     // rotation and then translating by this component's position. Returns
     // m_position unchanged (with a Q_ASSERT in debug builds) if terminal is
     // out of range.
-    QPointF terminalPosition(TerminalId terminal) const;
+    QPointF terminalPosition(TerminalId terminal, const LibrarySymbol &symbol) const;
 
 private:
     ComponentId m_id = kInvalidComponentId;

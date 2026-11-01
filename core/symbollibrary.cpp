@@ -7,7 +7,9 @@
 #include <QPair>
 #include <QSet>
 
+#include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace {
 
@@ -17,7 +19,43 @@ std::optional<PrimitiveKind> primitiveKindFromName(const QString &name)
     if (name == QLatin1String("Polyline")) return PrimitiveKind::Polyline;
     if (name == QLatin1String("Polygon"))  return PrimitiveKind::Polygon;
     if (name == QLatin1String("Circle"))   return PrimitiveKind::Circle;
+    if (name == QLatin1String("Path"))     return PrimitiveKind::Path;
     return std::nullopt;
+}
+
+QString primitiveKindName(PrimitiveKind kind)
+{
+    switch (kind) {
+    case PrimitiveKind::Line: return QStringLiteral("Line");
+    case PrimitiveKind::Polyline: return QStringLiteral("Polyline");
+    case PrimitiveKind::Polygon: return QStringLiteral("Polygon");
+    case PrimitiveKind::Circle: return QStringLiteral("Circle");
+    case PrimitiveKind::Path: return QStringLiteral("Path");
+    }
+    return {};
+}
+
+std::optional<PathSegmentKind> pathSegmentKindFromCode(const QString &code)
+{
+    if (code == QLatin1String("M")) return PathSegmentKind::MoveTo;
+    if (code == QLatin1String("L")) return PathSegmentKind::LineTo;
+    if (code == QLatin1String("C")) return PathSegmentKind::CubicTo;
+    if (code == QLatin1String("Z")) return PathSegmentKind::Close;
+    return std::nullopt;
+}
+
+int pathSegmentPointCount(PathSegmentKind kind)
+{
+    switch (kind) {
+    case PathSegmentKind::MoveTo:
+    case PathSegmentKind::LineTo:
+        return 1;
+    case PathSegmentKind::CubicTo:
+        return 3;
+    case PathSegmentKind::Close:
+        return 0;
+    }
+    return -1;
 }
 
 bool readPoint(const QJsonValue &value, QPointF *out)
@@ -34,6 +72,79 @@ bool readPoint(const QJsonValue &value, QPointF *out)
 bool finitePoint(const QPointF &p)
 {
     return std::isfinite(p.x()) && std::isfinite(p.y());
+}
+
+void includePoint(const QPointF &point, bool *hasBounds,
+                  qreal *minX, qreal *minY, qreal *maxX, qreal *maxY)
+{
+    if (!finitePoint(point))
+        return;
+    if (!*hasBounds) {
+        *minX = *maxX = point.x();
+        *minY = *maxY = point.y();
+        *hasBounds = true;
+        return;
+    }
+    *minX = std::min(*minX, point.x());
+    *minY = std::min(*minY, point.y());
+    *maxX = std::max(*maxX, point.x());
+    *maxY = std::max(*maxY, point.y());
+}
+
+qreal cubicCoordinate(qreal p0, qreal p1, qreal p2, qreal p3, qreal t)
+{
+    const qreal u = 1.0 - t;
+    return u * u * u * p0 + 3.0 * u * u * t * p1
+        + 3.0 * u * t * t * p2 + t * t * t * p3;
+}
+
+void appendCubicExtremaRoots(qreal p0, qreal p1, qreal p2, qreal p3,
+                             QVector<qreal> *roots)
+{
+    // B'(t) / 3 = a*t^2 + b*t + c.
+    const qreal a = -p0 + 3.0 * p1 - 3.0 * p2 + p3;
+    const qreal b = 2.0 * (p0 - 2.0 * p1 + p2);
+    const qreal c = p1 - p0;
+    const qreal scale = std::max({qreal(1.0), std::abs(p0), std::abs(p1),
+                                  std::abs(p2), std::abs(p3)});
+    const qreal epsilon = std::numeric_limits<qreal>::epsilon() * scale * 16.0;
+
+    if (std::abs(a) <= epsilon) {
+        if (std::abs(b) > epsilon) {
+            const qreal t = -c / b;
+            if (t > 0.0 && t < 1.0)
+                roots->append(t);
+        }
+        return;
+    }
+
+    const qreal discriminant = b * b - 4.0 * a * c;
+    if (discriminant < 0.0)
+        return;
+    const qreal sqrtDiscriminant = std::sqrt(discriminant);
+    const qreal denominator = 2.0 * a;
+    const qreal first = (-b + sqrtDiscriminant) / denominator;
+    const qreal second = (-b - sqrtDiscriminant) / denominator;
+    if (first > 0.0 && first < 1.0)
+        roots->append(first);
+    if (second > 0.0 && second < 1.0 && second != first)
+        roots->append(second);
+}
+
+void includeCubicBounds(const QPointF &p0, const QPointF &p1,
+                         const QPointF &p2, const QPointF &p3, bool *hasBounds,
+                         qreal *minX, qreal *minY, qreal *maxX, qreal *maxY)
+{
+    includePoint(p0, hasBounds, minX, minY, maxX, maxY);
+    includePoint(p3, hasBounds, minX, minY, maxX, maxY);
+    QVector<qreal> roots;
+    appendCubicExtremaRoots(p0.x(), p1.x(), p2.x(), p3.x(), &roots);
+    appendCubicExtremaRoots(p0.y(), p1.y(), p2.y(), p3.y(), &roots);
+    for (qreal t : roots) {
+        includePoint(QPointF(cubicCoordinate(p0.x(), p1.x(), p2.x(), p3.x(), t),
+                             cubicCoordinate(p0.y(), p1.y(), p2.y(), p3.y(), t)),
+                     hasBounds, minX, minY, maxX, maxY);
+    }
 }
 
 QString label(const SymbolId &id)
@@ -111,6 +222,38 @@ QStringList validateLibrarySymbol(const LibrarySymbol &symbol)
             if (!std::isfinite(primitive.radius) || primitive.radius <= 0.0)
                 errors << where + QStringLiteral("Circle radius must be a finite positive number");
             break;
+        case PrimitiveKind::Path: {
+            if (primitive.segments.isEmpty()) {
+                errors << where + QStringLiteral("Path needs at least one segment");
+                break;
+            }
+            if (primitive.fillRule != PathFillRule::NonZero
+                && primitive.fillRule != PathFillRule::EvenOdd) {
+                errors << where + QStringLiteral("Path has an unknown fill rule");
+            }
+            if (primitive.segments.first().kind != PathSegmentKind::MoveTo)
+                errors << where + QStringLiteral("Path must start with MoveTo");
+            for (int j = 0; j < primitive.segments.size(); ++j) {
+                const PathSegment &segment = primitive.segments[j];
+                const QString segmentWhere = where + QStringLiteral("segments[%1] ").arg(j);
+                const int expected = pathSegmentPointCount(segment.kind);
+                if (expected < 0) {
+                    errors << segmentWhere + QStringLiteral("has an unknown segment kind");
+                    continue;
+                }
+                if (segment.points.size() != expected) {
+                    errors << segmentWhere + QStringLiteral("has the wrong number of points");
+                    continue;
+                }
+                for (const QPointF &point : segment.points) {
+                    if (!finitePoint(point)) {
+                        errors << segmentWhere + QStringLiteral("coordinates must be finite");
+                        break;
+                    }
+                }
+            }
+            break;
+        }
         }
         for (const QPointF &point : primitive.points) {
             if (!finitePoint(point)) {
@@ -142,6 +285,72 @@ QStringList validateLibrarySymbol(const LibrarySymbol &symbol)
         offsets.insert(key);
     }
     return errors;
+}
+
+QRectF symbolBounds(const LibrarySymbol &symbol)
+{
+    bool hasBounds = false;
+    qreal minX = 0.0;
+    qreal minY = 0.0;
+    qreal maxX = 0.0;
+    qreal maxY = 0.0;
+
+    for (const SymbolPrimitive &primitive : symbol.primitives) {
+        if (primitive.kind == PrimitiveKind::Circle && primitive.points.size() == 1
+            && std::isfinite(primitive.radius) && primitive.radius > 0.0) {
+            const QPointF centre = primitive.points.first();
+            includePoint(QPointF(centre.x() - primitive.radius,
+                                 centre.y() - primitive.radius),
+                         &hasBounds, &minX, &minY, &maxX, &maxY);
+            includePoint(QPointF(centre.x() + primitive.radius,
+                                 centre.y() + primitive.radius),
+                         &hasBounds, &minX, &minY, &maxX, &maxY);
+            continue;
+        }
+
+        if (primitive.kind != PrimitiveKind::Path) {
+            for (const QPointF &point : primitive.points)
+                includePoint(point, &hasBounds, &minX, &minY, &maxX, &maxY);
+            continue;
+        }
+
+        QPointF current;
+        QPointF subpathStart;
+        bool hasCurrent = false;
+        for (const PathSegment &segment : primitive.segments) {
+            switch (segment.kind) {
+            case PathSegmentKind::MoveTo:
+                if (segment.points.size() != 1)
+                    break;
+                current = subpathStart = segment.points.first();
+                hasCurrent = true;
+                includePoint(current, &hasBounds, &minX, &minY, &maxX, &maxY);
+                break;
+            case PathSegmentKind::LineTo:
+                if (!hasCurrent || segment.points.size() != 1)
+                    break;
+                current = segment.points.first();
+                includePoint(current, &hasBounds, &minX, &minY, &maxX, &maxY);
+                break;
+            case PathSegmentKind::CubicTo:
+                if (!hasCurrent || segment.points.size() != 3)
+                    break;
+                includeCubicBounds(current, segment.points[0], segment.points[1],
+                                   segment.points[2], &hasBounds, &minX, &minY,
+                                   &maxX, &maxY);
+                current = segment.points[2];
+                break;
+            case PathSegmentKind::Close:
+                if (!hasCurrent || !segment.points.isEmpty())
+                    break;
+                current = subpathStart;
+                includePoint(current, &hasBounds, &minX, &minY, &maxX, &maxY);
+                break;
+            }
+        }
+    }
+
+    return hasBounds ? QRectF(QPointF(minX, minY), QPointF(maxX, maxY)) : QRectF{};
 }
 
 std::optional<LibrarySymbol> SymbolLibrary::parseSymbol(const QJsonObject &object,
@@ -183,26 +392,107 @@ std::optional<LibrarySymbol> SymbolLibrary::parseSymbol(const QJsonObject &objec
             if (!kind) { problems << where + QStringLiteral("has an unknown kind"); continue; }
             SymbolPrimitive primitive;
             primitive.kind = *kind;
-            const QJsonValue points = entry.value(QStringLiteral("points"));
-            bool pointsOk = points.isArray();
-            if (pointsOk) {
-                for (const QJsonValue &pointValue : points.toArray()) {
-                    QPointF point;
-                    if (!readPoint(pointValue, &point)) { pointsOk = false; break; }
-                    primitive.points.append(point);
-                }
+
+            if (entry.contains(QStringLiteral("filled"))) {
+                const QJsonValue filled = entry.value(QStringLiteral("filled"));
+                if (!filled.isBool())
+                    problems << where + QStringLiteral("filled must be a boolean");
+                else
+                    primitive.filled = filled.toBool();
             }
-            if (!pointsOk) { problems << where + QStringLiteral("points must be an array of [x, y] pairs"); continue; }
+
             const bool hasRadius = entry.contains(QStringLiteral("radius"));
+            if (*kind == PrimitiveKind::Path) {
+                if (entry.contains(QStringLiteral("points")))
+                    problems << where + QStringLiteral("points are not valid for Path");
+                if (hasRadius)
+                    problems << where + QStringLiteral("radius is only valid for Circle");
+
+                if (entry.contains(QStringLiteral("fillRule"))) {
+                    const QJsonValue fillRule = entry.value(QStringLiteral("fillRule"));
+                    if (!fillRule.isString()) {
+                        problems << where + QStringLiteral("fillRule must be a string");
+                    } else if (fillRule.toString() == QLatin1String("nonzero")) {
+                        primitive.fillRule = PathFillRule::NonZero;
+                    } else if (fillRule.toString() == QLatin1String("evenodd")) {
+                        primitive.fillRule = PathFillRule::EvenOdd;
+                    } else {
+                        problems << where + QStringLiteral("fillRule must be nonzero or evenodd");
+                    }
+                }
+
+                const QJsonValue segments = entry.value(QStringLiteral("segments"));
+                if (!segments.isArray()) {
+                    problems << where + QStringLiteral("segments must be an array");
+                } else {
+                    int segmentIndex = 0;
+                    for (const QJsonValue &segmentValue : segments.toArray()) {
+                        const QString segmentWhere = where
+                            + QStringLiteral("segments[%1] ").arg(segmentIndex++);
+                        if (!segmentValue.isArray()) {
+                            problems << segmentWhere + QStringLiteral("must be an array");
+                            continue;
+                        }
+                        const QJsonArray array = segmentValue.toArray();
+                        if (array.isEmpty() || !array.first().isString()) {
+                            problems << segmentWhere + QStringLiteral("needs an operation code");
+                            continue;
+                        }
+                        const auto segmentKind = pathSegmentKindFromCode(array.first().toString());
+                        if (!segmentKind) {
+                            problems << segmentWhere + QStringLiteral("has an unknown operation code");
+                            continue;
+                        }
+                        const int pointCount = pathSegmentPointCount(*segmentKind);
+                        if (array.size() != 1 + pointCount * 2) {
+                            problems << segmentWhere + QStringLiteral("has the wrong number of coordinates");
+                            continue;
+                        }
+                        PathSegment segment;
+                        segment.kind = *segmentKind;
+                        bool coordinatesOk = true;
+                        for (int i = 1; i < array.size(); i += 2) {
+                            if (!array[i].isDouble() || !array[i + 1].isDouble()) {
+                                coordinatesOk = false;
+                                break;
+                            }
+                            segment.points.append(QPointF(array[i].toDouble(),
+                                                          array[i + 1].toDouble()));
+                        }
+                        if (!coordinatesOk) {
+                            problems << segmentWhere + QStringLiteral("coordinates must be numeric pairs");
+                            continue;
+                        }
+                        primitive.segments.append(std::move(segment));
+                    }
+                }
+            } else {
+                if (entry.contains(QStringLiteral("segments")))
+                    problems << where + QStringLiteral("segments are only valid for Path");
+                if (entry.contains(QStringLiteral("fillRule")))
+                    problems << where + QStringLiteral("fillRule is only valid for Path");
+
+                const QJsonValue points = entry.value(QStringLiteral("points"));
+                bool pointsOk = points.isArray();
+                if (pointsOk) {
+                    for (const QJsonValue &pointValue : points.toArray()) {
+                        QPointF point;
+                        if (!readPoint(pointValue, &point)) { pointsOk = false; break; }
+                        primitive.points.append(point);
+                    }
+                }
+                if (!pointsOk)
+                    problems << where + QStringLiteral("points must be an array of [x, y] pairs");
+            }
+
             if (*kind == PrimitiveKind::Circle) {
                 if (!entry.value(QStringLiteral("radius")).isDouble()) {
                     problems << where + QStringLiteral("Circle needs a numeric radius");
                     continue;
                 }
                 primitive.radius = entry.value(QStringLiteral("radius")).toDouble();
-            } else if (hasRadius) {
+            } else if (*kind != PrimitiveKind::Path && hasRadius) {
                 problems << where + QStringLiteral("radius is only valid for Circle");
-                continue;
             }
             symbol.primitives.append(primitive);
         }
@@ -237,6 +527,58 @@ std::optional<LibrarySymbol> SymbolLibrary::parseSymbol(const QJsonObject &objec
     return symbol;
 }
 
+QJsonObject SymbolLibrary::symbolToJson(const LibrarySymbol &symbol)
+{
+    QJsonArray primitives;
+    for (const SymbolPrimitive &primitive : symbol.primitives) {
+        QJsonObject entry{{QStringLiteral("kind"), primitiveKindName(primitive.kind)}};
+        if (primitive.kind == PrimitiveKind::Path) {
+            QJsonArray segments;
+            for (const PathSegment &segment : primitive.segments) {
+                QString code;
+                switch (segment.kind) {
+                case PathSegmentKind::MoveTo: code = QStringLiteral("M"); break;
+                case PathSegmentKind::LineTo: code = QStringLiteral("L"); break;
+                case PathSegmentKind::CubicTo: code = QStringLiteral("C"); break;
+                case PathSegmentKind::Close: code = QStringLiteral("Z"); break;
+                }
+                QJsonArray coordinates{code};
+                for (const QPointF &point : segment.points) {
+                    coordinates.append(point.x());
+                    coordinates.append(point.y());
+                }
+                segments.append(coordinates);
+            }
+            entry.insert(QStringLiteral("segments"), segments);
+            entry.insert(QStringLiteral("fillRule"), primitive.fillRule == PathFillRule::EvenOdd
+                               ? QStringLiteral("evenodd") : QStringLiteral("nonzero"));
+        } else {
+            QJsonArray points;
+            for (const QPointF &point : primitive.points)
+                points.append(QJsonArray{point.x(), point.y()});
+            entry.insert(QStringLiteral("points"), points);
+            if (primitive.kind == PrimitiveKind::Circle)
+                entry.insert(QStringLiteral("radius"), primitive.radius);
+        }
+        if (primitive.filled.has_value())
+            entry.insert(QStringLiteral("filled"), *primitive.filled);
+        primitives.append(entry);
+    }
+    QJsonArray terminals;
+    for (const SymbolTerminal &terminal : symbol.terminals) {
+        terminals.append(QJsonObject{{QStringLiteral("name"), terminal.name},
+                                     {QStringLiteral("x"), terminal.offset.x()},
+                                     {QStringLiteral("y"), terminal.offset.y()}});
+    }
+    return {{QStringLiteral("id"), symbol.id.value()},
+            {QStringLiteral("name"), symbol.displayName},
+            {QStringLiteral("category"), symbol.category},
+            {QStringLiteral("referencePrefix"), symbol.referencePrefix},
+            {QStringLiteral("showsReference"), symbol.showsReference},
+            {QStringLiteral("primitives"), primitives},
+            {QStringLiteral("terminals"), terminals}};
+}
+
 bool SymbolLibrary::add(const LibrarySymbol &symbol, QStringList *errors)
 {
     QStringList problems = validateLibrarySymbol(symbol);
@@ -255,6 +597,20 @@ bool SymbolLibrary::addFromJson(const QJsonObject &object, QStringList *errors)
 {
     const std::optional<LibrarySymbol> symbol = parseSymbol(object, errors);
     return symbol && add(*symbol, errors);
+}
+
+bool SymbolLibrary::replace(const LibrarySymbol &symbol, QStringList *errors)
+{
+    QStringList problems = validateLibrarySymbol(symbol);
+    const auto it = m_index.constFind(symbol.id);
+    if (problems.isEmpty() && it == m_index.cend())
+        problems << QStringLiteral("symbol id does not exist");
+    if (!problems.isEmpty()) {
+        appendAll(errors, label(symbol.id) + QStringLiteral(": "), problems);
+        return false;
+    }
+    m_symbols[it.value()] = symbol;
+    return true;
 }
 
 SymbolLibrary SymbolLibrary::loadFromDirectory(const QString &directory, QStringList *errors)
@@ -324,4 +680,18 @@ const SymbolLibrary &builtinSymbolLibrary()
         return loaded;
     }();
     return library;
+}
+
+SymbolLibrary &applicationSymbolLibrary()
+{
+    static SymbolLibrary library = builtinSymbolLibrary();
+    return library;
+}
+
+bool sameTerminalSignature(const LibrarySymbol &a, const LibrarySymbol &b)
+{
+    if (a.terminals.size() != b.terminals.size()) return false;
+    for (int i = 0; i < a.terminals.size(); ++i)
+        if (a.terminals[i].name != b.terminals[i].name || a.terminals[i].offset != b.terminals[i].offset) return false;
+    return true;
 }

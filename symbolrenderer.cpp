@@ -44,6 +44,30 @@ QPainterPath primitivePath(const SymbolPrimitive &primitive)
             path.addEllipse(centre, primitive.radius, primitive.radius);
         }
         break;
+    case PrimitiveKind::Path:
+        path.setFillRule(primitive.fillRule == PathFillRule::EvenOdd
+                             ? Qt::OddEvenFill : Qt::WindingFill);
+        for (const PathSegment &segment : primitive.segments) {
+            switch (segment.kind) {
+            case PathSegmentKind::MoveTo:
+                if (segment.points.size() == 1)
+                    path.moveTo(segment.points.first());
+                break;
+            case PathSegmentKind::LineTo:
+                if (segment.points.size() == 1)
+                    path.lineTo(segment.points.first());
+                break;
+            case PathSegmentKind::CubicTo:
+                if (segment.points.size() == 3)
+                    path.cubicTo(segment.points[0], segment.points[1], segment.points[2]);
+                break;
+            case PathSegmentKind::Close:
+                if (segment.points.isEmpty())
+                    path.closeSubpath();
+                break;
+            }
+        }
+        break;
     }
     return path;
 }
@@ -57,21 +81,15 @@ QVector<RenderedSymbolPrimitive> SymbolRenderer::primitives(const LibrarySymbol 
     for (const SymbolPrimitive &primitive : symbol.primitives) {
         QPainterPath path = primitivePath(primitive);
         if (!path.isEmpty())
-            result.append({std::move(path), primitive.kind == PrimitiveKind::Polygon});
+            result.append({std::move(path),
+                           primitive.filled.value_or(primitive.kind == PrimitiveKind::Polygon)});
     }
     return result;
 }
 
 QRectF SymbolRenderer::bounds(const LibrarySymbol &symbol)
 {
-    QRectF result;
-    bool hasBounds = false;
-    for (const RenderedSymbolPrimitive &primitive : primitives(symbol)) {
-        const QRectF primitiveBounds = primitive.path.boundingRect();
-        result = hasBounds ? result.united(primitiveBounds) : primitiveBounds;
-        hasBounds = true;
-    }
-    return hasBounds ? result : QRectF{};
+    return symbolBounds(symbol);
 }
 
 void SymbolRenderer::paintPreview(QPainter *painter, const LibrarySymbol &symbol,

@@ -6,6 +6,7 @@
 #include <QHash>
 #include <QJsonObject>
 #include <QPointF>
+#include <QRectF>
 #include <QSet>
 #include <QString>
 #include <QStringList>
@@ -24,6 +25,27 @@ enum class PrimitiveKind {
     Polyline, // 2+ points, drawn open (not closed/filled)
     Polygon,  // 3+ points, drawn closed (outline; may be filled by the renderer)
     Circle,   // exactly 1 point (centre); radius is set separately
+    Path,     // ordered move/line/cubic/close segments
+};
+
+enum class PathSegmentKind {
+    MoveTo,
+    LineTo,
+    CubicTo,
+    Close,
+};
+
+struct PathSegment
+{
+    PathSegmentKind kind = PathSegmentKind::MoveTo;
+    // MoveTo and LineTo: one point. CubicTo: two control points and endpoint.
+    // Close: no points.
+    QVector<QPointF> points;
+};
+
+enum class PathFillRule {
+    NonZero,
+    EvenOdd,
 };
 
 struct SymbolPrimitive
@@ -31,6 +53,10 @@ struct SymbolPrimitive
     PrimitiveKind kind = PrimitiveKind::Line;
     QVector<QPointF> points;
     qreal radius = 0.0; // only meaningful when kind == Circle
+    QVector<PathSegment> segments; // only meaningful when kind == Path
+    // Unset uses the established per-kind default: Polygon filled, others open.
+    std::optional<bool> filled;
+    PathFillRule fillRule = PathFillRule::NonZero; // only meaningful for Path
 };
 
 // A single named connection point on a symbol, in the same local unit space
@@ -70,7 +96,13 @@ QStringList libraryCategoryPath(const QString &category);
 // least one primitive and one terminal; primitive point counts for their
 // kind; finite coordinates; positive circle radius; non-empty, unique
 // terminal names; unique terminal offsets.
+bool sameTerminalSignature(const LibrarySymbol &a, const LibrarySymbol &b);
+
 QStringList validateLibrarySymbol(const LibrarySymbol &symbol);
+
+// Exact geometry bounds in symbol-local coordinates. Cubic paths include
+// their interior extrema rather than the larger control-point hull.
+QRectF symbolBounds(const LibrarySymbol &symbol);
 
 // Smallest-numbered unused "<prefix><n>" (n >= 1) not present in used. Shared
 // by Document::addComponent() and the loader so defaults and repairs agree.
@@ -86,12 +118,14 @@ public:
     // *errors (each naming the symbol) and std::nullopt is returned.
     static std::optional<LibrarySymbol> parseSymbol(const QJsonObject &object,
                                                     QStringList *errors);
+    static QJsonObject symbolToJson(const LibrarySymbol &symbol);
 
     // Validates symbol and adds it. Rejected (returning false, library
     // unchanged, reasons appended to *errors) if invalid or if its id is
     // already present.
     bool add(const LibrarySymbol &symbol, QStringList *errors);
     bool addFromJson(const QJsonObject &object, QStringList *errors);
+    bool replace(const LibrarySymbol &symbol, QStringList *errors);
 
     // Loads <directory>/manifest.json - {"symbols": ["a.json", ...]} - and
     // every listed file, which works for both a Qt resource path (":/symbols")
@@ -113,5 +147,10 @@ private:
 // validated on first use; an invalid built-in library is a fatal error
 // (it is covered by tests, so this indicates a broken build).
 const SymbolLibrary &builtinSymbolLibrary();
+
+// Process-wide active library used by the current application and document
+// model. It starts as a copy of the packaged symbols; the application adds
+// validated writable-library entries during startup and import.
+SymbolLibrary &applicationSymbolLibrary();
 
 #endif // SYMBOLLIBRARY_H

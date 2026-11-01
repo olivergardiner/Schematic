@@ -6,7 +6,7 @@ This document describes open work and possible future directions. It is not a fi
 
 This is the default starting point for a coding request, not an authorization to implement multiple items at once. Confirm the requested scope before each substantial change, following [AGENTS.md](AGENTS.md). Keep the design and acceptance checks for the selected item short and specific.
 
-1. **Symbol library authoring.** The approved [symbol import design](docs/design/symbol-import.md) is split into J1–J5. Next, prepare a scoped implementation plan for J1 (the `Path` primitive); each step needs its own approval before implementation.
+1. **Symbol library authoring.** J1 (`Path`), J2 (headless SVG import/export), J3 (the import dialog and writable library), and J4 (document symbol snapshots and conflict handling) from the approved [symbol import design](docs/design/symbol-import.md) are implemented. The writable library foundation was included in J3 so imported symbols can be used immediately. The [J4 implementation plan](docs/design/symbol-import-j4-plan.md) records the approved document embedding and conflict implementation; automated verification passes, with the manual visual walkthrough outstanding. J5 symbol content remains later work.
 2. **Symbol library growth.** Add symbol groups through the same library format, authoring process, validation, and serialization path.
 3. **Reliability and usability polish.** Address the open grid, wire recovery, route retracing, save, warning, and title-bar issues below as focused follow-up work.
 
@@ -47,7 +47,7 @@ Agree the precise set, geometry, categories, and acceptance checks as part of th
 
 ## Symbol library authoring
 
-This is the next major feature area. The approved [symbol import design](docs/design/symbol-import.md) describes a restricted SVG profile, in-app metadata and terminal editing, conversion to the native symbol definition, library storage, and document embedding. Its J1–J5 steps are proposals; approve a scoped plan for each step before implementation. Inkscape or another SVG editor remains the drawing tool; the application does not include a general-purpose artwork editor in this scope.
+This is the current major feature area. The approved [symbol import design](docs/design/symbol-import.md) describes a restricted SVG profile, in-app metadata and terminal editing, conversion to the native symbol definition, library storage, and document embedding. J1–J4 are implemented; the [J4 plan](docs/design/symbol-import-j4-plan.md) records verification and the outstanding manual visual check, and J5 symbol content will need its own scoped plan. Inkscape or another SVG editor remains the drawing tool; the application does not include a general-purpose artwork editor in this scope.
 
 Exporting an individual symbol as SVG and its metadata sidecar supports authoring and round trips. Exporting a complete schematic to SVG is a separate required future capability; it is not part of the symbol-creation feature.
 

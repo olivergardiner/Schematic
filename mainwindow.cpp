@@ -7,6 +7,7 @@
 #include "symbollibrary.h"
 #include "symbolrenderer.h"
 #include "symbolmimedata.h"
+#include "symbolimportdialog.h"
 
 #include <QApplication>
 #include <QMenuBar>
@@ -31,6 +32,7 @@
 #include <QFormLayout>
 #include <QLineEdit>
 #include <QDialog>
+#include <QComboBox>
 #include <QDialogButtonBox>
 #include <QInputDialog>
 #include <QSignalBlocker>
@@ -223,6 +225,7 @@ MainWindow::MainWindow(QWidget *parent)
     , m_view(new SchematicView(this))
 {
     m_editController = new DocumentEditController(&m_document, this);
+    const QStringList symbolLoadWarnings = m_symbolPackageStore.loadInto(&applicationSymbolLibrary());
     m_view->setScene(m_scene);
     setCentralWidget(m_view);
 
@@ -231,6 +234,8 @@ MainWindow::MainWindow(QWidget *parent)
     createToolBar();
     createSymbolDock();
     createStatusBar();
+    if (!symbolLoadWarnings.isEmpty())
+        QMessageBox::warning(this, tr("Symbol Library"), symbolLoadWarnings.join(QLatin1Char('\n')));
     populateToolbarsMenu();
     restoreWindowLayout();
 
@@ -298,6 +303,8 @@ void MainWindow::createMenus()
 
     auto *openAction = fileMenu->addAction(tr("&Open..."), this, &MainWindow::onOpen);
     openAction->setShortcut(QKeySequence::Open);
+
+    fileMenu->addAction(tr("Import Symbol..."), this, &MainWindow::onImportSymbol);
 
     fileMenu->addSeparator();
 
@@ -489,9 +496,32 @@ void MainWindow::createSymbolDock()
     splitter->setStretchFactor(1, 1);
     splitter->setSizes({130, 250});
 
-    // Keep one placement action per symbol so checked state survives category
-    // changes that recreate the visible tile widgets.
-    for (const LibrarySymbol &symbol : builtinSymbolLibrary().symbols()) {
+    connect(m_categoryTree, &QTreeWidget::currentItemChanged, this,
+            [this](QTreeWidgetItem *current, QTreeWidgetItem *) {
+                if (current)
+                    populateSymbolGrid(current->data(0, Qt::UserRole).toString());
+            });
+    dock->setWidget(splitter);
+    addDockWidget(Qt::LeftDockWidgetArea, dock);
+    rebuildSymbolDockContents();
+}
+
+void MainWindow::rebuildSymbolDockContents()
+{
+    if (!m_categoryTree)
+        return;
+    QString selectedPath;
+    if (m_categoryTree->currentItem())
+        selectedPath = m_categoryTree->currentItem()->data(0, Qt::UserRole).toString();
+    for (QAction *action : m_symbolActions) {
+        m_modeGroup->removeAction(action);
+        delete action;
+    }
+    m_symbolActions.clear();
+    m_categoryItems.clear();
+    m_categoryTree->clear();
+
+    for (const LibrarySymbol &symbol : applicationSymbolLibrary().symbols()) {
         auto *action = new QAction(symbol.displayName, this);
         action->setCheckable(true);
         m_modeGroup->addAction(action);
@@ -517,20 +547,14 @@ void MainWindow::createSymbolDock()
         }
     }
 
-    connect(m_categoryTree, &QTreeWidget::currentItemChanged, this,
-            [this](QTreeWidgetItem *current, QTreeWidgetItem *) {
-                if (current)
-                    populateSymbolGrid(current->data(0, Qt::UserRole).toString());
-            });
     m_categoryTree->expandAll();
-    if (m_categoryTree->topLevelItemCount() > 0) {
-        QTreeWidgetItem *firstCategory = m_categoryTree->topLevelItem(0);
-        m_categoryTree->setCurrentItem(firstCategory);
-        populateSymbolGrid(firstCategory->data(0, Qt::UserRole).toString());
+    QTreeWidgetItem *selection = m_categoryItems.value(selectedPath, nullptr);
+    if (!selection && m_categoryTree->topLevelItemCount() > 0)
+        selection = m_categoryTree->topLevelItem(0);
+    if (selection) {
+        m_categoryTree->setCurrentItem(selection);
+        populateSymbolGrid(selection->data(0, Qt::UserRole).toString());
     }
-
-    dock->setWidget(splitter);
-    addDockWidget(Qt::LeftDockWidgetArea, dock);
 }
 
 void MainWindow::populateSymbolGrid(const QString &categoryPath)
@@ -555,7 +579,7 @@ void MainWindow::populateSymbolGrid(const QString &categoryPath)
     const QStringList selectedPath = libraryCategoryPath(categoryPath);
     const QString descendantPrefix = categoryPath + QLatin1Char('/');
 
-    for (const LibrarySymbol &symbol : builtinSymbolLibrary().symbols()) {
+    for (const LibrarySymbol &symbol : applicationSymbolLibrary().symbols()) {
         if (symbol.category != categoryPath && !symbol.category.startsWith(descendantPrefix))
             continue;
 
@@ -692,27 +716,67 @@ void MainWindow::onNew()
 
 void MainWindow::onOpen()
 {
-    if (!maybeSave())
-        return;
-
     const QString path = QFileDialog::getOpenFileName(this, tr("Open Schematic"), QString(),
-                                                        tr("Schematic Files (*.schematic);;All Files (*)"));
-    if (path.isEmpty())
-        return;
+        tr("Schematic Files (*.schematic);;All Files (*)"));
+    if (!path.isEmpty()) openDocumentFrom(path);
+}
 
+bool MainWindow::openDocumentFrom(const QString &path)
+{
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
         QMessageBox::warning(this, tr("Schematic"),
             tr("Could not open \"%1\" for reading: %2").arg(path, file.errorString()));
-        return;
+        return false;
     }
-    const DocumentLoadResult result = Document::fromJsonBytes(file.readAll());
+    DocumentLoadResult result = Document::fromJsonBytes(file.readAll());
     if (!result.document) {
         QMessageBox::warning(this, tr("Schematic"),
             tr("\"%1\" could not be loaded:\n%2").arg(path, result.errors.join('\n')));
-        return; // The current document is left completely unchanged.
+        return false; // The current document is left completely unchanged.
     }
 
+    if (!result.conflicts.isEmpty()) {
+        QDialog dialog(this);
+        dialog.setWindowTitle(tr("Review document symbols"));
+        auto *layout = new QVBoxLayout(&dialog);
+        layout->addWidget(new QLabel(tr("Choose which definition to use for each symbol."), &dialog));
+        auto *form = new QFormLayout;
+        layout->addLayout(form);
+        QVector<QComboBox *> choices;
+        for (const auto &conflict : result.conflicts) {
+            auto *choice = new QComboBox(&dialog);
+            choice->addItem(tr("Use embedded in this document"), 0);
+            if (conflict.kind == SymbolConflictKind::Presentation) {
+                choice->addItem(tr("Update library to embedded version"), 1);
+                choice->addItem(tr("Use library version in this document"), 2);
+            } else if (conflict.kind == SymbolConflictKind::Missing)
+                choice->addItem(tr("Add embedded version to library"), 1);
+            const QString detail = conflict.kind == SymbolConflictKind::Terminals ? tr(" (different terminals)")
+                : conflict.kind == SymbolConflictKind::Missing ? tr(" (missing from library)") : tr(" (artwork or metadata differs)");
+            form->addRow(conflict.embedded.id.value() + detail, choice);
+            choices.append(choice);
+        }
+        auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+        layout->addWidget(buttons);
+        connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+        if (dialog.exec() != QDialog::Accepted) return false;
+        QVector<LibrarySymbol> updates;
+        QStringList errors;
+        for (int i = 0; i < choices.size(); ++i) {
+            const auto &conflict = result.conflicts[i];
+            const int choice = choices[i]->currentData().toInt();
+            if (choice == 1) updates.append(conflict.embedded);
+            if (choice == 2 && !result.document->useSymbol(*conflict.active, &errors)) break;
+        }
+        if (!errors.isEmpty() || !m_symbolPackageStore.saveEmbeddedBatch(updates, &errors, [this] { return maybeSave(); })) {
+            if (!errors.isEmpty()) QMessageBox::warning(this, tr("Schematic"), errors.join('\n'));
+            return false;
+        }
+        if (!updates.isEmpty()) rebuildSymbolDockContents();
+    }
+    if (result.conflicts.isEmpty() && !maybeSave()) return false;
     m_document = *result.document;
     m_scene->bindDocument(&m_document);
     m_editController->resetHistory();
@@ -722,6 +786,16 @@ void MainWindow::onOpen()
 
     if (!result.warnings.isEmpty())
         statusBar()->showMessage(result.warnings.join(QStringLiteral("; ")), 5000);
+    return true;
+}
+
+void MainWindow::onImportSymbol()
+{
+    SymbolImportDialog dialog(&m_symbolPackageStore, this);
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+    rebuildSymbolDockContents();
+    statusBar()->showMessage(tr("Symbol imported into the library."), 5000);
 }
 
 bool MainWindow::writeDocumentTo(const QString &path)

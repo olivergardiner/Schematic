@@ -117,7 +117,8 @@ bool SchematicScene::placeComponentAt(const SymbolId &id, QPointF scenePos)
 {
     if (!m_document)
         return false;
-    const LibrarySymbol *symbol = builtinSymbolLibrary().find(id);
+    const LibrarySymbol *symbol = m_document->symbol(id);
+    if (!symbol) symbol = applicationSymbolLibrary().find(id);
     if (!symbol)
         return false;
 
@@ -185,8 +186,8 @@ void SchematicScene::drawForeground(QPainter *painter, const QRectF &rect)
     painter->setPen(terminalPen);
     painter->setBrush(QColor(225, 242, 252));
     for (const Component &component : m_document->components()) {
-        for (TerminalId terminal = 0; terminal < component.terminalCount(); ++terminal) {
-            const QPointF point = component.terminalPosition(terminal);
+        for (TerminalId terminal = 0; terminal < m_document->terminalCount(component); ++terminal) {
+            const QPointF point = m_document->terminalPosition(component, terminal);
             if (rect.adjusted(-terminalRadius, -terminalRadius,
                               terminalRadius, terminalRadius).contains(point))
                 painter->drawEllipse(point, terminalRadius, terminalRadius);
@@ -273,7 +274,7 @@ void SchematicScene::addJunctionItem(QPointF point)
 
 void SchematicScene::addComponentItems(const Component &component)
 {
-    const LibrarySymbol *symbol = builtinSymbolLibrary().find(component.symbolId());
+    const LibrarySymbol *symbol = m_document->symbol(component.symbolId());
     if (!symbol)
         return; // Unreachable for components created through Document's API.
     const LibrarySymbol &def = *symbol;
@@ -366,8 +367,8 @@ SchematicScene::HitResult SchematicScene::hitTestConnection(QPointF scenePos) co
     // always the most specific, most useful thing to attach to at a given
     // point.
     for (const Component &component : m_document->components()) {
-        for (TerminalId t = 0; t < component.terminalCount(); ++t) {
-            const QPointF terminalPos = component.terminalPosition(t);
+        for (TerminalId t = 0; t < m_document->terminalCount(component); ++t) {
+            const QPointF terminalPos = m_document->terminalPosition(component, t);
             const qreal distance = QLineF(scenePos, terminalPos).length();
             if (distance <= bestDistance) {
                 bestDistance = distance;

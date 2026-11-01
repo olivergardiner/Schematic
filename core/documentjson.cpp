@@ -47,7 +47,7 @@ QJsonObject endpointJson(const WireEndpoint &endpoint)
 QJsonObject Document::toJson() const
 {
     QJsonObject root;
-    root.insert(QStringLiteral("formatVersion"), 2);
+    root.insert(QStringLiteral("formatVersion"), 3);
     root.insert(QStringLiteral("grid"), QJsonObject{{QStringLiteral("spacing"), m_gridSpacing}});
     QJsonArray components;
     for (const Component &item : m_components) {
@@ -59,6 +59,14 @@ QJsonObject Document::toJson() const
             {QStringLiteral("reference"), item.reference()}, {QStringLiteral("value"), item.value()}});
     }
     root.insert(QStringLiteral("components"), components);
+    QSet<QString> usedIds;
+    for (const Component &item : m_components) usedIds.insert(item.symbolId().value());
+    auto sortedIds = usedIds.values();
+    std::sort(sortedIds.begin(), sortedIds.end());
+    QJsonArray symbols;
+    for (const QString &id : sortedIds)
+        symbols.append(SymbolLibrary::symbolToJson(*symbol(SymbolId(id))));
+    root.insert(QStringLiteral("symbols"), symbols);
     // m_nodes is a QHash, whose iteration order is unspecified and can vary
     // between runs; write nodes by ascending ID so identical documents
     // always serialize to identical JSON.
@@ -103,11 +111,25 @@ DocumentLoadResult Document::fromJson(const QJsonObject &root)
     DocumentLoadResult result;
     const QJsonValue versionValue = root.value(QStringLiteral("formatVersion"));
     const int formatVersion = versionValue.isDouble() ? versionValue.toInt(-1) : -1;
-    if (formatVersion != 1 && formatVersion != 2) {
-        result.errors.append(QStringLiteral("Unsupported or missing formatVersion (expected 1 or 2)"));
+    if (versionValue.toDouble(-1) != formatVersion || (formatVersion != 1 && formatVersion != 2 && formatVersion != 3)) {
+        result.errors.append(QStringLiteral("Unsupported or missing formatVersion (expected 1, 2 or 3)"));
         return result;
     }
     auto error = [&result](const QString &message) { result.errors.append(message); };
+    SymbolLibrary resolved;
+    if (formatVersion == 3) {
+        if (!root.value(QStringLiteral("symbols")).isArray())
+            error(QStringLiteral("symbols must be an array"));
+        int index = 0;
+        for (const auto &entry : root.value(QStringLiteral("symbols")).toArray()) {
+            QStringList errors;
+            if (!entry.isObject()) errors << QStringLiteral("must be an object");
+            else resolved.addFromJson(entry.toObject(), &errors);
+            for (const auto &message : errors)
+                error(QStringLiteral("symbols[%1]: %2").arg(index).arg(message));
+            ++index;
+        }
+    } else resolved = applicationSymbolLibrary();
     const QJsonValue gridValue = root.value(QStringLiteral("grid"));
     qreal spacing = 0;
     if (!gridValue.isObject() || !number(gridValue.toObject().value(QStringLiteral("spacing")), &spacing)
@@ -128,7 +150,7 @@ DocumentLoadResult Document::fromJson(const QJsonObject &root)
             const QJsonObject obj = value.toObject();
             quint32 id = 0; qreal x = 0, y = 0;
             const SymbolId kindId(obj.value(QStringLiteral("kind")).toString());
-            const LibrarySymbol *kind = builtinSymbolLibrary().find(kindId);
+            const LibrarySymbol *kind = resolved.find(kindId);
             const int rot = obj.value(QStringLiteral("rotation")).toInt(-1);
             bool valid = true;
             if (!idValue(obj.value(QStringLiteral("id")), &id) || componentIds.contains(id)) { error(path + QStringLiteral(" has an invalid or duplicate id")); valid = false; }
@@ -185,7 +207,7 @@ DocumentLoadResult Document::fromJson(const QJsonObject &root)
         for (ParsedComponent &item : parsedComponents) {
             if (!item.reference.isEmpty()) continue;
             const QString candidate = firstUnusedReference(
-                builtinSymbolLibrary().find(item.kind)->referencePrefix, used);
+                resolved.find(item.kind)->referencePrefix, used);
             used.insert(candidate);
             item.reference = candidate;
             result.warnings.append(QStringLiteral("Component %1 (id %2) had no reference; generated \"%3\"")
@@ -245,7 +267,7 @@ DocumentLoadResult Document::fromJson(const QJsonObject &root)
                     quint32 component = 0; qreal terminalNumber = 0;
                     if (idValue(ep.value(QStringLiteral("component")), &component) && number(ep.value(QStringLiteral("terminal")), &terminalNumber)
                         && std::floor(terminalNumber) == terminalNumber && terminalNumber <= std::numeric_limits<int>::max()
-                        && kinds.contains(component) && terminalNumber >= 0 && terminalNumber < builtinSymbolLibrary().find(kinds.value(component))->terminals.size()) {
+                        && kinds.contains(component) && terminalNumber >= 0 && terminalNumber < resolved.find(kinds.value(component))->terminals.size()) {
                         *endpoint = makeTerminalEndpoint(component, static_cast<int>(terminalNumber)); return true;
                     }
                 }
@@ -261,6 +283,20 @@ DocumentLoadResult Document::fromJson(const QJsonObject &root)
 
     Document doc;
     doc.m_gridSpacing = spacing;
+    for (const auto &item : parsedComponents) {
+        if (!doc.symbol(item.kind)) { QStringList errors; doc.m_symbols.add(*resolved.find(item.kind), &errors); }
+    }
+    if (formatVersion == 3) {
+        for (const auto &definition : resolved.symbols()) {
+            if (!doc.symbol(definition.id)) { error(QStringLiteral("Unused embedded symbol %1").arg(definition.id.value())); continue; }
+            const auto *active = applicationSymbolLibrary().find(definition.id);
+            if (active && SymbolLibrary::symbolToJson(*active) == SymbolLibrary::symbolToJson(definition)) continue;
+            const bool compatible = active && sameTerminalSignature(*active, definition);
+            result.conflicts.append({definition, active ? std::optional<LibrarySymbol>(*active) : std::nullopt,
+                !active ? SymbolConflictKind::Missing : compatible ? SymbolConflictKind::Presentation : SymbolConflictKind::Terminals});
+        }
+    }
+    if (!result.errors.isEmpty()) return result;
     quint32 maxComponent = 0, maxNode = 0, maxWire = 0;
     for (const ParsedComponent &item : parsedComponents) {
         Component component(item.id, item.kind, item.position);
@@ -272,7 +308,7 @@ DocumentLoadResult Document::fromJson(const QJsonObject &root)
         QPointF point;
         if (isTerminal(endpoint)) {
             const TerminalRef ref = std::get<TerminalRef>(endpoint);
-            point = doc.component(ref.component)->terminalPosition(ref.terminal);
+            point = doc.terminalPosition(*doc.component(ref.component), ref.terminal);
         } else point = doc.m_nodes.value(std::get<NodeId>(endpoint));
         return point;
     };

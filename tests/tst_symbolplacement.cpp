@@ -128,7 +128,7 @@ void SymbolPlacementTests::escapeCancelsDraftAndReturnsToSelect()
             [&modeChanges](SchematicScene::EditMode mode) { modeChanges.append(mode); });
 
     scene.setEditMode(SchematicScene::EditMode::DrawWire);
-    scene.pressAt(document.component(left)->terminalPosition(0));
+    scene.pressAt(document.terminalPosition(*document.component(left), 0));
     scene.pressEscape();
     QCOMPARE(scene.editMode(), SchematicScene::EditMode::Select);
     QCOMPARE(modeChanges.size(), 2);
@@ -137,7 +137,7 @@ void SymbolPlacementTests::escapeCancelsDraftAndReturnsToSelect()
     // A first click after re-entering Draw Wire must start a fresh draft. If
     // Escape left the earlier draft active, this click would complete a wire.
     scene.setEditMode(SchematicScene::EditMode::DrawWire);
-    scene.pressAt(document.component(right)->terminalPosition(0));
+    scene.pressAt(document.terminalPosition(*document.component(right), 0));
     QVERIFY(document.wires().isEmpty());
     scene.pressEscape();
 }

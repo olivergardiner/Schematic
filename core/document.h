@@ -2,6 +2,7 @@
 #define DOCUMENT_H
 
 #include "component.h"
+#include "symbollibrary.h"
 #include "pendingwireendpoint.h"
 #include "routegeometry.h"
 #include "wireroute.h"
@@ -24,6 +25,11 @@ struct Net
 class Document
 {
 public:
+    const LibrarySymbol *symbol(const SymbolId &id) const { return m_symbols.find(id); }
+    int terminalCount(const Component &item) const;
+    QPointF terminalPosition(const Component &item, TerminalId terminal) const;
+    // Replace presentation only; a used ID can never acquire different terminals.
+    bool useSymbol(const LibrarySymbol &definition, QStringList *errors);
     qreal gridSpacing() const { return m_gridSpacing; }
     bool setGridSpacing(qreal spacing);
 
@@ -35,7 +41,7 @@ public:
     const WireRoute *wire(WireId id) const;
 
     // Returns kInvalidComponentId (document unchanged, no id consumed) if
-    // symbolId is not in the built-in symbol library.
+    // symbolId is absent from both the document and active library.
     ComponentId addComponent(const SymbolId &symbolId, QPointF position,
                              Rotation rotation = Rotation::Deg0);
     bool moveComponent(ComponentId id, QPointF position);
@@ -79,7 +85,7 @@ public:
     QVector<Net> computeNets() const;
     QVector<QPointF> junctionPoints() const;
 
-    // Version-1 JSON stores grid, components, nodes, and route points with
+    // Version-3 JSON embeds used symbol definitions, grid, components, nodes, and route points with
     // explicit terminal/node endpoint identities. Nets and junctions are
     // derived and are never serialized.
     QJsonObject toJson() const;
@@ -117,6 +123,7 @@ private:
     // call might need before any mutation begins.
     static bool idsAvailable(quint32 nextId, int count);
 
+    SymbolLibrary m_symbols;
     qreal m_gridSpacing = 10.0;
     ComponentId m_nextComponentId = 1;
     WireId m_nextWireId = 1;

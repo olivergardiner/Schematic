@@ -14,6 +14,7 @@ class SymbolRendererTests : public QObject
 
 private slots:
     void previewFitsTargetAndPaintsArtwork();
+    void pathPrimitivesRenderCurvesFillAndFillRules();
     void symbolMimeDataCarriesKnownVersionedId();
 };
 
@@ -38,6 +39,65 @@ void SymbolRendererTests::previewFitsTargetAndPaintsArtwork()
         }
     }
     QVERIFY(paintedPixels > 0);
+}
+
+void SymbolRendererTests::pathPrimitivesRenderCurvesFillAndFillRules()
+{
+    LibrarySymbol symbol;
+    SymbolPrimitive path;
+    path.kind = PrimitiveKind::Path;
+    path.filled = true;
+    path.fillRule = PathFillRule::EvenOdd;
+    path.segments = {
+        {PathSegmentKind::MoveTo, {{0, 0}}},
+        {PathSegmentKind::LineTo, {{20, 0}}},
+        {PathSegmentKind::CubicTo, {{20, 20}, {0, 20}, {0, 0}}},
+        {PathSegmentKind::Close, {}},
+        {PathSegmentKind::MoveTo, {{5, 5}}},
+        {PathSegmentKind::LineTo, {{15, 5}}},
+        {PathSegmentKind::LineTo, {{15, 15}}},
+        {PathSegmentKind::LineTo, {{5, 15}}},
+        {PathSegmentKind::Close, {}},
+    };
+    symbol.primitives = {path};
+
+    QVector<RenderedSymbolPrimitive> rendered = SymbolRenderer::primitives(symbol);
+    QCOMPARE(rendered.size(), 1);
+    QVERIFY(rendered[0].filled);
+    QCOMPARE(rendered[0].path.fillRule(), Qt::OddEvenFill);
+    QVERIFY(rendered[0].path.contains(QPointF(2, 2)));
+    QVERIFY(!rendered[0].path.contains(QPointF(10, 10)));
+    QVERIFY(rendered[0].path.elementCount() > 8);
+
+    QImage evenOddImage(48, 48, QImage::Format_ARGB32_Premultiplied);
+    evenOddImage.fill(Qt::transparent);
+    {
+        QPainter painter(&evenOddImage);
+        SymbolRenderer::paintPreview(&painter, symbol, QRectF(0, 0, 48, 48));
+    }
+    int paintedPixels = 0;
+    for (int y = 0; y < evenOddImage.height(); ++y)
+        for (int x = 0; x < evenOddImage.width(); ++x)
+            if (qAlpha(evenOddImage.pixel(x, y)) > 0) ++paintedPixels;
+    QVERIFY(paintedPixels > 0);
+    QCOMPARE(qAlpha(evenOddImage.pixel(24, 24)), 0);
+
+    symbol.primitives[0].fillRule = PathFillRule::NonZero;
+    rendered = SymbolRenderer::primitives(symbol);
+    QCOMPARE(rendered[0].path.fillRule(), Qt::WindingFill);
+    QVERIFY(rendered[0].path.contains(QPointF(10, 10)));
+
+    symbol.primitives[0].filled.reset();
+    rendered = SymbolRenderer::primitives(symbol);
+    QVERIFY(!rendered[0].filled); // Open Path default.
+
+    SymbolPrimitive polygon;
+    polygon.kind = PrimitiveKind::Polygon;
+    polygon.points = {{0, 0}, {10, 0}, {10, 10}};
+    symbol.primitives = {polygon};
+    rendered = SymbolRenderer::primitives(symbol);
+    QCOMPARE(rendered.size(), 1);
+    QVERIFY(rendered[0].filled); // Legacy Polygon default remains filled.
 }
 
 void SymbolRendererTests::symbolMimeDataCarriesKnownVersionedId()

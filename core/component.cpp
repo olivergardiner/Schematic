@@ -29,15 +29,14 @@ Component::Component(ComponentId id, const SymbolId &symbolId, QPointF position)
 {
 }
 
-int Component::terminalCount() const
+int Component::terminalCount(const LibrarySymbol &symbol) const
 {
-    const LibrarySymbol *symbol = builtinSymbolLibrary().find(m_symbolId);
-    return symbol ? static_cast<int>(symbol->terminals.size()) : 0;
+    return symbol.terminals.size();
 }
 
-QPointF Component::terminalPosition(TerminalId terminal) const
+QPointF Component::terminalPosition(TerminalId terminal, const LibrarySymbol &definition) const
 {
-    const LibrarySymbol *symbol = builtinSymbolLibrary().find(m_symbolId);
+    const LibrarySymbol *symbol = &definition;
     Q_ASSERT(symbol && terminal >= 0 && terminal < symbol->terminals.size());
     if (!symbol || terminal < 0 || terminal >= symbol->terminals.size())
         return m_position;

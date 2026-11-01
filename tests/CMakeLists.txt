@@ -60,6 +60,23 @@ target_link_libraries(schematicrenderer_tests
 
 add_test(NAME schematicrenderer_tests COMMAND schematicrenderer_tests)
 
+# Writable symbol package persistence stays Core-only and can be exercised
+# against temporary directories without starting the application.
+qt_add_executable(schematicpackagestore_tests
+    tst_symbolpackagestore.cpp
+    ../symbolpackagestore.cpp
+    ../symbolpackagestore.h
+)
+
+target_link_libraries(schematicpackagestore_tests
+    PRIVATE
+        Qt6::Core
+        Qt6::Test
+        schematiccore
+)
+
+add_test(NAME schematicpackagestore_tests COMMAND schematicpackagestore_tests)
+
 # Scene-level placement checks exercise the snapped, selected, undoable drop
 # placement helper without requiring a visible window.
 qt_add_executable(schematicplacement_tests
@@ -86,4 +103,24 @@ target_link_libraries(schematicplacement_tests
 add_test(NAME schematicplacement_tests COMMAND schematicplacement_tests)
 set_tests_properties(schematicplacement_tests PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=windows"
+)
+
+
+# Window-level opening transaction: real conflict dialogs, isolated settings/storage.
+qt_add_executable(schematicopen_tests
+    tst_documentopen.cpp
+    ../mainwindow.cpp ../mainwindow.h
+    ../schematicscene.cpp ../schematicscene.h
+    ../schematicview.cpp ../schematicview.h
+    ../documenteditcontroller.cpp ../documenteditcontroller.h
+    ../symbolrenderer.cpp ../symbolrenderer.h
+    ../symbolpackagestore.cpp ../symbolpackagestore.h
+    ../symbolimportdialog.cpp ../symbolimportdialog.h
+    ../symbolpreviewwidget.cpp ../symbolpreviewwidget.h
+)
+target_link_libraries(schematicopen_tests PRIVATE Qt6::Widgets Qt6::Test schematiccore)
+add_test(NAME schematicopen_tests COMMAND schematicopen_tests)
+set_tests_properties(schematicopen_tests PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    TIMEOUT 30
 )

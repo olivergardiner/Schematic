@@ -81,7 +81,7 @@ void TstDocumentJson::rejectsInvalidAndRepairsStaleEndpoints()
     QVERIFY(!repaired.warnings.isEmpty());
     QCOMPARE(repaired.document->wires().first().vertices.first(), QPointF(20, 0));
 
-    root.insert(QStringLiteral("formatVersion"), 3);
+    root.insert(QStringLiteral("formatVersion"), 4);
     QVERIFY(!Document::fromJson(root).document);
 }
 
@@ -306,7 +306,7 @@ void TstDocumentJson::serializesNodesInStableOrder()
     QCOMPARE(loaded.document->toJsonBytes(), bytes);
 }
 
-void TstDocumentJson::writesV2AndRoundTripsMirroring()
+void TstDocumentJson::writesV3AndRoundTripsMirroring()
 {
     Document d;
     const auto a = d.addComponent(SymbolIds::Resistor, {0, 0});
@@ -314,7 +314,7 @@ void TstDocumentJson::writesV2AndRoundTripsMirroring()
     QVERIFY(d.setComponentMirrored(a, true));
     QVERIFY(d.addWire(makeTerminalEndpoint(a, 1), {}, makeTerminalEndpoint(b, 0)));
     const QJsonObject root = d.toJson();
-    QCOMPARE(root.value(QStringLiteral("formatVersion")).toInt(), 2);
+    QCOMPARE(root.value(QStringLiteral("formatVersion")).toInt(), 3);
     for (const QJsonValue &v : root.value(QStringLiteral("components")).toArray())
         QVERIFY(v.toObject().value(QStringLiteral("mirrored")).isBool());
     const DocumentLoadResult loaded = Document::fromJsonBytes(d.toJsonBytes());
@@ -332,7 +332,7 @@ void TstDocumentJson::loadsV1AsUnmirroredAndUpgradesOnSave()
     QVERIFY2(loaded.errors.isEmpty(), qPrintable(loaded.errors.join(QLatin1Char('\n'))));
     QVERIFY(loaded.document);
     QVERIFY(!loaded.document->component(a)->mirrored());
-    QCOMPARE(loaded.document->toJson().value(QStringLiteral("formatVersion")).toInt(), 2);
+    QCOMPARE(loaded.document->toJson().value(QStringLiteral("formatVersion")).toInt(), 3);
 }
 
 void TstDocumentJson::rejectsInvalidVersionAndMirroredCombinations()
@@ -346,7 +346,7 @@ void TstDocumentJson::rejectsInvalidVersionAndMirroredCombinations()
     QVERIFY(!Document::fromJson(withComponentField(v2, QStringLiteral("mirrored"), QJsonValue::Undefined)).document); // v2 requires it
     QVERIFY(!Document::fromJson(withComponentField(v2, QStringLiteral("mirrored"), 1)).document); // must be bool
     QVERIFY(!Document::fromJson(withComponentField(v2, QStringLiteral("mirrored"), QStringLiteral("true"))).document);
-    QJsonObject v3 = v2; v3.insert(QStringLiteral("formatVersion"), 3);
+    QJsonObject v3 = v2; v3.insert(QStringLiteral("formatVersion"), 4);
     QVERIFY(!Document::fromJson(v3).document);
     QJsonObject v0 = v2; v0.insert(QStringLiteral("formatVersion"), 0);
     QVERIFY(!Document::fromJson(v0).document);
@@ -420,14 +420,14 @@ void TstDocumentJson::loadsPreLibraryDocumentUnchanged()
     QCOMPARE(d.component(1)->value(), QStringLiteral("10k"));
     QCOMPARE(d.component(7)->reference(), QStringLiteral("VR1"));
 
-    QCOMPARE(d.component(3)->terminalPosition(0), QPointF(200, -20)); // anode, rotated 90
-    QCOMPARE(d.component(3)->terminalPosition(1), QPointF(200, 20));  // cathode
-    QCOMPARE(d.component(4)->terminalPosition(0), QPointF(200, 40));
-    QCOMPARE(d.component(5)->terminalPosition(2), QPointF(328, 0));
-    QCOMPARE(d.component(6)->terminalPosition(0), QPointF(380, 0));
-    QCOMPARE(d.component(7)->terminalPosition(0), QPointF(280, 100)); // mirrored, rotated 180
-    QCOMPARE(d.component(7)->terminalPosition(1), QPointF(320, 100));
-    QCOMPARE(d.component(7)->terminalPosition(2), QPointF(300, 120));
+    QCOMPARE(d.terminalPosition(*d.component(3), 0), QPointF(200, -20)); // anode, rotated 90
+    QCOMPARE(d.terminalPosition(*d.component(3), 1), QPointF(200, 20));  // cathode
+    QCOMPARE(d.terminalPosition(*d.component(4), 0), QPointF(200, 40));
+    QCOMPARE(d.terminalPosition(*d.component(5), 2), QPointF(328, 0));
+    QCOMPARE(d.terminalPosition(*d.component(6), 0), QPointF(380, 0));
+    QCOMPARE(d.terminalPosition(*d.component(7), 0), QPointF(280, 100)); // mirrored, rotated 180
+    QCOMPARE(d.terminalPosition(*d.component(7), 1), QPointF(320, 100));
+    QCOMPARE(d.terminalPosition(*d.component(7), 2), QPointF(300, 120));
 
     QCOMPARE(d.wire(2)->vertices,
              QVector<QPointF>({QPointF(120, 0), QPointF(120, -20), QPointF(200, -20)}));
@@ -440,4 +440,64 @@ void TstDocumentJson::loadsPreLibraryDocumentUnchanged()
     const DocumentLoadResult again = Document::fromJsonBytes(d.toJsonBytes());
     QVERIFY(again.document);
     QCOMPARE(again.document->toJsonBytes(), d.toJsonBytes());
+}
+
+void TstDocumentJson::embedsSnapshotsAndReportsConflicts()
+{
+    const SymbolLibrary originalLibrary = applicationSymbolLibrary();
+    struct Restore { SymbolLibrary saved; ~Restore() { applicationSymbolLibrary() = saved; } } restore{originalLibrary};
+    Document source;
+    const auto a = source.addComponent(SymbolIds::Resistor, {0, 0});
+    const auto b = source.addComponent(SymbolIds::Resistor, {100, 0});
+    QVERIFY(source.addWire(makeTerminalEndpoint(a, 1), {}, makeTerminalEndpoint(b, 0)));
+    const auto bytes = source.toJsonBytes();
+    auto changed = *originalLibrary.find(SymbolIds::Resistor);
+    changed.displayName = QStringLiteral("Changed artwork metadata");
+    QStringList errors;
+    QVERIFY(applicationSymbolLibrary().replace(changed, &errors));
+    auto loaded = Document::fromJsonBytes(bytes);
+    QVERIFY(loaded.document);
+    QCOMPARE(loaded.conflicts.size(), 1);
+    QCOMPARE(loaded.conflicts[0].kind, SymbolConflictKind::Presentation);
+    QCOMPARE(loaded.document->toJsonBytes(), bytes);
+    QVERIFY(loaded.document->useSymbol(changed, &errors));
+    QCOMPARE(loaded.document->symbol(changed.id)->displayName, changed.displayName);
+    changed.terminals[1].offset = {30, 0};
+    QVERIFY(applicationSymbolLibrary().replace(changed, &errors));
+    loaded = Document::fromJsonBytes(bytes);
+    QVERIFY(loaded.document);
+    QCOMPARE(loaded.conflicts[0].kind, SymbolConflictKind::Terminals);
+    QCOMPARE(loaded.document->terminalPosition(*loaded.document->component(a), 1), QPointF(20, 0));
+    QVERIFY(!loaded.document->useSymbol(changed, &errors));
+    QVERIFY(source.moveComponent(a, {0, 20}));
+    QCOMPARE(source.wires().first().vertices.first(), QPointF(20, 20));
+    applicationSymbolLibrary() = SymbolLibrary();
+    loaded = Document::fromJsonBytes(bytes);
+    QVERIFY(loaded.document);
+    QCOMPARE(loaded.conflicts[0].kind, SymbolConflictKind::Missing);
+    QCOMPARE(loaded.document->toJsonBytes(), bytes);
+    QVERIFY(loaded.document->moveComponent(a, {0, 20}));
+}
+
+void TstDocumentJson::rejectsMalformedSnapshots()
+{
+    Document source;
+    source.addComponent(SymbolIds::Resistor, {});
+    auto root = source.toJson();
+    const auto symbols = root.value(QStringLiteral("symbols")).toArray();
+    QCOMPARE(symbols.size(), 1);
+    root.insert(QStringLiteral("symbols"), QJsonArray{symbols[0], symbols[0]});
+    QVERIFY(!Document::fromJson(root).document);
+    root.insert(QStringLiteral("symbols"), QJsonArray{});
+    QVERIFY(!Document::fromJson(root).document);
+    root.insert(QStringLiteral("symbols"), QJsonArray{QJsonObject{}});
+    QVERIFY(!Document::fromJson(root).document);
+    auto extra = symbols;
+    extra.append(SymbolLibrary::symbolToJson(*builtinSymbolLibrary().find(SymbolIds::Diode)));
+    root.insert(QStringLiteral("symbols"), extra);
+    QVERIFY(!Document::fromJson(root).document);
+    source.addComponent(SymbolIds::Diode, {100, 0});
+    const auto ordered = source.toJson().value(QStringLiteral("symbols")).toArray();
+    QCOMPARE(ordered[0].toObject().value(QStringLiteral("id")).toString(), QStringLiteral("Diode"));
+    QCOMPARE(ordered[1].toObject().value(QStringLiteral("id")).toString(), QStringLiteral("Resistor"));
 }

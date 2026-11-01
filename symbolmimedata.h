@@ -31,7 +31,7 @@ inline std::optional<SymbolId> read(const QMimeData *mimeData)
         return std::nullopt;
 
     const SymbolId id(QString::fromUtf8(payload));
-    return builtinSymbolLibrary().find(id) ? std::optional<SymbolId>(id) : std::nullopt;
+    return applicationSymbolLibrary().find(id) ? std::optional<SymbolId>(id) : std::nullopt;
 }
 
 } // namespace SymbolMimeData

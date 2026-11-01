@@ -3,6 +3,7 @@
 
 #include "document.h"
 #include "documenteditcontroller.h"
+#include "symbolpackagestore.h"
 #include "schematicscene.h"
 #include "identifiers.h"
 
@@ -40,6 +41,7 @@ protected:
 private slots:
     void onNew();
     void onOpen();
+    void onImportSymbol();
     bool onSave();
     bool onSaveAs();
     void onAbout();
@@ -66,10 +68,13 @@ private slots:
     void updateRenameActionEnabled();
 
 private:
+    friend class DocumentOpenTests;
+    bool openDocumentFrom(const QString &path);
     void createActions();
     void createMenus();
     void createToolBar();
     void createSymbolDock();
+    void rebuildSymbolDockContents();
     void createStatusBar();
     void populateToolbarsMenu();
     void restoreWindowLayout();
@@ -104,6 +109,7 @@ private:
     QAction        *m_rotateAction     = nullptr;
     QAction        *m_mirrorAction     = nullptr;
     QMenu          *m_toolbarsMenu     = nullptr;
+    SymbolPackageStore m_symbolPackageStore;
     // Rename (F2) is a QAction owned by MainWindow itself (not m_view) with
     // Qt::WindowShortcut context, so it fires regardless of whether focus
     // is in the canvas or the symbol dock - both are descendants of this
