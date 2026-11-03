@@ -11,7 +11,7 @@ In scope:
 - Extract symbol artwork generation from `SchematicScene` into a shared application-layer renderer.
 - Replace the text-only symbol dock with a grouped, graphical palette driven by symbol-library category paths.
 - Drag a palette symbol onto the canvas to place one snapped component.
-- Refocus the toolbar on frequent editing actions, including rotation and horizontal mirroring.
+- Refocus the toolbar on frequent editing actions, including left/right rotation and horizontal/vertical flips.
 - Return to Select mode with Escape and show connection-point feedback while drawing wires.
 
 Out of scope: changes to the document format, connectivity rules, symbol definitions, multi-component transforms, a symbol search/filter UI, and user-authored symbols. The library remains the source of symbol IDs, artwork, terminals, reference metadata, and categories.
@@ -27,7 +27,7 @@ Out of scope: changes to the document format, connectivity rules, symbol definit
 ## 3. Guiding principles
 
 1. **One artwork definition.** Canvas symbols and palette previews use the same primitive-to-path renderer, pen/fill rules, and symbol-local coordinates.
-2. **Preview scaling is presentation only.** Palette thumbnails fit artwork into a fixed preview box. They do not alter component geometry, terminal offsets, document coordinates, or grid spacing.
+2. **Preview scaling is presentation only.** Palette thumbnails use default canvas scale, shrinking oversized artwork to fit a fixed preview box without enlarging smaller symbols. They do not alter component geometry, terminal offsets, document coordinates, or grid spacing.
 3. **Symbol identity stays stable.** Palette entries carry the library's `SymbolId`; labels and category names are for display only. A palette operation never infers a symbol from its text or icon.
 4. **The model remains authoritative.** Placement, rotation, and mirroring call `Document` mutators through `DocumentEditController`. Graphics items remain a view of the document.
 5. **Feedback does not define connectivity.** Highlighting a terminal communicates a possible wire endpoint; actual connection still follows explicit terminal/node identities and the existing route validator.
@@ -38,7 +38,7 @@ Add an application-layer renderer that accepts a `LibrarySymbol` and produces th
 
 - Preserve current scene appearance: black outlines, white fill for the existing closed polygon primitives, and the current line width policy.
 - Keep output paths in the symbol's local world units. The canvas positions, mirrors, and rotates them as it does today.
-- The palette paints the same paths into a fixed preview rectangle, scaled uniformly to fit the primitive bounds with a small margin. Center the result; do not include labels or terminal markers in the thumbnail.
+- The palette paints the same paths into a fixed preview rectangle, scaled uniformly down only when needed to fit the primitive bounds with a small margin. Center the result; do not include labels or terminal markers in the thumbnail.
 - Handle empty/degenerate bounds defensively, even though library validation currently requires drawable primitives.
 
 The concrete renderer API (for example, returning paths versus painting directly to a `QPainter`) can be settled during implementation, but it must let the canvas and thumbnail share path construction and style decisions rather than duplicate primitive switches.
@@ -47,7 +47,7 @@ The concrete renderer API (for example, returning paths versus painting directly
 
 ### 5.1 Organization
 
-Use a two-pane dock: a compact category tree on the left and a graphical symbol grid on the right. Build the tree from `libraryCategoryPath(symbol.category)`: each path segment is a category node. A symbol with category `Passives` belongs directly to that group; `Semiconductors/Diodes` belongs to the nested Diodes category.
+Use a vertically split dock: a category tree above a graphical symbol grid. Start with equal heights and let users drag the horizontal divider. The category tree shows horizontal and vertical scrollbars as needed; its column fits category text rather than clipping long paths. A visible, initially selected "All Symbols" root contains every category and displays the whole library grouped by top-level category. Build its category descendants from `libraryCategoryPath(symbol.category)`: each path segment is a category node. A symbol with category `Passives` belongs directly to that group; `Semiconductors/Diodes` belongs to the nested Diodes category.
 
 Selecting a category filters the symbol grid. Selecting a parent includes its descendants, displayed in groups headed by their immediate child categories so the user can distinguish Diodes from Transistors while browsing Semiconductors. A leaf category displays its symbols without an extra heading. Symbols appear once in any selected view.
 
@@ -55,7 +55,7 @@ Use category strings as presentation labels, preserving library spelling and ord
 
 ### 5.2 Symbol tiles and interaction
 
-- Each tile shows a shared-renderer thumbnail in one standard fixed-size box, with the symbol display name beside or below it. Preserve artwork aspect ratio and center it inside the box; do not vary tile dimensions by symbol shape.
+- Each compact tile shows only a shared-renderer thumbnail in one standard fixed-size box; the symbol display name appears in its tooltip and accessible name. Preserve artwork aspect ratio and center it inside the box; do not vary tile dimensions by symbol shape.
 - Keep the display name as the accessible name and provide a tooltip. Category rows are accessible grouping labels.
 - A normal click on a symbol retains the current repeated PlaceComponent mode for users who prefer click-then-place.
 - Dragging a symbol leaf starts a Qt drag carrying a versioned MIME value containing only its stable symbol ID. Use the thumbnail as the drag pixmap.
@@ -64,7 +64,13 @@ Use category strings as presentation labels, preserving library spelling and ord
 
 ### 5.3 Category and thumbnail sizing
 
-Use a consistent thumbnail box and tile size so the grid scans cleanly. Scale each symbol independently into the preview box while preserving its aspect ratio. Long names remain visible through tooltips and accessible names; do not enlarge tiles unpredictably for one symbol. The category tree and symbol grid should be separated by an adjustable splitter; the symbol grid scrolls when the dock is short or narrow.
+Use a consistent thumbnail box and tile size so the grid scans cleanly. Use 72 × 56 logical-pixel tiles with a 64 × 48 preview box. Preserve each symbol’s aspect ratio and cap its scale at one logical pixel per scene unit, shrinking larger artwork to fit. Long names remain visible through tooltips and accessible names; do not enlarge tiles unpredictably for one symbol. The category tree and symbol tiles are separated by an adjustable splitter. Tiles flow into as many columns as the available width permits and wrap onto additional rows when narrowed; the symbol pane scrolls vertically when needed. Resizing preserves the tile widgets, actions, tooltips, and placement behavior.
+
+### Category accessibility
+
+Collapsing a category explicitly resets the tree’s accessible table model before notifying accessibility clients. Qt 6.11.1 retains cached accessible rows from the expanded tree; shifted rows can then report inconsistent sibling indexes and send Windows UI Automation into a navigation cycle. The fix uses public accessibility APIs and preserves accessibility support. See Qt’s [collapse implementation](https://github.com/qt/qtbase/blob/v6.11.1/src/widgets/itemviews/qtreeview.cpp) and [accessible row cache](https://github.com/qt/qtbase/blob/v6.11.1/src/widgets/accessible/itemviews.cpp).
+
+A regression test primes the expanded accessibility cache, collapses Semiconductors, and checks that every remaining child reports its actual index. Separate lifetime checks exercise repeated programmatic and mouse collapses without retained palette widgets or layouts. The regression failed before the fix and passed afterward in Debug and Release, including the native Windows backend.
 
 ## 6. Canvas drop and placement
 
@@ -85,10 +91,10 @@ Refocus the primary toolbar on document editing:
 
 - Select and Draw Wire modes.
 - Undo and Redo, enabled from the undo stack.
-- Rotate 90 degrees and horizontal mirror, enabled only when exactly one component is selected.
+- Rotate Left, Rotate Right, Flip Horizontal, and Flip Vertical, enabled only when exactly one component is selected. Use standard theme icons with matching drawn fallbacks when the platform has none.
 - Keep file actions as appropriate, but remove Zoom In/Out/Fit and grid spacing from the primary toolbar. Zoom remains in the View menu and Ctrl+mouse-wheel remains the main zoom interaction; put grid spacing in a secondary View control.
 
-Use recognizable in-code icons, tooltips, and accessible names. Keep visible text for actions whose icons may be unclear. Rotation and mirroring each call the existing transactional `Document::rotateComponent()` and `Document::setComponentMirrored()` through `DocumentEditController`; each action is one undo command. If the model rejects a transform because an attached route would become invalid, leave the document and selection unchanged and show a concise status message.
+Use recognizable in-code icons, tooltips, and accessible names. Keep visible text for actions whose icons may be unclear. Rotation and flips call transactional `Document::rotateComponent()` and `Document::flipComponent()` through `DocumentEditController`; each action is one undo command. Flips use canvas axes, and the combined quadrant-rotation/mirror update validates only the final pose. If the model rejects a transform because an attached route would become invalid, leave the document and selection unchanged and show a concise status message.
 
 Toolbar mode actions and palette click-to-place remain mutually exclusive. A palette drag is a one-off operation and does not change the active tool.
 

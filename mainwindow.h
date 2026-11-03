@@ -53,6 +53,8 @@ private slots:
     void onSelectModeTriggered();
     void onDrawWireModeTriggered();
     void onRotateSelectedComponent();
+    void onRotateLeftSelectedComponent();
+    void onFlipVerticalSelectedComponent();
     void onMirrorSelectedComponent();
     // Enters PlaceComponent mode and sets kind as the symbol to place -
     // connected to each symbol button in the dock (see createSymbolDock()).
@@ -70,6 +72,8 @@ private slots:
 private:
     friend class DocumentOpenTests;
     bool openDocumentFrom(const QString &path);
+    void rotateSelectedComponent(int degrees);
+    void flipSelectedComponent(FlipAxis axis);
     void createActions();
     void createMenus();
     void createToolBar();
@@ -106,6 +110,8 @@ private:
     QAction        *m_drawWireAction   = nullptr;
     QAction        *m_undoAction       = nullptr;
     QAction        *m_redoAction       = nullptr;
+    QAction        *m_rotateLeftAction = nullptr;
+    QAction        *m_flipVerticalAction = nullptr;
     QAction        *m_rotateAction     = nullptr;
     QAction        *m_mirrorAction     = nullptr;
     QMenu          *m_toolbarsMenu     = nullptr;

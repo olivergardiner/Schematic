@@ -10,6 +10,7 @@
 #include "symbolimportdialog.h"
 
 #include <QApplication>
+#include <QAccessible>
 #include <QMenuBar>
 #include <QToolBar>
 #include <QDockWidget>
@@ -36,13 +37,14 @@
 #include <QDialogButtonBox>
 #include <QInputDialog>
 #include <QSignalBlocker>
-#include <QGridLayout>
+#include <QLayout>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPixmap>
 #include <QScrollArea>
 #include <QSplitter>
 #include <QTreeWidget>
+#include <QHeaderView>
 #include <QTreeWidgetItem>
 #include <QSettings>
 #include <QStyle>
@@ -57,8 +59,16 @@ namespace {
 // displayed value back into the document.
 constexpr int kGridSpinDecimals = 4;
 
-QIcon transformIcon(bool mirror)
+enum class TransformIcon { RotateLeft, RotateRight, FlipHorizontal, FlipVertical };
+
+QIcon transformIcon(TransformIcon kind)
 {
+    const QString themeName = kind == TransformIcon::RotateLeft ? QStringLiteral("object-rotate-left")
+        : kind == TransformIcon::RotateRight ? QStringLiteral("object-rotate-right")
+        : kind == TransformIcon::FlipHorizontal ? QStringLiteral("object-flip-horizontal")
+        : QStringLiteral("object-flip-vertical");
+    const QIcon themed = QIcon::fromTheme(themeName);
+    if (!themed.isNull()) return themed;
     QPixmap pixmap(32, 32);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -67,7 +77,12 @@ QIcon transformIcon(bool mirror)
     painter.setPen(pen);
     painter.setBrush(QColor(35, 45, 55));
 
-    if (mirror) {
+    if (kind == TransformIcon::FlipHorizontal || kind == TransformIcon::FlipVertical) {
+        if (kind == TransformIcon::FlipVertical) {
+            painter.translate(16, 16);
+            painter.rotate(90);
+            painter.translate(-16, -16);
+        }
         painter.setPen(QPen(QColor(100, 110, 120), 1.5, Qt::DashLine));
         painter.drawLine(16, 5, 16, 27);
         painter.setPen(pen);
@@ -76,9 +91,15 @@ QIcon transformIcon(bool mirror)
         painter.drawLine(18, 16, 27, 16);
         painter.drawPolygon(QPolygonF{QPointF(29, 16), QPointF(24, 12), QPointF(24, 20)});
     } else {
-        const QRectF arc(6, 6, 20, 20);
-        painter.drawArc(arc, 35 * 16, 285 * 16);
-        painter.drawPolygon(QPolygonF{QPointF(24, 5), QPointF(29, 7), QPointF(24, 12)});
+        if (kind == TransformIcon::RotateLeft) {
+            painter.translate(32, 0);
+            painter.scale(-1, 1);
+        }
+        painter.setBrush(Qt::NoBrush);
+        painter.drawArc(QRectF(6, 6, 20, 20), 90 * 16, -270 * 16);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(35, 45, 55));
+        painter.drawPolygon(QPolygonF{QPointF(6, 10), QPointF(2, 17), QPointF(11, 17)});
     }
     return QIcon(pixmap);
 }
@@ -159,6 +180,62 @@ QIcon gridIcon()
     painter.drawLine(3, 10, 17, 10);
     return QIcon(pixmap);
 }
+
+// Keep the same tile widgets and actions while the dock width changes.
+class SymbolFlowLayout final : public QLayout
+{
+public:
+    SymbolFlowLayout() { setContentsMargins(0, 0, 0, 0); setSpacing(4); }
+    ~SymbolFlowLayout() override
+    {
+        while (auto *item = takeAt(0)) delete item;
+    }
+
+    void addItem(QLayoutItem *item) override { m_items.append(item); }
+    int count() const override { return m_items.size(); }
+    QLayoutItem *itemAt(int index) const override { return m_items.value(index, nullptr); }
+    QLayoutItem *takeAt(int index) override
+    {
+        return index >= 0 && index < m_items.size() ? m_items.takeAt(index) : nullptr;
+    }
+    Qt::Orientations expandingDirections() const override { return Qt::Horizontal; }
+    bool hasHeightForWidth() const override { return true; }
+    int heightForWidth(int width) const override { return arrange(QRect(0, 0, width, 0), false); }
+    QSize sizeHint() const override { return minimumSize(); }
+    QSize minimumSize() const override
+    {
+        QSize size;
+        for (const auto *item : m_items) size = size.expandedTo(item->minimumSize());
+        const auto margins = contentsMargins();
+        return size + QSize(margins.left() + margins.right(), margins.top() + margins.bottom());
+    }
+    void setGeometry(const QRect &rect) override
+    {
+        QLayout::setGeometry(rect);
+        arrange(rect, true);
+    }
+
+private:
+    int arrange(const QRect &rect, bool apply) const
+    {
+        const auto margins = contentsMargins();
+        const QRect available = rect.marginsRemoved(margins);
+        int x = available.x(), y = available.y(), rowHeight = 0;
+        for (auto *item : m_items) {
+            const QSize size = item->sizeHint();
+            if (rowHeight > 0 && x + size.width() > available.x() + available.width()) {
+                x = available.x();
+                y += rowHeight + spacing();
+                rowHeight = 0;
+            }
+            if (apply) item->setGeometry(QRect(QPoint(x, y), size));
+            x += size.width() + spacing();
+            rowHeight = qMax(rowHeight, size.height());
+        }
+        return y + rowHeight - rect.y() + margins.bottom();
+    }
+    QVector<QLayoutItem *> m_items;
+};
 
 class SymbolTileButton final : public QToolButton
 {
@@ -413,18 +490,29 @@ void MainWindow::createToolBar()
     editToolBar->addAction(m_redoAction);
     editToolBar->addSeparator();
 
-    m_rotateAction = editToolBar->addAction(transformIcon(false), tr("Rotate 90°"));
+    m_rotateLeftAction = editToolBar->addAction(transformIcon(TransformIcon::RotateLeft), tr("Rotate Left"));
+    m_rotateLeftAction->setObjectName("rotateLeftComponentAction");
+    m_rotateLeftAction->setToolTip(tr("Rotate the selected component 90 degrees counterclockwise"));
+    m_rotateLeftAction->setStatusTip(m_rotateLeftAction->toolTip());
+    connect(m_rotateLeftAction, &QAction::triggered, this, &MainWindow::onRotateLeftSelectedComponent);
+    m_rotateAction = editToolBar->addAction(transformIcon(TransformIcon::RotateRight), tr("Rotate Right"));
     m_rotateAction->setObjectName("rotateComponentAction");
     m_rotateAction->setToolTip(tr("Rotate the selected component 90 degrees clockwise"));
     m_rotateAction->setStatusTip(m_rotateAction->toolTip());
     connect(m_rotateAction, &QAction::triggered,
             this, &MainWindow::onRotateSelectedComponent);
-    m_mirrorAction = editToolBar->addAction(transformIcon(true), tr("Mirror"));
+    m_mirrorAction = editToolBar->addAction(transformIcon(TransformIcon::FlipHorizontal), tr("Flip Horizontal"));
     m_mirrorAction->setObjectName("mirrorComponentAction");
-    m_mirrorAction->setToolTip(tr("Toggle horizontal mirroring of the selected component"));
+    m_mirrorAction->setToolTip(tr("Flip the selected component left to right on the canvas"));
     m_mirrorAction->setStatusTip(m_mirrorAction->toolTip());
     connect(m_mirrorAction, &QAction::triggered,
             this, &MainWindow::onMirrorSelectedComponent);
+
+    m_flipVerticalAction = editToolBar->addAction(transformIcon(TransformIcon::FlipVertical), tr("Flip Vertical"));
+    m_flipVerticalAction->setObjectName("flipVerticalComponentAction");
+    m_flipVerticalAction->setToolTip(tr("Flip the selected component top to bottom on the canvas"));
+    m_flipVerticalAction->setStatusTip(m_flipVerticalAction->toolTip());
+    connect(m_flipVerticalAction, &QAction::triggered, this, &MainWindow::onFlipVerticalSelectedComponent);
 
     auto *viewToolBar = addToolBar(tr("View"));
     viewToolBar->setObjectName("viewToolBar");
@@ -478,13 +566,19 @@ void MainWindow::createSymbolDock()
     dock->setObjectName("symbolDock");
     dock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
 
-    auto *splitter = new QSplitter(Qt::Horizontal, dock);
+    auto *splitter = new QSplitter(Qt::Vertical, dock);
     m_categoryTree = new QTreeWidget(splitter);
     m_categoryTree->setHeaderHidden(true);
     m_categoryTree->setMinimumWidth(105);
+    m_categoryTree->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_categoryTree->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    // Let long category paths determine the column width rather than clipping
+    // them to the viewport, so horizontal scrolling is available when needed.
+    m_categoryTree->header()->setStretchLastSection(false);
+    m_categoryTree->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     m_symbolScrollArea = new QScrollArea(splitter);
     m_symbolScrollArea->setWidgetResizable(true);
-    m_symbolScrollArea->setMinimumWidth(150);
+    m_symbolScrollArea->setMinimumWidth(88);
     m_symbolGridContent = new QWidget(m_symbolScrollArea);
     m_symbolSectionsLayout = new QVBoxLayout(m_symbolGridContent);
     m_symbolSectionsLayout->setContentsMargins(4, 4, 4, 4);
@@ -492,15 +586,26 @@ void MainWindow::createSymbolDock()
     m_symbolScrollArea->setWidget(m_symbolGridContent);
     splitter->addWidget(m_categoryTree);
     splitter->addWidget(m_symbolScrollArea);
-    splitter->setStretchFactor(0, 0);
+    splitter->setStretchFactor(0, 1);
     splitter->setStretchFactor(1, 1);
-    splitter->setSizes({130, 250});
+    splitter->setSizes({250, 250});
 
     connect(m_categoryTree, &QTreeWidget::currentItemChanged, this,
             [this](QTreeWidgetItem *current, QTreeWidgetItem *) {
                 if (current)
                     populateSymbolGrid(current->data(0, Qt::UserRole).toString());
             });
+    connect(m_categoryTree, &QTreeWidget::collapsed, this, [this] {
+        // Qt 6.11.1 leaves cached accessible rows at their expanded positions.
+        // Stale sibling indexes can send Windows UI Automation into a cycle.
+        QAccessibleTableModelChangeEvent event(m_categoryTree,
+            QAccessibleTableModelChangeEvent::ModelReset);
+        if (auto *accessible = QAccessible::queryAccessibleInterface(m_categoryTree)) {
+            if (auto *table = accessible->tableInterface())
+                table->modelChange(&event);
+        }
+        QAccessible::updateAccessibility(&event);
+    });
     dock->setWidget(splitter);
     addDockWidget(Qt::LeftDockWidgetArea, dock);
     rebuildSymbolDockContents();
@@ -521,6 +626,12 @@ void MainWindow::rebuildSymbolDockContents()
     m_categoryItems.clear();
     m_categoryTree->clear();
 
+    auto *root = new QTreeWidgetItem(m_categoryTree);
+    root->setText(0, tr("All Symbols"));
+    root->setData(0, Qt::UserRole, QString());
+    root->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+    m_categoryItems.insert(QString(), root);
+
     for (const LibrarySymbol &symbol : applicationSymbolLibrary().symbols()) {
         auto *action = new QAction(symbol.displayName, this);
         action->setCheckable(true);
@@ -531,13 +642,12 @@ void MainWindow::rebuildSymbolDockContents()
         m_symbolActions.insert(symbol.id, action);
 
         QString path;
-        QTreeWidgetItem *parent = nullptr;
+        QTreeWidgetItem *parent = root;
         for (const QString &segment : libraryCategoryPath(symbol.category)) {
             path = path.isEmpty() ? segment : path + QLatin1Char('/') + segment;
             QTreeWidgetItem *category = m_categoryItems.value(path, nullptr);
             if (!category) {
-                category = parent ? new QTreeWidgetItem(parent)
-                                  : new QTreeWidgetItem(m_categoryTree);
+                category = new QTreeWidgetItem(parent);
                 category->setText(0, segment);
                 category->setData(0, Qt::UserRole, path);
                 category->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
@@ -576,11 +686,13 @@ void MainWindow::populateSymbolGrid(const QString &categoryPath)
     };
     QVector<PaletteSection> sections;
     QHash<QString, int> sectionIndices;
-    const QStringList selectedPath = libraryCategoryPath(categoryPath);
+    const QStringList selectedPath = categoryPath.isEmpty() ? QStringList{}
+                                                           : libraryCategoryPath(categoryPath);
     const QString descendantPrefix = categoryPath + QLatin1Char('/');
 
     for (const LibrarySymbol &symbol : applicationSymbolLibrary().symbols()) {
-        if (symbol.category != categoryPath && !symbol.category.startsWith(descendantPrefix))
+        if (!categoryPath.isEmpty() && symbol.category != categoryPath
+            && !symbol.category.startsWith(descendantPrefix))
             continue;
 
         QString sectionTitle;
@@ -598,7 +710,6 @@ void MainWindow::populateSymbolGrid(const QString &categoryPath)
         sections[sectionIndex].symbols.append(&symbol);
     }
 
-    constexpr int kGridColumns = 2;
     const QSize thumbnailSize(64, 48);
     for (const PaletteSection &section : sections) {
         if (!section.title.isEmpty()) {
@@ -609,9 +720,7 @@ void MainWindow::populateSymbolGrid(const QString &categoryPath)
             m_symbolSectionsLayout->addWidget(heading);
         }
 
-        auto *grid = new QGridLayout;
-        grid->setContentsMargins(0, 0, 0, 0);
-        grid->setSpacing(4);
+        auto *grid = new SymbolFlowLayout;
         for (int i = 0; i < section.symbols.size(); ++i) {
             const LibrarySymbol &symbol = *section.symbols.at(i);
             QAction *action = m_symbolActions.value(symbol.id, nullptr);
@@ -629,12 +738,12 @@ void MainWindow::populateSymbolGrid(const QString &categoryPath)
             action->setToolTip(symbol.displayName);
 
             auto *button = new SymbolTileButton(action, symbol.id, m_symbolGridContent);
-            button->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+            button->setToolButtonStyle(Qt::ToolButtonIconOnly);
             button->setIconSize(thumbnailSize);
-            button->setFixedSize(112, 88);
+            button->setFixedSize(72, 56);
             button->setAccessibleName(symbol.displayName);
             button->setToolTip(symbol.displayName);
-            grid->addWidget(button, i / kGridColumns, i % kGridColumns);
+            grid->addWidget(button);
         }
         m_symbolSectionsLayout->addLayout(grid);
     }
@@ -906,7 +1015,12 @@ void MainWindow::onDrawWireModeTriggered()
     m_scene->setEditMode(SchematicScene::EditMode::DrawWire);
 }
 
-void MainWindow::onRotateSelectedComponent()
+void MainWindow::onRotateSelectedComponent() { rotateSelectedComponent(90); }
+void MainWindow::onRotateLeftSelectedComponent() { rotateSelectedComponent(-90); }
+void MainWindow::onMirrorSelectedComponent() { flipSelectedComponent(FlipAxis::Horizontal); }
+void MainWindow::onFlipVerticalSelectedComponent() { flipSelectedComponent(FlipAxis::Vertical); }
+
+void MainWindow::rotateSelectedComponent(int degrees)
 {
     const std::optional<ComponentId> selected = m_scene->singleSelectedComponent();
     if (!selected)
@@ -916,8 +1030,8 @@ void MainWindow::onRotateSelectedComponent()
         return;
 
     const Rotation nextRotation = static_cast<Rotation>(
-        (static_cast<int>(component->rotation()) + 90) % 360);
-    if (!m_editController->commit(tr("Rotate component 90 degrees"),
+        (static_cast<int>(component->rotation()) + degrees + 360) % 360);
+    if (!m_editController->commit(degrees > 0 ? tr("Rotate component right") : tr("Rotate component left"),
             [this, id = *selected, nextRotation]() {
                 return m_document.rotateComponent(id, nextRotation);
             })) {
@@ -926,7 +1040,7 @@ void MainWindow::onRotateSelectedComponent()
     }
 }
 
-void MainWindow::onMirrorSelectedComponent()
+void MainWindow::flipSelectedComponent(FlipAxis axis)
 {
     const std::optional<ComponentId> selected = m_scene->singleSelectedComponent();
     if (!selected)
@@ -935,10 +1049,10 @@ void MainWindow::onMirrorSelectedComponent()
     if (!component)
         return;
 
-    const bool mirrored = !component->mirrored();
-    if (!m_editController->commit(tr("Mirror component horizontally"),
-            [this, id = *selected, mirrored]() {
-                return m_document.setComponentMirrored(id, mirrored);
+    if (!m_editController->commit(axis == FlipAxis::Horizontal
+                ? tr("Flip component horizontally") : tr("Flip component vertically"),
+            [this, id = *selected, axis]() {
+                return m_document.flipComponent(id, axis);
             })) {
         statusBar()->showMessage(
             tr("That component cannot be mirrored without breaking a wire connection."), 3500);
@@ -1026,6 +1140,8 @@ void MainWindow::updateRenameActionEnabled()
     const bool oneComponentSelected = m_scene->singleSelectedComponent().has_value();
     if (m_renameAction)
         m_renameAction->setEnabled(oneComponentSelected);
+    if (m_rotateLeftAction) m_rotateLeftAction->setEnabled(oneComponentSelected);
+    if (m_flipVerticalAction) m_flipVerticalAction->setEnabled(oneComponentSelected);
     if (m_rotateAction)
         m_rotateAction->setEnabled(oneComponentSelected);
     if (m_mirrorAction)

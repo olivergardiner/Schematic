@@ -83,7 +83,7 @@ void TstSymbolLibrary::builtinLibraryHasSevenSymbolsWithExpectedMetadata()
         {SymbolIds::Capacitor,     "Capacitor",         "Passives",   "C",   true},
         {SymbolIds::Diode,         "Diode",             "Semiconductors/Diodes", "D", true},
         {SymbolIds::Ground,        "Ground",            "Signals",    "GND", false},
-        {SymbolIds::OpAmp,         "Op-Amp",            "ICs",        "U",   true},
+        {SymbolIds::OpAmp,         "Op-Amp",            "Semiconductors/ICs", "U", true},
         {SymbolIds::Potentiometer, "Potentiometer",     "Passives",   "VR",  true},
         {SymbolIds::Jack,          "Input/Output Jack", "Connectors", "J",   true},
     };

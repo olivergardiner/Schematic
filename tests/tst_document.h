@@ -8,6 +8,7 @@ class TstDocument : public QObject
     Q_OBJECT
 
 private slots:
+    void canvasFlipsPreserveAxesAndCommitAtomically();
     // Explicit endpoint identity must join terminals while coordinate
     // crossings without shared identities remain electrically separate.
     void connectivityUsesEndpointIdentity();

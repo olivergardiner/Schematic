@@ -17,7 +17,8 @@ struct RenderedSymbolPrimitive
 
 // Shared application-layer conversion and preview painting for library
 // artwork. Paths remain in symbol-local world units; only the preview painter
-// scales them to fit its target rectangle.
+// shrinks oversized glyphs to fit its target rectangle without enlarging them
+// beyond one logical pixel per scene unit (the canvas's default zoom).
 class SymbolRenderer
 {
 public:

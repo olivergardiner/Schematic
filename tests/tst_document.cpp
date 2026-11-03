@@ -407,6 +407,49 @@ void TstDocument::rotateAndMirrorUpdateRoutesTransactionally()
     QVERIFY(!d.setComponentMirrored(999, true));
 }
 
+void TstDocument::canvasFlipsPreserveAxesAndCommitAtomically()
+{
+    for (const Rotation rotation : {Rotation::Deg0, Rotation::Deg90, Rotation::Deg180, Rotation::Deg270}) {
+        for (const bool mirrored : {false, true}) {
+            for (const FlipAxis axis : {FlipAxis::Horizontal, FlipAxis::Vertical}) {
+                Document document;
+                const QPointF origin(100, 200);
+                const auto id = document.addComponent(SymbolIds::OpAmp, origin, rotation);
+                QVERIFY(document.setComponentMirrored(id, mirrored));
+                QVector<QPointF> terminals;
+                for (int i = 0; i < document.terminalCount(*document.component(id)); ++i)
+                    terminals.append(document.terminalPosition(*document.component(id), i));
+                const auto before = document.toJsonBytes();
+                QVERIFY(document.flipComponent(id, axis));
+                for (int i = 0; i < terminals.size(); ++i) {
+                    const QPointF expected = axis == FlipAxis::Horizontal
+                        ? QPointF(2 * origin.x() - terminals[i].x(), terminals[i].y())
+                        : QPointF(terminals[i].x(), 2 * origin.y() - terminals[i].y());
+                    QCOMPARE(document.terminalPosition(*document.component(id), i), expected);
+                }
+                QVERIFY(document.flipComponent(id, axis));
+                QCOMPARE(document.toJsonBytes(), before);
+            }
+        }
+    }
+    Document document;
+    const auto a = document.addComponent(SymbolIds::Resistor, {});
+    const auto b = document.addComponent(SymbolIds::Resistor, {40, 0}, Rotation::Deg180);
+    const auto wire = document.addWire(makeTerminalEndpoint(a, 1), {}, makeTerminalEndpoint(b, 0));
+    QVERIFY(wire);
+    const auto before = document.toJsonBytes();
+    QVERIFY(!document.flipComponent(b, FlipAxis::Horizontal)); // Would collapse the wire.
+    QCOMPARE(document.toJsonBytes(), before);
+    QVERIFY(!document.rotateComponent(b, Rotation::Deg0)); // Invalid intermediate pose.
+    QVERIFY(document.flipComponent(b, FlipAxis::Vertical)); // Final pose is valid.
+    QCOMPARE(document.component(b)->rotation(), Rotation::Deg0);
+    QVERIFY(document.component(b)->mirrored());
+    QCOMPARE(document.wire(*wire)->vertices, QVector<QPointF>({{20, 0}, {60, 0}}));
+    QCOMPARE(document.wire(*wire)->end, makeTerminalEndpoint(b, 0));
+    QVERIFY(!document.setComponentTransform(b, static_cast<Rotation>(45), false));
+    QVERIFY(!document.flipComponent(999, FlipAxis::Vertical));
+}
+
 void TstDocument::defaultReferencesUseSmallestUnusedPrefixNumber()
 {
     Document d;

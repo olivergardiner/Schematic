@@ -17,6 +17,8 @@
 
 struct DocumentLoadResult;
 
+enum class FlipAxis { Horizontal, Vertical };
+
 struct Net
 {
     QVector<TerminalRef> terminals;
@@ -50,6 +52,8 @@ public:
     // unknown or any attached route would become invalid.
     bool rotateComponent(ComponentId id, Rotation rotation);
     bool setComponentMirrored(ComponentId id, bool mirrored);
+    bool setComponentTransform(ComponentId id, Rotation rotation, bool mirrored);
+    bool flipComponent(ComponentId id, FlipAxis axis);
 
 
     // Renames/re-values an already-placed component. Both reference and

@@ -6,6 +6,8 @@ This document describes open work and possible future directions. It is not a fi
 
 This is the default starting point for a coding request, not an authorization to implement multiple items at once. Confirm the requested scope before each substantial change, following [AGENTS.md](AGENTS.md). Keep the design and acceptance checks for the selected item short and specific.
 
+**Next priority: directional group selection.** The [box-selection plan](docs/design/group-selection.md) proposes left-to-right enclosure and right-to-left crossing selection for components, labels, and wire routes. It awaits approval before implementation; moving the selected group together is separate follow-up work. The remaining work is listed below.
+
 1. **Symbol library authoring.** J1 (`Path`), J2 (headless SVG import/export), J3 (the import dialog and writable library), and J4 (document symbol snapshots and conflict handling) from the approved [symbol import design](docs/design/symbol-import.md) are implemented. The writable library foundation was included in J3 so imported symbols can be used immediately. The [J4 implementation plan](docs/design/symbol-import-j4-plan.md) records the approved document embedding and conflict implementation; automated verification passes, with the manual visual walkthrough outstanding. J5 symbol content remains later work.
 2. **Symbol library growth.** Add symbol groups through the same library format, authoring process, validation, and serialization path.
 3. **Reliability and usability polish.** Address the open grid, wire recovery, route retracing, save, warning, and title-bar issues below as focused follow-up work.
@@ -15,6 +17,8 @@ The order can change when priorities change or a coding request targets another 
 Undo/redo is implemented per [its approved design](docs/design/undo-redo.md). The remaining items below are open; each substantial change still needs a scoped plan and approval.
 
 ### Editing workflow
+
+- **Proposed, awaiting approval:** [Directional box selection](docs/design/group-selection.md), including whole-component label handling, wire-route selection, live feedback, and additive Ctrl-drag selection.
 
 - **Implemented:** Extract the shared symbol renderer and replace the flat text list with a category tree and graphical symbol grid.
 - **Implemented:** Drag a palette symbol to the snapped canvas position through the shared undoable placement path.
@@ -47,7 +51,7 @@ Agree the precise set, geometry, categories, and acceptance checks as part of th
 
 ## Symbol library authoring
 
-This is the current major feature area. The approved [symbol import design](docs/design/symbol-import.md) describes a restricted SVG profile, in-app metadata and terminal editing, conversion to the native symbol definition, library storage, and document embedding. J1–J4 are implemented; the [J4 plan](docs/design/symbol-import-j4-plan.md) records verification and the outstanding manual visual check, and J5 symbol content will need its own scoped plan. Inkscape or another SVG editor remains the drawing tool; the application does not include a general-purpose artwork editor in this scope.
+The approved [symbol import design](docs/design/symbol-import.md) describes a restricted SVG profile, in-app metadata and terminal editing, conversion to the native symbol definition, library storage, and document embedding. J1–J4 are implemented; the [J4 plan](docs/design/symbol-import-j4-plan.md) records verification and the outstanding manual visual check, and J5 symbol content will need its own scoped plan. Inkscape or another SVG editor remains the drawing tool; the application does not include a general-purpose artwork editor in this scope.
 
 Exporting an individual symbol as SVG and its metadata sidecar supports authoring and round trips. Exporting a complete schematic to SVG is a separate required future capability; it is not part of the symbol-creation feature.
 

@@ -14,6 +14,7 @@ class SymbolRendererTests : public QObject
 
 private slots:
     void previewFitsTargetAndPaintsArtwork();
+    void previewPreservesNativeScaleAndShrinksLargeArtwork();
     void pathPrimitivesRenderCurvesFillAndFillRules();
     void symbolMimeDataCarriesKnownVersionedId();
 };
@@ -39,6 +40,33 @@ void SymbolRendererTests::previewFitsTargetAndPaintsArtwork()
         }
     }
     QVERIFY(paintedPixels > 0);
+}
+
+void SymbolRendererTests::previewPreservesNativeScaleAndShrinksLargeArtwork()
+{
+    for (const int width : {20, 200}) {
+        LibrarySymbol symbol;
+        symbol.primitives = {{PrimitiveKind::Polygon,
+            {{0, 0}, {qreal(width), 0}, {qreal(width), qreal(width) / 2},
+             {0, qreal(width) / 2}}, 0.0}};
+        QImage image(64, 48, QImage::Format_ARGB32_Premultiplied);
+        image.fill(Qt::transparent);
+        {
+            QPainter painter(&image);
+            SymbolRenderer::paintPreview(&painter, symbol, QRectF(0, 0, 64, 48));
+        }
+        QRect painted;
+        for (int y = 0; y < image.height(); ++y)
+            for (int x = 0; x < image.width(); ++x)
+                if (qAlpha(image.pixel(x, y))) painted |= QRect(x, y, 1, 1);
+        QVERIFY(!painted.isEmpty());
+        // Allow a pixel on either side for the antialiased outline.
+        const int expectedWidth = width == 20 ? 20 : 56;
+        QVERIFY(painted.width() >= expectedWidth);
+        QVERIFY(painted.width() <= expectedWidth + 2);
+        QVERIFY(painted.left() >= 3);
+        QVERIFY(painted.right() < 61);
+    }
 }
 
 void SymbolRendererTests::pathPrimitivesRenderCurvesFillAndFillRules()

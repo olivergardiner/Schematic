@@ -107,17 +107,20 @@ void SymbolRenderer::paintPreview(QPainter *painter, const LibrarySymbol &symbol
 
     const qreal width = std::max(localBounds.width(), qreal(1.0));
     const qreal height = std::max(localBounds.height(), qreal(1.0));
-    const qreal scale = std::min(available.width() / width, available.height() / height);
+    // One logical pixel per scene unit matches the canvas at default zoom.
+    // Shrink large symbols to fit, but never enlarge smaller glyphs.
+    const qreal scale = std::min({qreal(1.0), available.width() / width,
+                                 available.height() / height});
     if (!std::isfinite(scale) || scale <= 0.0)
         return;
 
     painter->save();
     painter->setRenderHint(QPainter::Antialiasing, true);
     painter->setRenderHint(QPainter::SmoothPixmapTransform, true);
-    const QTransform transform = QTransform::fromTranslate(target.center().x(),
-                                                           target.center().y())
-        * QTransform::fromScale(scale, scale)
-        * QTransform::fromTranslate(-localBounds.center().x(), -localBounds.center().y());
+    QTransform transform;
+    transform.translate(target.center().x(), target.center().y());
+    transform.scale(scale, scale);
+    transform.translate(-localBounds.center().x(), -localBounds.center().y());
     painter->setTransform(transform, true);
     painter->setPen(QPen(Qt::black, kSymbolLineWidth));
     for (const RenderedSymbolPrimitive &primitive : artwork) {

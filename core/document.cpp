@@ -140,22 +140,36 @@ bool Document::moveComponent(ComponentId id, QPointF position)
 
 bool Document::rotateComponent(ComponentId id, Rotation rotation)
 {
-    const Component *current = component(id);
-    if (!current)
-        return false;
-    Component changed = *current;
-    changed.setRotation(rotation);
-    return commitComponentChange(id, changed);
+    const auto *current = component(id);
+    return current && setComponentTransform(id, rotation, current->mirrored());
 }
 
 bool Document::setComponentMirrored(ComponentId id, bool mirrored)
 {
-    const Component *current = component(id);
-    if (!current)
+    const auto *current = component(id);
+    return current && setComponentTransform(id, current->rotation(), mirrored);
+}
+
+bool Document::setComponentTransform(ComponentId id, Rotation rotation, bool mirrored)
+{
+    const auto *current = component(id);
+    const int degrees = static_cast<int>(rotation);
+    if (!current || (degrees != 0 && degrees != 90 && degrees != 180 && degrees != 270))
         return false;
     Component changed = *current;
+    changed.setRotation(rotation);
     changed.setMirrored(mirrored);
     return commitComponentChange(id, changed);
+}
+
+bool Document::flipComponent(ComponentId id, FlipAxis axis)
+{
+    const auto *current = component(id);
+    if (!current) return false;
+    // Canvas H * R(theta) = R(-theta) * local H; canvas V adds 180 degrees.
+    const int degrees = (360 + (axis == FlipAxis::Vertical ? 180 : 0)
+                         - static_cast<int>(current->rotation())) % 360;
+    return setComponentTransform(id, static_cast<Rotation>(degrees), !current->mirrored());
 }
 
 bool Document::commitComponentChange(ComponentId id, const Component &changed)

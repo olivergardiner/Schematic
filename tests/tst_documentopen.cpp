@@ -11,15 +11,179 @@
 #include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QTimer>
+#include <QVBoxLayout>
+#include <QTreeWidget>
+#include <QScrollArea>
+#include <QPointer>
+#include <QAction>
+#include <QAccessible>
 #include <QtTest>
 
 class DocumentOpenTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void transformToolbarActionsAreUndoable();
+    void paletteReflowsWithAvailableWidth();
+    void categoryCollapseReleasesPaletteObjects();
+    void categoryAccessibilityMatchesCollapsedRows();
     void reviewChoicesAndAtomicOpen();
     void missingAndIncompatibleChoices();
 };
+
+void DocumentOpenTests::transformToolbarActionsAreUndoable()
+{
+    QTemporaryDir temporary;
+    QStandardPaths::setTestModeEnabled(true);
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, temporary.path());
+    MainWindow window;
+    const QList<QAction *> actions{window.m_rotateLeftAction, window.m_rotateAction,
+                                  window.m_mirrorAction, window.m_flipVerticalAction};
+    for (auto *action : actions) {
+        QVERIFY(action);
+        QVERIFY(!action->icon().isNull());
+        QVERIFY(!action->isEnabled());
+    }
+    QVERIFY(window.m_scene->placeComponentAt(SymbolIds::OpAmp, {100, 100}));
+    const auto id = *window.m_scene->singleSelectedComponent();
+    auto *stack = window.m_editController->undoStack();
+    window.m_rotateAction->trigger();
+    QCOMPARE(window.m_document.component(id)->rotation(), Rotation::Deg90);
+    window.m_rotateLeftAction->trigger();
+    QCOMPARE(window.m_document.component(id)->rotation(), Rotation::Deg0);
+    // Start the reflection checks from a rotated pose to distinguish canvas axes.
+    window.m_rotateAction->trigger();
+    for (auto *action : actions) {
+        QVERIFY(action->isEnabled());
+        const auto before = window.m_document.toJsonBytes();
+        const QPointF terminal = window.m_document.terminalPosition(*window.m_document.component(id), 0);
+        const int index = stack->index();
+        action->trigger();
+        QCOMPARE(stack->index(), index + 1);
+        const auto after = window.m_document.toJsonBytes();
+        QVERIFY(before != after);
+        const QPointF offset = terminal - QPointF(100, 100);
+        const QPointF expectedOffset = action == window.m_rotateLeftAction ? QPointF(offset.y(), -offset.x())
+            : action == window.m_rotateAction ? QPointF(-offset.y(), offset.x())
+            : action == window.m_mirrorAction ? QPointF(-offset.x(), offset.y())
+            : QPointF(offset.x(), -offset.y());
+        QCOMPARE(window.m_document.terminalPosition(*window.m_document.component(id), 0),
+                 QPointF(100, 100) + expectedOffset);
+        const auto loaded = Document::fromJsonBytes(after);
+        QVERIFY(loaded.document);
+        QCOMPARE(loaded.document->toJsonBytes(), after);
+        stack->undo();
+        QCOMPARE(window.m_document.toJsonBytes(), before);
+        stack->redo();
+        QCOMPARE(window.m_document.toJsonBytes(), after);
+    }
+}
+
+void DocumentOpenTests::paletteReflowsWithAvailableWidth()
+{
+    QTemporaryDir temporary;
+    QStandardPaths::setTestModeEnabled(true);
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, temporary.path());
+    MainWindow window;
+    window.populateSymbolGrid(QStringLiteral("Passives"));
+    auto *flow = window.m_symbolSectionsLayout->itemAt(0)->layout();
+    QVERIFY(flow);
+    QCOMPARE(flow->count(), 3);
+    QVERIFY(flow->hasHeightForWidth());
+    QVERIFY(flow->heightForWidth(150) > flow->heightForWidth(240));
+    flow->setGeometry(QRect(0, 0, 150, 200));
+    QCOMPARE(flow->itemAt(0)->geometry().y(), flow->itemAt(1)->geometry().y());
+    QVERIFY(flow->itemAt(2)->geometry().y() > flow->itemAt(0)->geometry().y());
+    auto *firstTile = flow->itemAt(0)->widget();
+    flow->setGeometry(QRect(0, 0, 240, 200));
+    QCOMPARE(flow->itemAt(2)->geometry().y(), flow->itemAt(0)->geometry().y());
+    QCOMPARE(flow->itemAt(0)->widget(), firstTile);
+    flow->setGeometry(QRect(0, 0, 80, 200));
+    QVERIFY(flow->itemAt(1)->geometry().y() > flow->itemAt(0)->geometry().y());
+}
+
+void DocumentOpenTests::categoryCollapseReleasesPaletteObjects()
+{
+    QTemporaryDir temporary;
+    QStandardPaths::setTestModeEnabled(true);
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, temporary.path());
+    MainWindow window;
+    auto *parent = window.m_categoryItems.value(QStringLiteral("Semiconductors"));
+    auto *child = window.m_categoryItems.value(QStringLiteral("Semiconductors/Diodes"));
+    QVERIFY(parent);
+    QVERIFY(child);
+    window.show();
+    window.m_symbolActions.value(SymbolIds::Diode)->trigger();
+    window.m_categoryTree->setCurrentItem(parent);
+    QApplication::processEvents();
+    const auto widgetCount = window.findChildren<QWidget *>().size();
+    const auto layoutCount = window.findChildren<QLayout *>().size();
+    const auto actionCount = window.m_symbolActions.size();
+    for (int cycle = 0; cycle < 100; ++cycle) {
+        window.m_categoryTree->expandItem(parent);
+        QPointer<QWidget> oldContent = window.m_symbolScrollArea->widget();
+        window.m_categoryTree->setCurrentItem(child);
+        QVERIFY(oldContent.isNull());
+        window.m_categoryTree->collapseItem(parent);
+        window.m_categoryTree->setCurrentItem(parent);
+        QApplication::processEvents();
+        QCOMPARE(window.findChildren<QWidget *>().size(), widgetCount);
+        QCOMPARE(window.findChildren<QLayout *>().size(), layoutCount);
+        QCOMPARE(window.m_symbolActions.size(), actionCount);
+    }
+    // Exercise the actual tree expander hit path, including short/narrow docks
+    // where collapsing a category can change scrollbar visibility.
+    for (const QSize size : {QSize(400, 200), QSize(700, 350), QSize(1000, 700)}) {
+        window.resize(size);
+        for (int cycle = 0; cycle < 10; ++cycle) {
+            window.m_categoryTree->expandItem(parent);
+            window.m_categoryTree->setCurrentItem(child);
+            window.m_categoryTree->scrollToItem(parent);
+            QApplication::processEvents();
+            const auto rect = window.m_categoryTree->visualItemRect(parent);
+            const QPoint expander(rect.left() - window.m_categoryTree->indentation() / 2,
+                                  rect.center().y());
+            QTest::mouseClick(window.m_categoryTree->viewport(), Qt::LeftButton,
+                              Qt::NoModifier, expander);
+            QVERIFY(!parent->isExpanded());
+            window.m_categoryTree->setCurrentItem(parent);
+            QApplication::processEvents();
+            QCOMPARE(window.findChildren<QWidget *>().size(), widgetCount);
+            QCOMPARE(window.findChildren<QLayout *>().size(), layoutCount);
+        }
+    }
+}
+
+void DocumentOpenTests::categoryAccessibilityMatchesCollapsedRows()
+{
+    QTemporaryDir temporary;
+    QStandardPaths::setTestModeEnabled(true);
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, temporary.path());
+    MainWindow window;
+    window.show();
+    QApplication::processEvents();
+    auto *tree = window.m_categoryTree;
+    auto *parent = window.m_categoryItems.value(QStringLiteral("Semiconductors"));
+    QVERIFY(parent);
+    auto *accessible = QAccessible::queryAccessibleInterface(tree);
+    QVERIFY(accessible);
+    // Prime every accessible row, as an external Windows UIA client does.
+    for (int i = 0; i < accessible->childCount(); ++i) {
+        auto *child = accessible->child(i);
+        QVERIFY(child);
+        QCOMPARE(accessible->indexOfChild(child), i);
+    }
+    tree->collapseItem(parent);
+    for (int i = 0; i < accessible->childCount(); ++i) {
+        auto *child = accessible->child(i);
+        QVERIFY(child);
+        QCOMPARE(accessible->indexOfChild(child), i);
+    }
+}
 
 void DocumentOpenTests::reviewChoicesAndAtomicOpen()
 {
