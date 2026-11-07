@@ -3,8 +3,8 @@
   "configurePresets": [
     {
       "name": "default",
-      "displayName": "Default (MSVC x64)",
-      "generator": "Visual Studio 17 2022",
+      "displayName": "Default (MSVC 2026 x64)",
+      "generator": "Visual Studio 18 2026",
       "architecture": "x64",
       "binaryDir": "${sourceDir}/build-vs2022"
     },

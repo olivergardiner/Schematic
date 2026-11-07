@@ -30,7 +30,7 @@ Open **Edit > Preferences…** or press **Ctrl+,** for the tabbed Preferences di
 
 Requirements: CMake, a C++17 compiler, and Qt 6.5 or newer with Core, Gui, and Widgets. Qt Test is needed when `BUILD_TESTING` is enabled (the default).
 
-The checked-in `default` (Visual Studio) and `mingw` presets contain no machine-specific paths, so CMake must be told where Qt is installed. Create a git-ignored `CMakeUserPresets.json` that inherits from a checked-in preset and sets `CMAKE_PREFIX_PATH`:
+The checked-in `default` (Visual Studio 2026) and `mingw` presets contain no machine-specific paths, so CMake must be told where Qt is installed. If using Visual Studio 2022, override `generator` with `Visual Studio 17 2022` in your local configure preset. The MSVC output directory retains its historical `build-vs2022` name. After changing Visual Studio versions, run `cmake --fresh --preset local` (using your local preset name) before rebuilding to replace the old generator cache. Create a git-ignored `CMakeUserPresets.json` that inherits from a checked-in preset and sets `CMAKE_PREFIX_PATH`:
 
 ```json
 {
