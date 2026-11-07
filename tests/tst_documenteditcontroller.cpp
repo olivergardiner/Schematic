@@ -7,6 +7,7 @@ class TstDocumentEditController : public QObject
     Q_OBJECT
 
 private slots:
+    void fillArtworkUndoRoundTrip();
     void snapshotUndoRedoAndCleanIndex();
     void rejectedAndNoOpEditsDoNotEnterHistory();
     void branchedWireIsOneAtomicCommand();
@@ -17,9 +18,9 @@ void TstDocumentEditController::snapshotUndoRedoAndCleanIndex()
 {
     Document document;
     DocumentEditController edits(&document);
-    QVector<ComponentId> selection;
+    DocumentSelection selection;
     edits.setSelectionCallbacks([&selection]() { return selection; },
-                                [&selection](const QVector<ComponentId> &restored) {
+                                [&selection](const DocumentSelection &restored) {
                                     selection = restored;
                                 });
 
@@ -28,13 +29,13 @@ void TstDocumentEditController::snapshotUndoRedoAndCleanIndex()
         added = document.addComponent(SymbolIds::Resistor, QPointF(0, 0));
         if (added == kInvalidComponentId)
             return false;
-        selection = {added};
+        selection = {{added}, {}};
         return true;
     }));
     QCOMPARE(document.components().size(), 1);
     QCOMPARE(edits.undoStack()->count(), 1);
     QVERIFY(!edits.undoStack()->isClean());
-    QCOMPARE(selection, QVector<ComponentId>({added}));
+    QCOMPARE(selection.components, QVector<ComponentId>({added}));
 
     edits.setClean();
     QVERIFY(edits.undoStack()->isClean());
@@ -47,12 +48,12 @@ void TstDocumentEditController::snapshotUndoRedoAndCleanIndex()
     edits.undoStack()->undo();
     QVERIFY(edits.undoStack()->isClean());
     QCOMPARE(document.component(added)->position(), QPointF(0, 0));
-    QCOMPARE(selection, QVector<ComponentId>({added}));
+    QCOMPARE(selection.components, QVector<ComponentId>({added}));
 
     edits.undoStack()->redo();
     QVERIFY(!edits.undoStack()->isClean());
     QCOMPARE(document.component(added)->position(), QPointF(10, 0));
-    QCOMPARE(selection, QVector<ComponentId>({added}));
+    QCOMPARE(selection.components, QVector<ComponentId>({added}));
 
     edits.resetHistory();
     QVERIFY(edits.undoStack()->isClean());
@@ -148,6 +149,26 @@ void TstDocumentEditController::labelsGridTransformsAndDeletionRoundTrip()
     QVERIFY(document.component(second));
     edits.undoStack()->redo();
     QVERIFY(!document.component(second));
+}
+
+void TstDocumentEditController::fillArtworkUndoRoundTrip()
+{
+    Document document;
+    const auto id = document.addComponent(SymbolIds::Resistor, {0,0});
+    auto changed = *document.symbol(SymbolIds::Resistor);
+    changed.primitives.first().fillColor = PrimitiveFillColor::Black;
+    DocumentEditController edits(&document);
+    const auto before = document.toJsonBytes();
+    QStringList errors;
+    QVERIFY(edits.commit("Change artwork fill", [&]() { return document.useSymbol(changed, &errors); }));
+    QCOMPARE(document.symbol(SymbolIds::Resistor)->primitives.first().fillColor, PrimitiveFillColor::Black);
+    const auto black = document.toJsonBytes();
+    edits.undoStack()->undo();
+    QCOMPARE(document.toJsonBytes(), before);
+    QVERIFY(edits.undoStack()->isClean());
+    edits.undoStack()->redo();
+    QCOMPARE(document.toJsonBytes(), black);
+    QCOMPARE(document.component(id)->position(), QPointF(0,0));
 }
 
 QTEST_GUILESS_MAIN(TstDocumentEditController)

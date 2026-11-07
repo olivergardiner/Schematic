@@ -10,6 +10,9 @@
 #include "wireroute.h"
 
 #include <QGraphicsSceneMouseEvent>
+#include <QGraphicsSceneContextMenuEvent>
+#include <QFontMetricsF>
+#include <QMenu>
 #include <QGraphicsView>
 #include <QKeyEvent>
 #include <QLineF>
@@ -17,6 +20,8 @@
 #include <QPainter>
 #include <QPen>
 #include <QSet>
+#include <QApplication>
+#include <algorithm>
 
 #include <cmath>
 
@@ -93,6 +98,8 @@ SchematicScene::SchematicScene(QObject *parent)
 
 void SchematicScene::bindDocument(Document *document)
 {
+    cancelMove();
+    emit selectionGestureReset();
     cancelPendingWire();
     m_dragging = false;
     // Component IDs are only meaningful within one Document, so a newly bound
@@ -106,6 +113,8 @@ void SchematicScene::setEditMode(EditMode mode)
 {
     if (mode == m_mode)
         return;
+    cancelMove();
+    emit selectionGestureReset();
     cancelPendingWire();
     clearSelection();
     m_mode = mode;
@@ -131,8 +140,7 @@ bool SchematicScene::placeComponentAt(const SymbolId &id, QPointF scenePos)
         added = m_document->addComponent(id, snapped);
         return added != kInvalidComponentId;
     }, [&added]() {
-        return added == kInvalidComponentId ? QVector<ComponentId>{}
-                                            : QVector<ComponentId>{added};
+        return added == kInvalidComponentId ? Selection{} : Selection{{added}, {}};
     });
 }
 
@@ -210,43 +218,28 @@ void SchematicScene::drawForeground(QPainter *painter, const QRectF &rect)
     painter->restore();
 }
 
-void SchematicScene::rebuild(const QVector<ComponentId> *selectionOverride)
+void SchematicScene::rebuild(const Selection *selectionOverride)
 {
-    // Items are recreated from scratch, so remember which components were
-    // selected by their stable model ID and reselect the survivors below.
-    // Only component selection is preserved. Wire items remain selectable,
-    // but this rebuild path does not yet restore selected wire identities.
-    QSet<ComponentId> selectedComponents;
-    for (QGraphicsItem *item : selectedItems()) {
-        if (auto *component = qgraphicsitem_cast<ComponentItem *>(item))
-            selectedComponents.insert(component->componentId());
-    }
-    if (selectionOverride) {
-        selectedComponents.clear();
-        for (ComponentId id : *selectionOverride)
-            selectedComponents.insert(id);
-    }
+    cancelMove();
+    emit selectionGestureReset();
+    const Selection retained = selectionOverride ? *selectionOverride : selection();
+    if (m_document)
+        renderDocument(*m_document, retained);
+    else
+        clear();
+}
 
+void SchematicScene::renderDocument(const Document &document, const Selection &retained)
+{
     clear();
     m_wirePreviewItem = nullptr; // clear() already deleted the item itself.
-    if (!m_document)
-        return;
-
-    for (const WireRoute &route : m_document->wires())
+    for (const WireRoute &route : document.wires())
         addWireItems(route);
-    for (const QPointF &point : m_document->junctionPoints())
+    for (const QPointF &point : document.junctionPoints())
         addJunctionItem(point);
-    for (const Component &component : m_document->components())
-        addComponentItems(component);
-
-    if (selectedComponents.isEmpty())
-        return;
-    for (QGraphicsItem *item : items()) {
-        if (auto *component = qgraphicsitem_cast<ComponentItem *>(item)) {
-            if (selectedComponents.contains(component->componentId()))
-                component->setSelected(true);
-        }
-    }
+    for (const Component &component : document.components())
+        addComponentItems(component, document);
+    restoreSelection(retained);
 }
 
 void SchematicScene::addWireItems(const WireRoute &route)
@@ -272,9 +265,9 @@ void SchematicScene::addJunctionItem(QPointF point)
     item->setZValue(kJunctionZ);
 }
 
-void SchematicScene::addComponentItems(const Component &component)
+void SchematicScene::addComponentItems(const Component &component, const Document &document)
 {
-    const LibrarySymbol *symbol = m_document->symbol(component.symbolId());
+    const LibrarySymbol *symbol = document.symbol(component.symbolId());
     if (!symbol)
         return; // Unreachable for components created through Document's API.
     const LibrarySymbol &def = *symbol;
@@ -288,7 +281,7 @@ void SchematicScene::addComponentItems(const Component &component)
     for (const RenderedSymbolPrimitive &primitive : SymbolRenderer::primitives(def)) {
         auto *primitiveItem = new QGraphicsPathItem(primitive.path);
         primitiveItem->setPen(QPen(Qt::black, kLineWidth));
-        primitiveItem->setBrush(primitive.filled ? QBrush(Qt::white) : QBrush(Qt::NoBrush));
+        primitiveItem->setBrush(SymbolRenderer::fillBrush(primitive));
         artwork->addToGroup(primitiveItem);
     }
     artwork->setPos(component.position());
@@ -298,38 +291,34 @@ void SchematicScene::addComponentItems(const Component &component)
     artwork->setFlag(QGraphicsItem::ItemIsSelectable, true);
     addItem(artwork);
 
-    // Labels are separate, unrotated top-level items positioned directly in
-    // world coordinates (not parented under the rotated artwork group), so
-    // component rotation never rotates the text (see DECISIONS.md
-    // "Symbols and labels"). Each is tagged with the same ComponentId (see
-    // schematicitems.h) so a click on a label maps back to this component for
-    // selection/dragging/deletion - see componentItemAt().
-    const QRectF localBounds = SymbolRenderer::bounds(def);
+    // The upright block is independent of the artwork transform. Its rows
+    // retain property/owner IDs for selection and inspector navigation.
+    const QRectF bounds = artwork->sceneBoundingRect();
 
     QFont font;
     font.setPixelSize(static_cast<int>(kLabelPixelSize));
 
-    // A symbol that hides its reference (library showsReference == false;
-    // Ground only for now) keeps its unique reference in the model, but the
-    // label is not drawn - see DECISIONS.md "Symbols and labels".
-    if (def.showsReference) {
-        auto *reference = new ComponentLabelItem(component.reference(), component.id());
-        reference->setFont(font);
-        reference->setPos(component.position()
-                          + QPointF(localBounds.left(),
-                                    localBounds.top() - kLabelGap - kLabelPixelSize));
-        reference->setZValue(kLabelZ);
-        addItem(reference);
+    auto *block = new PropertyBlockItem(component.id());
+    block->setZValue(kLabelZ); addItem(block);
+    block->setData(0, m_dragging && m_propertyDragging && m_dragComponentId == component.id());
+    block->setPos(component.propertyBlockOffset()
+        ? component.position() + *component.propertyBlockOffset()
+        : QPointF(bounds.left(), bounds.bottom() + kLabelGap));
+    qreal below = 0;
+    for (const auto &property : component.properties()) {
+        if (!property.visible || property.value.isEmpty()) continue;
+        const bool reference = property.id == "reference";
+        const QString text = reference || property.id == "value" ? property.value
+                            : property.name + ": " + property.value;
+        auto *label = new ComponentLabelItem(text, component.id(), property.id);
+        label->setFont(font);
+        block->addToGroup(label);
+        label->setPos(0, below);
+        below += qMax(QFontMetricsF(font).lineSpacing(), label->boundingRect().height());
+        label->setZValue(kLabelZ);
+        // The block owns the row.
     }
-
-    if (!component.value().isEmpty()) {
-        auto *value = new ComponentLabelItem(component.value(), component.id());
-        value->setFont(font);
-        value->setPos(component.position()
-                      + QPointF(localBounds.left(), localBounds.bottom() + kLabelGap));
-        value->setZValue(kLabelZ);
-        addItem(value);
-    }
+    if (block->childItems().isEmpty()) delete block;
 }
 
 QPointF SchematicScene::snapToGrid(QPointF point) const
@@ -424,6 +413,11 @@ ComponentItem *SchematicScene::componentItemAt(QPointF scenePos) const
     for (QGraphicsItem *hit : hits) {
         if (auto *component = qgraphicsitem_cast<ComponentItem *>(hit))
             return component;
+        if (auto *block = qgraphicsitem_cast<PropertyBlockItem *>(hit)) {
+            for (auto *candidate : items())
+                if (auto *body = qgraphicsitem_cast<ComponentItem *>(candidate))
+                    if (body->componentId() == block->componentId()) return body;
+        }
         if (auto *label = qgraphicsitem_cast<ComponentLabelItem *>(hit)) {
             if (!m_document)
                 continue;
@@ -440,65 +434,208 @@ ComponentItem *SchematicScene::componentItemAt(QPointF scenePos) const
     return nullptr;
 }
 
+SchematicScene::Selection SchematicScene::selection() const
+{
+    Selection result;
+    for (QGraphicsItem *item : selectedItems()) {
+        if (auto *component = qgraphicsitem_cast<ComponentItem *>(item))
+            result.components.append(component->componentId());
+        if (auto *wire = qgraphicsitem_cast<WireItem *>(item))
+            result.wires.append(wire->wireId());
+    }
+    std::sort(result.components.begin(), result.components.end());
+    std::sort(result.wires.begin(), result.wires.end());
+    return result;
+}
+
+void SchematicScene::restoreSelection(const Selection &selection)
+{
+    for (QGraphicsItem *item : items()) {
+        if (auto *component = qgraphicsitem_cast<ComponentItem *>(item))
+            component->setSelected(selection.components.contains(component->componentId()));
+        if (auto *wire = qgraphicsitem_cast<WireItem *>(item))
+            wire->setSelected(selection.wires.contains(wire->wireId()));
+    }
+}
+
+bool SchematicScene::canStartSelectionBox(QPointF position) const
+{
+    if (!m_document || m_mode != EditMode::Select || componentItemAt(position))
+        return false;
+    for (QGraphicsItem *item : items(position)) {
+        if (qgraphicsitem_cast<WireItem *>(item))
+            return false;
+    }
+    return true;
+}
+
+void SchematicScene::selectInBox(const QRectF &rect, bool crossing,
+                                 const Selection &baseline)
+{
+    // Group::shape() is its bounding rectangle. Gather primitive shapes
+    // individually to avoid selecting empty space between artwork parts.
+    QHash<ComponentId, QPainterPath> shapes;
+    const auto sceneItems = items();
+    for (QGraphicsItem *item : sceneItems) {
+        if (auto *component = qgraphicsitem_cast<ComponentItem *>(item)) {
+            for (QGraphicsItem *child : component->childItems())
+                shapes[component->componentId()] = shapes[component->componentId()].united(
+                    child->mapToScene(child->shape()));
+        } else if (auto *label = qgraphicsitem_cast<ComponentLabelItem *>(item)) {
+            shapes[label->componentId()] = shapes[label->componentId()].united(
+                label->mapToScene(label->shape()));
+        }
+    }
+    const QRectF box = rect.normalized();
+    // Tiny numerical tolerance includes exact boundary contact without
+    // introducing a zoom-dependent picking margin.
+    const QRectF inclusiveBox = box.adjusted(-1e-8, -1e-8, 1e-8, 1e-8);
+    const auto matches = [&](const QPainterPath &shape) {
+        return !shape.isEmpty() && (crossing ? shape.intersects(inclusiveBox)
+                                            : inclusiveBox.contains(shape.boundingRect()));
+    };
+    for (QGraphicsItem *item : sceneItems) {
+        if (auto *component = qgraphicsitem_cast<ComponentItem *>(item))
+            component->setSelected(baseline.components.contains(component->componentId())
+                                   || matches(shapes.value(component->componentId())));
+        if (auto *wire = qgraphicsitem_cast<WireItem *>(item))
+            wire->setSelected(baseline.wires.contains(wire->wireId())
+                              || matches(wire->mapToScene(wire->shape())));
+    }
+}
+
 void SchematicScene::beginDrag(ComponentItem *item, QPointF scenePos)
 {
     if (!m_document)
         return;
-    const Component *component = m_document->component(item->componentId());
-    if (!component)
-        return;
+    m_propertyDragging = false;
     m_dragging = true;
-    m_dragComponentId = item->componentId();
-    m_dragOriginalPosition = component->position();
+    m_dragThresholdPassed = false;
+    m_dragCandidateValid = true;
+    m_dragComponentId = item ? item->componentId() : kInvalidComponentId;
+    m_dragOriginalPosition = item ? m_document->component(item->componentId())->position() : QPointF{};
     m_dragPressScenePos = scenePos;
-    m_dragCurrentSnappedPosition = m_dragOriginalPosition;
-    m_dragItems.clear();
-    m_dragItemOrigins.clear();
-    m_dragItems.append(item);
-    m_dragItemOrigins.append(item->pos());
-    for (QGraphicsItem *candidate : items()) {
-        if (auto *label = qgraphicsitem_cast<ComponentLabelItem *>(candidate)) {
-            if (label->componentId() == m_dragComponentId) {
-                m_dragItems.append(label);
-                m_dragItemOrigins.append(label->pos());
-            }
-        }
-    }
+    m_dragDisplacement = {};
+    m_dragSelection = selection();
+    m_dragOriginal = *m_document;
+    emit moveStateChanged();
 }
 
 void SchematicScene::updateDrag(QPointF scenePos)
 {
     if (!m_dragging)
         return;
-    const QPointF delta = snapToGrid(m_dragOriginalPosition + (scenePos - m_dragPressScenePos))
-                          - m_dragOriginalPosition;
-    m_dragCurrentSnappedPosition = m_dragOriginalPosition + delta;
-    for (int i = 0; i < m_dragItems.size(); ++i)
-        m_dragItems[i]->setPos(m_dragItemOrigins[i] + delta);
+    const QPointF pointerDelta = scenePos - m_dragPressScenePos;
+    QPointF screenDelta = pointerDelta;
+    if (!views().isEmpty())
+        screenDelta = views().first()->transform().map(pointerDelta)
+                      - views().first()->transform().map(QPointF{});
+    if (!m_dragThresholdPassed && std::abs(screenDelta.x()) + std::abs(screenDelta.y())
+                                     < QApplication::startDragDistance())
+        return;
+    m_dragThresholdPassed = true;
+    if (m_propertyDragging) {
+        m_dragDisplacement = pointerDelta;
+        Document candidate = *m_dragOriginal;
+        candidate.setPropertyBlockOffset({m_dragComponentId}, m_propertyOriginalOffset + pointerDelta);
+        renderDocument(candidate, m_dragSelection);
+        return;
+    }
+    m_dragDisplacement = pointerDelta.isNull() ? QPointF{}
+        : (m_dragComponentId != kInvalidComponentId
+           ? snapToGrid(m_dragOriginalPosition + pointerDelta) - m_dragOriginalPosition
+           : snapToGrid(pointerDelta));
+    Document candidate = *m_dragOriginal;
+    m_dragCandidateValid = candidate.transformSelection(m_dragSelection.components, m_dragSelection.wires,
+                              {SelectionTransform::Kind::Translate, m_dragDisplacement});
+    if (m_dragCandidateValid) {
+        renderDocument(candidate, m_dragSelection);
+        emit statusMessage(QString{});
+    } else {
+        emit statusMessage(tr("That move would create an invalid wire route. Choose another position or press Escape."));
+    }
 }
 
 void SchematicScene::endDrag()
 {
     if (!m_dragging)
         return;
+    const bool shouldCommit = m_dragThresholdPassed && m_dragCandidateValid;
+    const auto retained = m_dragSelection;
+    const QPointF delta = m_dragDisplacement;
     m_dragging = false;
-    m_dragItems.clear();
-    m_dragItemOrigins.clear();
-    // A plain click (mouse pressed and released with no movement in
-    // between) never calls updateDrag(), so m_dragCurrentSnappedPosition
-    // stays equal to m_dragOriginalPosition here - that case must not
-    // rebuild(), or it would wipe out the native selection state that
-    // mousePressEvent() just set up for a plain select-click.
-    if (m_dragCurrentSnappedPosition == m_dragOriginalPosition)
-        return;
-    const bool committed = commitEdit(tr("Move component"), [this]() {
-        return m_document && m_document->moveComponent(m_dragComponentId,
-                                                        m_dragCurrentSnappedPosition);
-    });
-    if (!committed) {
-        emit statusMessage(tr("That move would break an existing wire connection."));
-        rebuild(); // Restore the preview position after a rejected/no-op move.
+    m_dragOriginal.reset();
+    if (shouldCommit && !delta.isNull() && m_propertyDragging) {
+        const auto id = m_dragComponentId; const auto offset = m_propertyOriginalOffset + delta;
+        commitEdit(tr("Move property block"), [this, id, offset] {
+            return m_document->setPropertyBlockOffset({id}, offset);
+        });
+    } else if (shouldCommit && !delta.isNull())
+        commitEdit(tr("Move selection"), [this, retained, delta]() {
+            return m_document && m_document->transformSelection(retained.components, retained.wires,
+                                                {SelectionTransform::Kind::Translate, delta});
+        });
+    // Also restore a rejected/no-op preview when no command rebuild occurs.
+    if (m_document) renderDocument(*m_document, retained);
+    emit moveStateChanged();
+}
+
+void SchematicScene::cancelMove()
+{
+    if (!m_dragging) return;
+    m_dragging = false;
+    m_dragOriginal.reset();
+    if (m_document) renderDocument(*m_document, m_dragSelection);
+    emit statusMessage(QString{});
+    emit moveStateChanged();
+}
+
+bool SchematicScene::transformSelected(SelectionTransform::Kind kind, int quarterTurns)
+{
+    if (!m_document || m_mode != EditMode::Select || m_dragging) return false;
+    const auto targets = selection();
+    if (targets.isEmpty()) return false;
+    QPointF pivot;
+    if (targets.components.size() == 1 && targets.wires.isEmpty()) {
+        pivot = m_document->component(targets.components.first())->position();
+    } else {
+        bool initialized = false;
+        qreal left = 0, right = 0, top = 0, bottom = 0;
+        const auto include = [&](QPointF point) {
+            if (!initialized) { left = right = point.x(); top = bottom = point.y(); initialized = true; }
+            else { left = qMin(left, point.x()); right = qMax(right, point.x());
+                   top = qMin(top, point.y()); bottom = qMax(bottom, point.y()); }
+        };
+        for (ComponentId id : targets.components) {
+            const auto *component = m_document->component(id);
+            const auto *definition = m_document->symbol(component->symbolId());
+            QTransform pose;
+            pose.translate(component->position().x(), component->position().y());
+            pose.rotate(static_cast<int>(component->rotation()));
+            pose.scale(component->mirrored() ? -1 : 1, 1);
+            for (const auto &primitive : SymbolRenderer::primitives(*definition)) {
+                const QRectF bounds = pose.map(primitive.path).boundingRect();
+                include(bounds.topLeft()); include(bounds.bottomRight());
+            }
+        }
+        for (WireId id : targets.wires)
+            for (QPointF point : m_document->wire(id)->vertices) include(point);
+        pivot = QPointF((left + right) / 2, (top + bottom) / 2);
     }
+    QString description;
+    if (kind == SelectionTransform::Kind::Rotate)
+        description = quarterTurns > 0 ? tr("Rotate selection right") : tr("Rotate selection left");
+    else if (kind == SelectionTransform::Kind::FlipHorizontal)
+        description = tr("Flip selection horizontally");
+    else if (kind == SelectionTransform::Kind::FlipVertical)
+        description = tr("Flip selection vertically");
+    else return false;
+    const bool accepted = commitEdit(description, [this, targets, kind, quarterTurns, pivot]() {
+        return m_document->transformSelection(targets.components, targets.wires, {kind, {}, pivot, quarterTurns});
+    });
+    if (!accepted)
+        emit statusMessage(tr("The selection was unchanged or the transform would create an invalid wire route."));
+    return accepted;
 }
 
 void SchematicScene::extendPendingWire(QPointF scenePos)
@@ -619,7 +756,7 @@ void SchematicScene::deleteSelection()
 
 bool SchematicScene::commitEdit(const QString &description,
                                 const std::function<bool()> &operation,
-                                std::function<QVector<ComponentId>()> afterSelection)
+                                std::function<Selection()> afterSelection)
 {
     if (!m_editCommitter)
         return false;
@@ -636,10 +773,35 @@ void SchematicScene::mousePressEvent(QGraphicsSceneMouseEvent *event)
     if (event->button() == Qt::LeftButton) {
         switch (m_mode) {
         case EditMode::Select: {
+            emit selectionInteractionStarted();
+            PropertyBlockItem *blockHit = nullptr;
+            for (auto *item : items(event->scenePos())) {
+                for (auto *ancestor = item; ancestor; ancestor = ancestor->parentItem())
+                    if (auto *block = qgraphicsitem_cast<PropertyBlockItem *>(ancestor)) { blockHit = block; break; }
+                if (blockHit) break;
+            }
+            const QPointF anchor = blockHit ? blockHit->scenePos() : QPointF{};
             ComponentItem *hit = componentItemAt(event->scenePos());
-            if (hit) {
-                QGraphicsScene::mousePressEvent(event); // Native selection.
+            QGraphicsItem *target = hit;
+            if (!target) {
+                for (auto *item : items(event->scenePos())) {
+                    if (qgraphicsitem_cast<WireItem *>(item)) { target = item; break; }
+                }
+            }
+            if (target) {
+                if (event->modifiers() != Qt::NoModifier) {
+                    if (event->modifiers().testFlag(Qt::ControlModifier))
+                        target->setSelected(!target->isSelected());
+                    event->accept();
+                    return;
+                }
+                if (!target->isSelected()) { clearSelection(); target->setSelected(true); }
                 beginDrag(hit, event->scenePos());
+                if (blockHit && hit) {
+                    m_propertyDragging = true;
+                    m_propertyOriginalOffset = anchor - m_document->component(hit->componentId())->position();
+                }
+                event->accept();
                 return;
             }
             break;
@@ -661,6 +823,7 @@ void SchematicScene::mouseMoveEvent(QGraphicsSceneMouseEvent *event)
 {
     if (m_dragging) {
         updateDrag(event->scenePos());
+        event->accept();
         return;
     }
     if (m_mode == EditMode::DrawWire && m_wireActive) {
@@ -699,8 +862,10 @@ void SchematicScene::mouseMoveEvent(QGraphicsSceneMouseEvent *event)
 
 void SchematicScene::mouseReleaseEvent(QGraphicsSceneMouseEvent *event)
 {
-    if (m_dragging) {
+    if (m_dragging && event->button() == Qt::LeftButton) {
+        updateDrag(event->scenePos());
         endDrag();
+        event->accept();
         return;
     }
     QGraphicsScene::mouseReleaseEvent(event);
@@ -741,7 +906,7 @@ QVector<ComponentId> SchematicScene::selectedComponentIds() const
     return selected;
 }
 
-void SchematicScene::restoreAfterDocumentChange(const QVector<ComponentId> &selection)
+void SchematicScene::restoreAfterDocumentChange(const Selection &selection)
 {
     cancelPendingWire();
     rebuild(&selection);
@@ -751,14 +916,41 @@ void SchematicScene::restoreAfterDocumentChange(const QVector<ComponentId> &sele
 void SchematicScene::keyPressEvent(QKeyEvent *event)
 {
     if (event->key() == Qt::Key_Escape) {
+        cancelMove();
         setEditMode(EditMode::Select);
         event->accept();
         return;
     }
     if (event->key() == Qt::Key_Delete || event->key() == Qt::Key_Backspace) {
+        cancelMove();
         deleteSelection();
         event->accept();
         return;
     }
     QGraphicsScene::keyPressEvent(event);
+}
+
+bool SchematicScene::resetPropertyPositions(const QVector<ComponentId> &ids)
+{
+    if (!m_document || m_dragging || ids.isEmpty()) return false;
+    return commitEdit(tr("Reset property position"), [this, ids] {
+        return m_document->setPropertyBlockOffset(ids, std::nullopt);
+    });
+}
+
+void SchematicScene::contextMenuEvent(QGraphicsSceneContextMenuEvent *event)
+{
+    if (m_mode != EditMode::Select || m_dragging || !m_document) return;
+    for (auto *item : items(event->scenePos())) {
+        for (auto *ancestor = item; ancestor; ancestor = ancestor->parentItem()) {
+            if (auto *block = qgraphicsitem_cast<PropertyBlockItem *>(ancestor)) {
+                const auto id = block->componentId();
+                QMenu menu; auto *reset = menu.addAction(tr("Reset property position"));
+                reset->setEnabled(m_document->component(id)->propertyBlockOffset().has_value());
+                if (menu.exec(event->screenPos()) == reset) resetPropertyPositions({id});
+                event->accept(); return;
+            }
+        }
+    }
+    QGraphicsScene::contextMenuEvent(event);
 }

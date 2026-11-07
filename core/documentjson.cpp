@@ -47,16 +47,24 @@ QJsonObject endpointJson(const WireEndpoint &endpoint)
 QJsonObject Document::toJson() const
 {
     QJsonObject root;
-    root.insert(QStringLiteral("formatVersion"), 3);
+    root.insert(QStringLiteral("formatVersion"), 6);
     root.insert(QStringLiteral("grid"), QJsonObject{{QStringLiteral("spacing"), m_gridSpacing}});
     QJsonArray components;
     for (const Component &item : m_components) {
-        components.append(QJsonObject{{QStringLiteral("id"), static_cast<double>(item.id())},
+        QJsonArray properties;
+        for (const auto &property : item.properties()) {
+            QJsonObject entry{{"id", property.id}, {"value", property.value}, {"visible", property.visible}};
+            if (property.id != "reference" && property.id != "value") entry.insert("name", property.name);
+            properties.append(entry);
+        }
+        QJsonObject componentObject{{QStringLiteral("id"), static_cast<double>(item.id())},
             {QStringLiteral("kind"), item.symbolId().value()},
             {QStringLiteral("x"), item.position().x()}, {QStringLiteral("y"), item.position().y()},
             {QStringLiteral("rotation"), static_cast<int>(item.rotation())},
-            {QStringLiteral("mirrored"), item.mirrored()},
-            {QStringLiteral("reference"), item.reference()}, {QStringLiteral("value"), item.value()}});
+            {QStringLiteral("mirrored"), item.mirrored()}, {QStringLiteral("properties"), properties}};
+        if (const auto offset = item.propertyBlockOffset())
+            componentObject.insert("propertyBlockOffset", QJsonObject{{"x", offset->x()}, {"y", offset->y()}});
+        components.append(componentObject);
     }
     root.insert(QStringLiteral("components"), components);
     QSet<QString> usedIds;
@@ -111,13 +119,13 @@ DocumentLoadResult Document::fromJson(const QJsonObject &root)
     DocumentLoadResult result;
     const QJsonValue versionValue = root.value(QStringLiteral("formatVersion"));
     const int formatVersion = versionValue.isDouble() ? versionValue.toInt(-1) : -1;
-    if (versionValue.toDouble(-1) != formatVersion || (formatVersion != 1 && formatVersion != 2 && formatVersion != 3)) {
-        result.errors.append(QStringLiteral("Unsupported or missing formatVersion (expected 1, 2 or 3)"));
+    if (versionValue.toDouble(-1) != formatVersion || formatVersion < 1 || formatVersion > 6) {
+        result.errors.append(QStringLiteral("Unsupported or missing formatVersion (expected 1–6)"));
         return result;
     }
     auto error = [&result](const QString &message) { result.errors.append(message); };
     SymbolLibrary resolved;
-    if (formatVersion == 3) {
+    if (formatVersion >= 3) {
         if (!root.value(QStringLiteral("symbols")).isArray())
             error(QStringLiteral("symbols must be an array"));
         int index = 0;
@@ -136,7 +144,7 @@ DocumentLoadResult Document::fromJson(const QJsonObject &root)
         || spacing <= 0)
         error(QStringLiteral("grid.spacing must be a finite positive number"));
 
-    struct ParsedComponent { ComponentId id; SymbolId kind; QPointF position; Rotation rotation; QString reference; QString value; bool mirrored; };
+    struct ParsedComponent { ComponentId id; SymbolId kind; QPointF position; Rotation rotation; QString reference; QString value; bool mirrored; QVector<InstanceProperty> properties; std::optional<QPointF> offset; };
     QVector<ParsedComponent> parsedComponents;
     QHash<ComponentId, SymbolId> kinds;
     QSet<ComponentId> componentIds;
@@ -157,8 +165,30 @@ DocumentLoadResult Document::fromJson(const QJsonObject &root)
             if (!kind) { error(path + QStringLiteral(" has an unknown symbol id \"%1\"").arg(kindId.value())); valid = false; }
             if (!number(obj.value(QStringLiteral("x")), &x) || !number(obj.value(QStringLiteral("y")), &y)) { error(path + QStringLiteral(" coordinates must be finite numbers")); valid = false; }
             if (rot != 0 && rot != 90 && rot != 180 && rot != 270) { error(path + QStringLiteral(" has an invalid rotation")); valid = false; }
-            const QJsonValue reference = obj.value(QStringLiteral("reference"));
-            const QJsonValue valueField = obj.value(QStringLiteral("value"));
+            QJsonValue reference = obj.value(QStringLiteral("reference"));
+            QJsonValue valueField = obj.value(QStringLiteral("value"));
+            QVector<InstanceProperty> properties;
+            if (formatVersion >= 5) {
+                if (obj.contains("reference") || obj.contains("value") || !obj.value("properties").isArray()) {
+                    error(path + QStringLiteral(" requires properties, without legacy reference/value fields")); valid = false;
+                }
+                for (const auto &property : obj.value("properties").toArray()) {
+                    const auto p = property.toObject();
+                    if (!property.isObject() || !p.value("id").isString() || !p.value("value").isString()
+                        || !p.value("visible").isBool() || (p.contains("name") && !p.value("name").isString())) {
+                        error(path + QStringLiteral(" has a malformed property")); valid = false; continue;
+                    }
+                    properties.append({p.value("id").toString(), p.value("name").toString(),
+                                       p.value("value").toString().trimmed(), p.value("visible").toBool()});
+                }
+                const auto problems = validateInstanceProperties(properties);
+                for (const auto &problem : problems) error(path + ": " + problem);
+                if (!problems.isEmpty()) valid = false;
+                if (valid) { reference = properties[0].value; valueField = properties[1].value; }
+            } else {
+                properties = {{"reference", {}, reference.toString().trimmed(), kind ? kind->showsReference : true},
+                              {"value", {}, valueField.toString().trimmed(), true}};
+            }
             if ((obj.contains(QStringLiteral("reference")) && !reference.isString())
                 || (obj.contains(QStringLiteral("value")) && !valueField.isString())) {
                 error(path + QStringLiteral(" reference and value must be strings when present")); valid = false;
@@ -175,10 +205,18 @@ DocumentLoadResult Document::fromJson(const QJsonObject &root)
             } else {
                 mirrored = obj.value(QStringLiteral("mirrored")).toBool();
             }
+            std::optional<QPointF> offset;
+            if (obj.contains("propertyBlockOffset")) {
+                qreal ox = 0, oy = 0; const auto value = obj.value("propertyBlockOffset");
+                if (formatVersion < 6 || !value.isObject() || !number(value.toObject().value("x"), &ox)
+                    || !number(value.toObject().value("y"), &oy)) {
+                    error(path + " has an invalid propertyBlockOffset"); valid = false;
+                } else offset = QPointF(ox, oy);
+            }
             if (!valid) continue;
             componentIds.insert(id); kinds.insert(id, kindId);
             parsedComponents.append({id, kindId, {x, y}, static_cast<Rotation>(rot),
-                                     reference.toString(), valueField.toString().trimmed(), mirrored});
+                                     reference.toString(), valueField.toString().trimmed(), mirrored, properties, offset});
         }
     }
 
@@ -286,7 +324,7 @@ DocumentLoadResult Document::fromJson(const QJsonObject &root)
     for (const auto &item : parsedComponents) {
         if (!doc.symbol(item.kind)) { QStringList errors; doc.m_symbols.add(*resolved.find(item.kind), &errors); }
     }
-    if (formatVersion == 3) {
+    if (formatVersion >= 3) {
         for (const auto &definition : resolved.symbols()) {
             if (!doc.symbol(definition.id)) { error(QStringLiteral("Unused embedded symbol %1").arg(definition.id.value())); continue; }
             const auto *active = applicationSymbolLibrary().find(definition.id);
@@ -300,7 +338,11 @@ DocumentLoadResult Document::fromJson(const QJsonObject &root)
     quint32 maxComponent = 0, maxNode = 0, maxWire = 0;
     for (const ParsedComponent &item : parsedComponents) {
         Component component(item.id, item.kind, item.position);
-        component.setRotation(item.rotation); component.setMirrored(item.mirrored); component.setReference(item.reference); component.setValue(item.value);
+        component.setRotation(item.rotation); component.setMirrored(item.mirrored);
+        component.setPropertyBlockOffset(item.offset);
+        component.setProperties(item.properties); component.setReference(item.reference); component.setValue(item.value);
+        const auto propertyErrors = validateInstanceProperties(component.properties());
+        if (!propertyErrors.isEmpty()) { result.errors += propertyErrors; return result; }
         doc.m_components.append(component); maxComponent = qMax(maxComponent, item.id);
     }
     for (const ParsedNode &node : parsedNodes) { doc.m_nodes.insert(node.id, node.point); maxNode = qMax(maxNode, node.id); }

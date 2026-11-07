@@ -13,6 +13,7 @@ class SymbolRendererTests : public QObject
     Q_OBJECT
 
 private slots:
+    void monochromeFillPixels();
     void previewFitsTargetAndPaintsArtwork();
     void previewPreservesNativeScaleAndShrinksLargeArtwork();
     void pathPrimitivesRenderCurvesFillAndFillRules();
@@ -148,6 +149,36 @@ void SymbolRendererTests::symbolMimeDataCarriesKnownVersionedId()
     wrongVersion.setData(QStringLiteral("application/vnd.schematic.symbol-id-v2"),
                          SymbolIds::OpAmp.value().toUtf8());
     QVERIFY(!SymbolMimeData::read(&wrongVersion));
+}
+
+void SymbolRendererTests::monochromeFillPixels()
+{
+    LibrarySymbol symbol;
+    SymbolPrimitive polygon;
+    polygon.kind = PrimitiveKind::Polygon;
+    polygon.points = {{0,0}, {20,0}, {20,20}, {0,20}};
+    for (int mode = 0; mode < 3; ++mode) {
+        polygon.filled = mode != 0;
+        polygon.fillColor = mode == 2 ? PrimitiveFillColor::Black : PrimitiveFillColor::White;
+        symbol.primitives = {polygon};
+        QImage image(48, 48, QImage::Format_ARGB32_Premultiplied); image.fill(Qt::transparent);
+        { QPainter painter(&image); SymbolRenderer::paintPreview(&painter, symbol, {0,0,48,48}); }
+        const auto pixel = image.pixelColor(24,24);
+        if (!mode) QCOMPARE(pixel.alpha(), 0);
+        else QCOMPARE(pixel, QColor(mode == 2 ? Qt::black : Qt::white));
+    }
+    SymbolPrimitive path;
+    path.kind = PrimitiveKind::Path; path.filled = true;
+    path.fillColor = PrimitiveFillColor::Black; path.fillRule = PathFillRule::EvenOdd;
+    path.segments = {{PathSegmentKind::MoveTo, {{0,0}}}, {PathSegmentKind::LineTo, {{20,0}}},
+        {PathSegmentKind::LineTo, {{20,20}}}, {PathSegmentKind::LineTo, {{0,20}}}, {PathSegmentKind::Close, {}},
+        {PathSegmentKind::MoveTo, {{5,5}}}, {PathSegmentKind::LineTo, {{15,5}}},
+        {PathSegmentKind::LineTo, {{15,15}}}, {PathSegmentKind::LineTo, {{5,15}}}, {PathSegmentKind::Close, {}}};
+    symbol.primitives = {path};
+    QImage image(48,48,QImage::Format_ARGB32_Premultiplied); image.fill(Qt::transparent);
+    { QPainter painter(&image); SymbolRenderer::paintPreview(&painter, symbol, {0,0,48,48}); }
+    QCOMPARE(image.pixelColor(16,16), QColor(Qt::black));
+    QCOMPARE(image.pixelColor(24,24).alpha(), 0);
 }
 
 QTEST_GUILESS_MAIN(SymbolRendererTests)

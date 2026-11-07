@@ -74,6 +74,12 @@ QPainterPath primitivePath(const SymbolPrimitive &primitive)
 
 } // namespace
 
+QBrush SymbolRenderer::fillBrush(const RenderedSymbolPrimitive &primitive)
+{
+    return !primitive.filled ? QBrush(Qt::NoBrush)
+        : QBrush(primitive.fillColor == PrimitiveFillColor::Black ? Qt::black : Qt::white);
+}
+
 QVector<RenderedSymbolPrimitive> SymbolRenderer::primitives(const LibrarySymbol &symbol)
 {
     QVector<RenderedSymbolPrimitive> result;
@@ -82,7 +88,7 @@ QVector<RenderedSymbolPrimitive> SymbolRenderer::primitives(const LibrarySymbol 
         QPainterPath path = primitivePath(primitive);
         if (!path.isEmpty())
             result.append({std::move(path),
-                           primitive.filled.value_or(primitive.kind == PrimitiveKind::Polygon)});
+                           primitiveIsFilled(primitive), primitive.fillColor});
     }
     return result;
 }
@@ -124,7 +130,7 @@ void SymbolRenderer::paintPreview(QPainter *painter, const LibrarySymbol &symbol
     painter->setTransform(transform, true);
     painter->setPen(QPen(Qt::black, kSymbolLineWidth));
     for (const RenderedSymbolPrimitive &primitive : artwork) {
-        painter->setBrush(primitive.filled ? QBrush(Qt::white) : QBrush(Qt::NoBrush));
+        painter->setBrush(fillBrush(primitive));
         painter->drawPath(primitive.path);
     }
     painter->restore();

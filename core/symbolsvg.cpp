@@ -440,7 +440,21 @@ bool addElement(const QString &name, const QXmlStreamAttributes &attrs, const Af
         if (!parsePathData(attribute(attrs,QStringLiteral("d")),tx,&p)) return false;
         closed = true; // SVG fill implicitly closes each open subpath.
     } else return false;
-    if (closed) p.filled = paint.fill != QLatin1String("none");
+    if (closed) {
+        QString color = paint.fill.trimmed().toLower();
+        color.remove(QRegularExpression(QStringLiteral("\\s+")));
+        p.filled = color != QLatin1String("none");
+        if (color == QLatin1String("black") || color == QLatin1String("#000")
+            || color == QLatin1String("#000000") || color == QLatin1String("rgb(0,0,0)"))
+            p.fillColor = PrimitiveFillColor::Black;
+        else if (color != QLatin1String("none") && color != QLatin1String("white")
+                 && color != QLatin1String("#fff") && color != QLatin1String("#ffffff")
+                 && color != QLatin1String("rgb(255,255,255)")) {
+            ctx->errors << QStringLiteral("element <%1> has unsupported fill '%2'; use none, white or black")
+                               .arg(name, paint.fill);
+            return false;
+        }
+    }
     if (p.kind == PrimitiveKind::Path) {
         if (paint.fillRule == QLatin1String("evenodd")) p.fillRule=PathFillRule::EvenOdd;
         else if (paint.fillRule != QLatin1String("nonzero")) return false;
@@ -717,7 +731,7 @@ SymbolSvgExportResult SymbolSvgExporter::exportSymbol(const LibrarySymbol &symbo
         .arg(std::max(bounds.width(),qreal(1)),0,'g',17)
         .arg(std::max(bounds.height(),qreal(1)),0,'g',17));
     for (const SymbolPrimitive &p:symbol.primitives) {
-        const bool filled=p.filled.value_or(p.kind==PrimitiveKind::Polygon);
+        const bool filled=primitiveIsFilled(p);
         const QString element=p.kind==PrimitiveKind::Line?QStringLiteral("line")
             : p.kind==PrimitiveKind::Polyline?QStringLiteral("polyline")
             : p.kind==PrimitiveKind::Polygon?QStringLiteral("polygon")
@@ -726,7 +740,8 @@ SymbolSvgExportResult SymbolSvgExporter::exportSymbol(const LibrarySymbol &symbo
         xml.writeStartElement(element);
         xml.writeAttribute(QStringLiteral("stroke"),QStringLiteral("black"));
         xml.writeAttribute(QStringLiteral("stroke-width"),QStringLiteral("1"));
-        xml.writeAttribute(QStringLiteral("fill"),filled?QStringLiteral("black"):QStringLiteral("none"));
+        xml.writeAttribute(QStringLiteral("fill"), !filled ? QStringLiteral("none")
+            : p.fillColor == PrimitiveFillColor::Black ? QStringLiteral("black") : QStringLiteral("white"));
         xml.writeAttribute(QStringLiteral("fill-rule"),p.fillRule==PathFillRule::EvenOdd?QStringLiteral("evenodd"):QStringLiteral("nonzero"));
         if (p.kind==PrimitiveKind::Line) {
             xml.writeAttribute(QStringLiteral("x1"),QString::number(p.points[0].x(),'g',17));

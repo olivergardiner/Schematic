@@ -48,6 +48,8 @@ enum class PathFillRule {
     EvenOdd,
 };
 
+enum class PrimitiveFillColor { White, Black };
+
 struct SymbolPrimitive
 {
     PrimitiveKind kind = PrimitiveKind::Line;
@@ -57,7 +59,13 @@ struct SymbolPrimitive
     // Unset uses the established per-kind default: Polygon filled, others open.
     std::optional<bool> filled;
     PathFillRule fillRule = PathFillRule::NonZero; // only meaningful for Path
+    PrimitiveFillColor fillColor = PrimitiveFillColor::White;
 };
+
+inline bool primitiveIsFilled(const SymbolPrimitive &primitive)
+{
+    return primitive.filled.value_or(primitive.kind == PrimitiveKind::Polygon);
+}
 
 // A single named connection point on a symbol, in the same local unit space
 // as SymbolPrimitive geometry (no scaling). TerminalId is this terminal's

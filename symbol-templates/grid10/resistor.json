@@ -1,0 +1,13 @@
+{
+  "id": "Grid10.Resistor",
+  "name": "Resistor (Grid 10)",
+  "category": "Passives/Resistors",
+  "referencePrefix": "R",
+  "showsReference": true,
+  "svg": "resistor.svg",
+  "origin": { "x": 0, "y": 0 },
+  "terminals": [
+    { "name": "1", "x": -20, "y": 0 },
+    { "name": "2", "x": 20, "y": 0 }
+  ]
+}

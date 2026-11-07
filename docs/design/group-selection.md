@@ -1,14 +1,14 @@
 # Directional box selection plan
 
-Status: **proposed; awaiting approval before implementation.**
+Status: **approved by the user on 2026-11-03; implemented.** Automated selection checks pass offscreen and with the native Windows backend. Both rectangle styles have been visually inspected in captured renders; a full interactive application walkthrough remains outstanding.
 
-## Scope and current behavior
+## Scope and starting behavior
 
-Add directional box selection in Select mode. `SchematicView` currently enables Qt's `RubberBandDrag`, without distinguishing enclosure and crossing gestures. Components and wire routes are selectable scene items; reference and value labels are separate items associated with their owning component. Component dragging currently moves one component.
+At the start of this work, `SchematicView` enabled Qt's `RubberBandDrag`, without distinguishing enclosure and crossing gestures. The implementation replaces that with directional box selection in Select mode. Components and wire routes are selectable scene items; reference and value labels are separate items associated with their owning component. Group movement, rotation, flips, and mixed-selection restoration have since been implemented through the approved [group-transform design](group-transforms.md).
 
-This plan covers selecting multiple objects. Moving multiple selected components together, persistent groups, group transforms, and changes to undo/redo selection restoration are separate work.
+This plan covers selecting multiple objects. Group transforms and changes to undo/redo selection restoration were implemented as the separate follow-up linked above. Persistent groups remain later work.
 
-## Proposed interaction
+## Approved interaction
 
 - Begin a box with a left-button drag on empty canvas in Select mode, using the normal drag threshold so a click remains a click.
 - Drag left to right to select only objects completely enclosed by the rectangle. Show a solid blue outline with a light translucent fill.
@@ -26,7 +26,7 @@ Each complete wire route is one target identified by its `WireId`. Use its exist
 
 Grid lines, terminal markers, junction dots, previews, and the selection rectangle are not independent selection targets. Selecting a wire does not automatically select its endpoints or other wires on its net; selecting a component does not automatically select attached wires.
 
-These hit rules, component/label ownership, whole-route selection, and modifier behavior are the principal interaction choices to review before implementation.
+These hit rules, component/label ownership, whole-route selection, and modifier behavior are the principal approved interaction choices.
 
 ## Architecture and implementation steps
 
@@ -34,7 +34,7 @@ These hit rules, component/label ownership, whole-route selection, and modifier 
 2. Add view-side gesture tracking and a viewport overlay for the directional rectangle. Convert viewport coordinates to scene coordinates for hit testing. Coordinate with scene edit mode and event handling so native rubber-band selection cannot compete with the custom gesture and ordinary item clicks and drags retain their behavior.
 3. Add focused checks using the existing Qt Test conventions and perform the visual walkthrough below. After implementation is verified, update the roadmap and record settled behavior in `DECISIONS.md`.
 
-Selection and the overlay remain transient scene/view state. They create no edit command and do not dirty the document. The document model, file format, symbol artwork and world-unit geometry, terminal positions, explicit connectivity graph, and orthogonal wire routes remain unchanged. `schematiccore` gains no Gui or Widgets dependency. Existing limitations in restoring wire selection after a scene rebuild remain outside this scope.
+Selection and the overlay remain transient scene/view state. They create no edit command and do not dirty the document. The document model, file format, symbol artwork and world-unit geometry, terminal positions, explicit connectivity graph, and orthogonal wire routes remain unchanged. `schematiccore` gains no Gui or Widgets dependency. Wire-selection restoration was outside this selection-only scope and is now implemented by the group-transform follow-up.
 
 ## Acceptance checks
 
@@ -46,3 +46,11 @@ Selection and the overlay remain transient scene/view state. They create no edit
 - Selection works at different zoom levels and grid spacings without snapping the box or changing geometry. Click selection, single-component movement, deletion of a mixed selection, pan, zoom, and other tools continue to work.
 - Selection alone leaves document content, dirty state, and undo history unchanged.
 - Manually inspect both outline styles, translucent fills, live highlighting, cancellation, and tool interactions. Report automated checks and manual checks separately.
+
+## Verification record (2026-11-03)
+
+- Built the application and test targets in Debug using Qt 6.11.1 and MinGW 13.1 in `build-selection-check`. The old MSVC build cache refers to a previous checkout location and an unavailable Visual Studio installation, so it was not reused.
+- Added `schematicselection_tests`: component/label geometry and transforms, stroked wire geometry and distinct crossing identities, live direction changes and shrinking, Ctrl-add, Escape, tool changes, document rebinding, three zoom levels, unchanged document/history, attached-wire movement, mixed deletion, viewport mouse events, middle-button pan, and Ctrl+wheel zoom. All 10 Qt Test results (including initialization and cleanup) pass with the native Windows backend; the suite also passes offscreen.
+- Wire hit shapes now explicitly use only the stroked route. Qt's default path-item shape also includes the implicitly closed interior of an open route, which failed the bent-wire empty-space regression check.
+- Full CTest run: six of seven suites pass. `schematicopen_tests` aborts on a `MainWindow` destructor-time type assertion in `transformToolbarActionsAreUndoable`. The same failure was reproduced by building the unchanged HEAD revision separately with the same Debug toolchain. This existing issue remains unresolved.
+- Visually inspected captured enclosure and crossing rectangles, including their fills and selected-component outlines. Native interaction checks are automated; the full manual application walkthrough remains outstanding.

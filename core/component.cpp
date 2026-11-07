@@ -2,6 +2,52 @@
 #include "symbollibrary.h"
 
 #include <QtGlobal>
+#include <QRegularExpression>
+#include <QSet>
+
+QString propertyIdFromName(const QString &name)
+{
+    QString id = name.trimmed().toLower();
+    id.replace(QRegularExpression("[^a-z0-9]+"), "_");
+    id.remove(QRegularExpression("^_+|_+$"));
+    if (id.isEmpty()) id = "property";
+    if (!id.front().isLetter()) id.prepend("property_");
+    return id;
+}
+
+QStringList validateInstanceProperties(const QVector<InstanceProperty> &properties)
+{
+    QStringList errors;
+    if (properties.size() < 2 || properties[0].id != "reference" || properties[1].id != "value")
+        return {QStringLiteral("Reference and Value must be the first two properties.")};
+    QSet<QString> ids, names;
+    const QRegularExpression key("^[a-z][a-z0-9_]*$");
+    const auto singleLine = [](const QString &s) {
+        return !s.contains('\n') && !s.contains('\r') && !s.contains(QChar(0))
+            && !s.contains(QChar(0x2028)) && !s.contains(QChar(0x2029));
+    };
+    for (int i = 0; i < properties.size(); ++i) {
+        const auto &p = properties[i];
+        if (!key.match(p.id).hasMatch() || ids.contains(p.id))
+            errors << QStringLiteral("Property IDs must be valid and unique.");
+        ids.insert(p.id);
+        const QString name = i < 2 ? (i == 0 ? QStringLiteral("Reference") : QStringLiteral("Value")) : p.name;
+        if ((i < 2 && !p.name.isEmpty()) || (i >= 2 && (p.id == "reference" || p.id == "value"))
+            || name.trimmed().isEmpty() || name != name.trimmed() || !singleLine(name)
+            || names.contains(name.toCaseFolded()))
+            errors << QStringLiteral("Property names must be non-empty and unique; reserved rows cannot be renamed.");
+        names.insert(name.toCaseFolded());
+        if (!singleLine(p.value)) errors << QStringLiteral("Property values must be single-line text.");
+    }
+    if (properties[0].value.trimmed().isEmpty()) errors << QStringLiteral("Reference must not be empty.");
+    return errors;
+}
+
+const InstanceProperty *Component::property(const QString &id) const
+{
+    for (const auto &p : m_properties) if (p.id == id) return &p;
+    return nullptr;
+}
 
 QPointF rotateOffset(QPointF localOffset, Rotation rotation)
 {

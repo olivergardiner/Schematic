@@ -12,6 +12,10 @@ qt_add_executable(schematiccore_tests
     tst_document.cpp
     tst_documentjson.h
     tst_documentjson.cpp
+    tst_grouptransformmodel.h
+    tst_grouptransformmodel.cpp
+    tst_instanceproperties.h
+    tst_instanceproperties.cpp
 )
 
 target_link_libraries(schematiccore_tests
@@ -110,6 +114,8 @@ set_tests_properties(schematicplacement_tests PROPERTIES
 qt_add_executable(schematicopen_tests
     tst_documentopen.cpp
     ../mainwindow.cpp ../mainwindow.h
+    ../propertiespanel.cpp ../propertiespanel.h
+    ../preferencesdialog.cpp ../preferencesdialog.h
     ../schematicscene.cpp ../schematicscene.h
     ../schematicview.cpp ../schematicview.h
     ../documenteditcontroller.cpp ../documenteditcontroller.h
@@ -121,6 +127,20 @@ qt_add_executable(schematicopen_tests
 target_link_libraries(schematicopen_tests PRIVATE Qt6::Widgets Qt6::Test schematiccore)
 add_test(NAME schematicopen_tests COMMAND schematicopen_tests)
 set_tests_properties(schematicopen_tests PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    TIMEOUT 30
+)
+
+qt_add_executable(schematicselection_tests
+    tst_groupselection.cpp
+    ../documenteditcontroller.cpp ../documenteditcontroller.h
+    ../schematicscene.cpp ../schematicscene.h
+    ../schematicview.cpp ../schematicview.h
+    ../symbolrenderer.cpp ../symbolrenderer.h
+)
+target_link_libraries(schematicselection_tests PRIVATE Qt6::Widgets Qt6::Test schematiccore)
+add_test(NAME schematicselection_tests COMMAND schematicselection_tests)
+set_tests_properties(schematicselection_tests PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     TIMEOUT 30
 )

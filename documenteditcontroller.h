@@ -2,6 +2,7 @@
 #define DOCUMENTEDITCONTROLLER_H
 
 #include "document.h"
+#include "documentselection.h"
 
 #include <QObject>
 #include <QVector>
@@ -12,7 +13,7 @@
 class DocumentEditController : public QObject
 {
 public:
-    using Selection = QVector<ComponentId>;
+    using Selection = DocumentSelection;
     using EditOperation = std::function<bool()>;
     using SelectionGetter = std::function<Selection()>;
     using StateRestored = std::function<void(const Selection &)>;

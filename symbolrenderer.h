@@ -4,6 +4,7 @@
 #include "symbollibrary.h"
 
 #include <QPainterPath>
+#include <QBrush>
 #include <QRectF>
 #include <QVector>
 
@@ -13,6 +14,7 @@ struct RenderedSymbolPrimitive
 {
     QPainterPath path;
     bool filled = false;
+    PrimitiveFillColor fillColor = PrimitiveFillColor::White;
 };
 
 // Shared application-layer conversion and preview painting for library
@@ -22,6 +24,7 @@ struct RenderedSymbolPrimitive
 class SymbolRenderer
 {
 public:
+    static QBrush fillBrush(const RenderedSymbolPrimitive &primitive);
     static QVector<RenderedSymbolPrimitive> primitives(const LibrarySymbol &symbol);
     static QRectF bounds(const LibrarySymbol &symbol);
     static void paintPreview(QPainter *painter, const LibrarySymbol &symbol,

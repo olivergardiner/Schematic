@@ -1,0 +1,15 @@
+{
+  "id": "Test.MonochromeFill",
+  "name": "Monochrome fill verification fixture",
+  "category": "Tests/Appearance",
+  "referencePrefix": "X",
+  "showsReference": false,
+  "svg": "monochrome-fill.svg",
+  "origin": { "x": 0, "y": 0 },
+  "terminals": [
+    { "name": "1", "x": -50, "y": -20 },
+    { "name": "2", "x": 50, "y": -20 },
+    { "name": "3", "x": -50, "y": 20 },
+    { "name": "4", "x": 50, "y": 20 }
+  ]
+}

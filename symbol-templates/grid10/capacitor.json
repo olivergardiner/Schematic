@@ -1,0 +1,13 @@
+{
+  "id": "Grid10.Capacitor",
+  "name": "Capacitor (Grid 10)",
+  "category": "Passives/Capacitors",
+  "referencePrefix": "C",
+  "showsReference": true,
+  "svg": "capacitor.svg",
+  "origin": { "x": 0, "y": 0 },
+  "terminals": [
+    { "name": "1", "x": -20, "y": 0 },
+    { "name": "2", "x": 20, "y": 0 }
+  ]
+}

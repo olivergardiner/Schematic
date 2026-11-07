@@ -1,0 +1,13 @@
+{
+  "id": "Grid10.ElectrolyticCapacitor",
+  "name": "Electrolytic Capacitor (Grid 10)",
+  "category": "Passives/Capacitors",
+  "referencePrefix": "C",
+  "showsReference": true,
+  "svg": "electrolytic-capacitor.svg",
+  "origin": { "x": 0, "y": 0 },
+  "terminals": [
+    { "name": "+", "x": -20, "y": 0 },
+    { "name": "-", "x": 20, "y": 0 }
+  ]
+}

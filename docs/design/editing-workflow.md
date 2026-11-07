@@ -2,6 +2,8 @@
 
 Status: **approved design; stages 1–3 implemented.** Durable interaction choices are recorded in [DECISIONS.md](../../DECISIONS.md); [ROADMAP.md](../../ROADMAP.md) tracks remaining product work.
 
+Follow-up: [group transforms](group-transforms.md) now extend the original single-component move/rotate/flip controls to mixed and wire-only selections and restore wire selection through undo/redo. The single-component action limits below describe this design's original scope.
+
 ## 1. Purpose and scope
 
 Make common placement and editing actions easier to find and use while preserving the editor's document and connectivity rules.
@@ -136,3 +138,7 @@ Each substantial stage should have its own short implementation plan and approva
 - Escape cancels a pending wire and returns to Select; wire-terminal markers appear only in Draw Wire mode, track the document after edits/undo, and do not affect hit testing or connectivity.
 - View-only actions do not change dirty state. `schematiccore` continues to link Qt Core only and all existing headless model tests pass.
 - Manual walkthrough covers palette navigation, click placement, drag placement, undo/redo, transforms, wire feedback, rejected placement, and Escape behavior.
+
+## Instance-properties follow-up
+
+The approved [instance-properties follow-up](instance-properties.md) is implemented. The right-hand Properties dock replaces reference/value dialogs; double-click focuses Value and F2 focuses Reference. It supports custom text properties, visibility, and atomic multi-selection edits.

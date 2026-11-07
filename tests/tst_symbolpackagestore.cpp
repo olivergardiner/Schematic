@@ -73,6 +73,10 @@ void SymbolPackageStoreTests::savesReloadsAndProtectsTerminalSignature()
 
     LibrarySymbol reimported = symbol;
     reimported.displayName = QStringLiteral("Refined Artwork Metadata");
+    SymbolPrimitive plate;
+    plate.kind = PrimitiveKind::Polygon; plate.points = {{-3,-10}, {3,-10}, {3,10}, {-3,10}};
+    plate.fillColor = PrimitiveFillColor::Black;
+    reimported.primitives.append(plate);
     errors.clear();
     QVERIFY2(store.save(reimported, svg, sidecar, &errors), qPrintable(errors.join(QLatin1Char('\n'))));
     QCOMPARE(applicationSymbolLibrary().find(symbol.id)->displayName, reimported.displayName);
@@ -82,6 +86,7 @@ void SymbolPackageStoreTests::savesReloadsAndProtectsTerminalSignature()
     QVERIFY2(errors.isEmpty(), qPrintable(errors.join(QLatin1Char('\n'))));
     QCOMPARE(loaded.size(), 1);
     QCOMPARE(loaded.find(symbol.id)->displayName, reimported.displayName);
+    QCOMPARE(loaded.find(symbol.id)->primitives.last().fillColor, PrimitiveFillColor::Black);
 }
 
 void SymbolPackageStoreTests::rejectsUnsafeManifestAndRollsBackWriteFailure()

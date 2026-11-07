@@ -2,10 +2,12 @@
   "symbols": [
     "resistor.json",
     "capacitor.json",
+    "electrolytic-capacitor.json",
     "diode.json",
     "ground.json",
-    "opamp.json",
+    "opamp-grid10.json",
     "potentiometer.json",
-    "jack.json"
+    "jack.json",
+    "opamp.json"
   ]
 }

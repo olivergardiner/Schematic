@@ -1,0 +1,118 @@
+{
+    "category": "Passives",
+    "id": "ElectrolyticCapacitor",
+    "name": "Electrolytic Capacitor",
+    "primitives": [
+        {
+            "kind": "Line",
+            "points": [
+                [
+                    -20,
+                    0
+                ],
+                [
+                    -5,
+                    0
+                ]
+            ]
+        },
+        {
+            "kind": "Line",
+            "points": [
+                [
+                    5,
+                    0
+                ],
+                [
+                    20,
+                    0
+                ]
+            ]
+        },
+        {
+            "filled": true,
+            "kind": "Polygon",
+            "points": [
+                [
+                    -5,
+                    -10
+                ],
+                [
+                    -2,
+                    -10
+                ],
+                [
+                    -2,
+                    10
+                ],
+                [
+                    -5,
+                    10
+                ]
+            ]
+        },
+        {
+            "fillColor": "black",
+            "filled": true,
+            "kind": "Polygon",
+            "points": [
+                [
+                    2,
+                    -10
+                ],
+                [
+                    5,
+                    -10
+                ],
+                [
+                    5,
+                    10
+                ],
+                [
+                    2,
+                    10
+                ]
+            ]
+        },
+        {
+            "kind": "Line",
+            "points": [
+                [
+                    -13,
+                    -14
+                ],
+                [
+                    -9,
+                    -14
+                ]
+            ]
+        },
+        {
+            "kind": "Line",
+            "points": [
+                [
+                    -11,
+                    -16
+                ],
+                [
+                    -11,
+                    -12
+                ]
+            ]
+        }
+    ],
+    "referencePrefix": "C",
+    "showsReference": true,
+    "terminals": [
+        {
+            "name": "+",
+            "x": -20,
+            "y": 0
+        },
+        {
+            "name": "-",
+            "x": 20,
+            "y": 0
+        }
+    ]
+}

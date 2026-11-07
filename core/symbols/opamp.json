@@ -1,7 +1,7 @@
 {
   "id": "OpAmp",
-  "name": "Op-Amp",
-  "category": "Semiconductors/ICs",
+  "name": "Op-Amp (Legacy)",
+  "category": "Compatibility/Legacy Symbols",
   "referencePrefix": "U",
   "showsReference": true,
   "primitives": [

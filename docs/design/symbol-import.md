@@ -2,9 +2,11 @@
 
 Status: **approved design.** J1–J4 are implemented. The [approved J4 implementation plan](symbol-import-j4-plan.md) records automated verification and the outstanding manual visual walkthrough. J5 symbol content will have its own scoped plan.
 
+The approved and implemented [black-fill follow-up](black-symbol-fills.md) preserves white/black SVG fills and introduces document format v4. Original J1–J4 implementation records describe their earlier v3 scope.
+
 ## 1. Purpose and scope
 
-The current symbol library has seven entries. The library grows through a standard authoring path: draw the glyph in an external SVG editor, import it, add the required metadata and connection points, then save it as a validated library entry. All symbols use the same definition format, validation, lookup, and document rules; where an entry is distributed or stored does not give it a different kind.
+The packaged symbol library has nine entries, including the [reviewed template refresh](builtin-template-refresh.md). The library grows through a standard authoring path: draw the glyph in an external SVG editor, import it, add the required metadata and connection points, then save it as a validated library entry. All symbols use the same definition format, validation, lookup, and document rules; where an entry is distributed or stored does not give it a different kind.
 
 In scope for chunk J:
 
@@ -93,7 +95,9 @@ Elements with `display="none"` are skipped silently.
 
 ### 4.5 Fill
 
-Fill and fill rule are the only honoured styles. They are read from presentation attributes or the matching properties in an inline `style` attribute, and inherited from `<g>` ancestors. `fill="none"` means open. Anything else on a closed shape, including no fill at all (the SVG default is black), means a filled body, drawn white by the renderer. Line and polyline are never filled. `fill-rule` supports SVG's `nonzero` and `evenodd` values, defaults to `nonzero`, and applies to compound paths. Class-based and stylesheet rules remain unsupported and produce the warnings above.
+Fill and fill rule are the only honoured styles. They are read from presentation attributes or the matching properties in an inline `style` attribute, and inherited from SVG/group ancestors. `fill="none"` means no interior brush; white and black mean opaque interiors of that colour. Unspecified SVG fill defaults to black. Named white/black, `#fff`/`#000`, `#ffffff`/`#000000`, and `rgb(255,255,255)`/`rgb(0,0,0)` are supported with case/whitespace handling. Other fill colours and paint values are rejected with a useful error. Line and polyline SVG elements remain unfilled. `fill-rule` supports `nonzero` and `evenodd`, defaults to `nonzero`, and applies to compound paths. Class-based and stylesheet rules remain unsupported and produce the warnings above.
+
+Converted JSON retains legacy White defaults and accepts optional `fillColor: "black"` when effective fill is enabled on Polygon, Circle, or Path. Explicit White normalizes to the omitted default. Black on an unfilled or open Line/Polyline primitive is rejected; legacy white fill flags on open primitives remain accepted for compatibility. Previously converted entries keep their white appearance. Old SVG exports used black for all filled shapes; re-export a stored definition with the corrected exporter or explicitly set white in such sources when white was intended.
 
 ### 4.6 Errors
 
@@ -127,7 +131,7 @@ These stop the import: not well-formed XML; unreadable or invalid sidecar; no dr
 
 ### 8.1 Embedding (format v3)
 
-- Format v3 adds a `symbols` array holding the full converted entry of every symbol the document uses. This preserves the artwork and metadata used when the document was saved, even if the shared library later changes. The loader accepts v1, v2 and v3; writers emit v3 (an empty `symbols` array when none are used). Saving a loaded v1/v2 document upgrades it, as before; those earlier formats have no embedded symbol definitions and use the current library entries.
+- Format v3 introduced a `symbols` array holding the full converted entry of every used symbol. Format v4 adds black/white fill capability within those definitions. The instance-properties follow-up adds v5 with per-instance values and visibility. The movable-block follow-up adds v6 instance layout offsets. The loader accepts v1–v6; writers emit v6 (an empty `symbols` array when none are used). Saving an earlier document upgrades it. Versions 1/2 have no embedded symbol definitions and use the current library entries; v3 snapshots preserve their legacy white defaults.
 - Embedded entries are validated like library entries; an invalid embedded entry rejects the document with an error naming the ID. A document may not contain duplicate symbol IDs.
 
 ### 8.2 Per-document symbol set
@@ -156,7 +160,7 @@ Each `Document` resolves symbols from its own set: its embedded entries layered 
 
 ## 10. Symbol exporter (J2)
 
-The exporter writes any `LibrarySymbol` as a profile SVG plus its sidecar, with origin `(0, 0)` and terminals in SVG user coordinates. The SVG is a plain stroked and filled drawing so it looks sensible when opened in an editor; the importer ignores that styling. This exports an individual symbol, not a complete schematic. Uses: round-trip tests (export a library entry, re-import, compare), and a starting point for authoring a new symbol.
+The exporter writes any `LibrarySymbol` as a profile SVG plus its sidecar, with origin `(0, 0)` and terminals in SVG user coordinates. The SVG uses the standard black stroke and effective none/white/black fill, preserving those fills through re-import. Other stroke styling remains renderer-controlled. This exports an individual symbol, not a complete schematic. Uses: round-trip tests and a starting point for authoring a new symbol.
 
 ## 11. Sub-steps and acceptance checks
 

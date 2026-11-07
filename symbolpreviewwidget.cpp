@@ -110,7 +110,7 @@ void SymbolPreviewWidget::paintEvent(QPaintEvent *)
     const auto rendered = SymbolRenderer::primitives(artwork);
     for (const RenderedSymbolPrimitive &primitive : rendered) {
         painter.setPen(QPen(QColor(35, 45, 55), 1.0 / scale));
-        painter.setBrush(primitive.filled ? QBrush(Qt::white) : QBrush(Qt::NoBrush));
+        painter.setBrush(SymbolRenderer::fillBrush(primitive));
         painter.drawPath(primitive.path);
     }
 

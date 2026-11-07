@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-60 -40 120 80">
+  <!-- Visual fixture: white mask (upper left), black plate (upper right),
+       outline-only body (lower left), evenodd hole (lower right).
+       Leads run underneath the shapes to expose masking/transparency. -->
+  <g stroke="black" stroke-width="1" fill="none">
+    <line x1="-50" y1="-20" x2="50" y2="-20"/>
+    <line x1="-50" y1="20" x2="50" y2="20"/>
+    <rect x="-40" y="-30" width="20" height="20" fill="white"/>
+    <rect x="15" y="-30" width="3" height="20" fill="black"/>
+    <rect x="-40" y="10" width="20" height="20"/>
+    <path fill="black" fill-rule="evenodd" d="M10 10H30V30H10Z M15 15H25V25H15Z"/>
+  </g>
+</svg>

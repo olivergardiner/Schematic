@@ -207,6 +207,14 @@ QStringList validateLibrarySymbol(const LibrarySymbol &symbol)
         const SymbolPrimitive &primitive = symbol.primitives[i];
         const QString where = QStringLiteral("primitives[%1] ").arg(i);
         const int count = primitive.points.size();
+        if (primitive.fillColor != PrimitiveFillColor::White
+            && primitive.fillColor != PrimitiveFillColor::Black)
+            errors << where + QStringLiteral("has an unknown fill colour");
+        if (primitive.fillColor == PrimitiveFillColor::Black
+            && (!primitiveIsFilled(primitive) || primitive.kind == PrimitiveKind::Line
+                || primitive.kind == PrimitiveKind::Polyline))
+            errors << where + QStringLiteral("black fill requires a filled Polygon, Circle or Path");
+        // Legacy white fill flags on open primitives remain accepted.
         switch (primitive.kind) {
         case PrimitiveKind::Line:
             if (count != 2) errors << where + QStringLiteral("Line needs exactly 2 points");
@@ -393,6 +401,15 @@ std::optional<LibrarySymbol> SymbolLibrary::parseSymbol(const QJsonObject &objec
             SymbolPrimitive primitive;
             primitive.kind = *kind;
 
+            if (entry.contains(QStringLiteral("fillColor"))) {
+                const auto color = entry.value(QStringLiteral("fillColor"));
+                if (!color.isString() || (color.toString() != QLatin1String("white")
+                                         && color.toString() != QLatin1String("black")))
+                    problems << where + QStringLiteral("fillColor must be white or black");
+                else if (color.toString() == QLatin1String("black"))
+                    primitive.fillColor = PrimitiveFillColor::Black;
+            }
+
             if (entry.contains(QStringLiteral("filled"))) {
                 const QJsonValue filled = entry.value(QStringLiteral("filled"));
                 if (!filled.isBool())
@@ -562,6 +579,8 @@ QJsonObject SymbolLibrary::symbolToJson(const LibrarySymbol &symbol)
         }
         if (primitive.filled.has_value())
             entry.insert(QStringLiteral("filled"), *primitive.filled);
+        if (primitive.fillColor == PrimitiveFillColor::Black)
+            entry.insert(QStringLiteral("fillColor"), QStringLiteral("black"));
         primitives.append(entry);
     }
     QJsonArray terminals;

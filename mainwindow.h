@@ -9,8 +9,10 @@
 
 #include <QHash>
 #include <QMainWindow>
+#include <QPointer>
 
 class QLabel;
+class QLineEdit;
 class QComboBox;
 class QDoubleSpinBox;
 class QToolButton;
@@ -24,6 +26,8 @@ class SchematicView;
 class QTreeWidget;
 class QTreeWidgetItem;
 class QVBoxLayout;
+class QDockWidget;
+class PropertiesPanel;
 
 class MainWindow : public QMainWindow
 {
@@ -45,6 +49,7 @@ private slots:
     bool onSave();
     bool onSaveAs();
     void onAbout();
+    void onPreferences();
     void onZoomFactorChanged(qreal factor);
     void onMouseScenePositionChanged(const QPointF &scenePos);
     // Surfaces SchematicScene::statusMessage() in the status bar.
@@ -59,8 +64,8 @@ private slots:
     // Enters PlaceComponent mode and sets kind as the symbol to place -
     // connected to each symbol button in the dock (see createSymbolDock()).
     void onPlaceComponentKindChanged(const SymbolId &id);
-    // Opens the reference+value edit dialog for componentId, pre-filled
-    // from its current labels. Called from SchematicScene's double-click
+    // Reveals the Properties dock and focuses Value for componentId.
+    // Called from SchematicScene's double-click
     // handler (see SchematicScene::componentDoubleClicked()).
     void onEditComponentLabels(ComponentId componentId);
     // Renames (reference only) the single currently selected component -
@@ -76,8 +81,11 @@ private:
     void flipSelectedComponent(FlipAxis axis);
     void createActions();
     void createMenus();
+    void updateEditActions();
+    void clipboardEdit(const QString &operation);
     void createToolBar();
     void createSymbolDock();
+    void createPropertiesDock();
     void rebuildSymbolDockContents();
     void createStatusBar();
     void populateToolbarsMenu();
@@ -102,6 +110,8 @@ private:
 
     SchematicScene *m_scene = nullptr;
     SchematicView  *m_view  = nullptr;
+    QDockWidget *m_propertiesDock = nullptr;
+    PropertiesPanel *m_propertiesPanel = nullptr;
 
     QLabel *m_positionLabel = nullptr;
     QLabel *m_zoomLabel     = nullptr;
@@ -114,6 +124,14 @@ private:
     QAction        *m_flipVerticalAction = nullptr;
     QAction        *m_rotateAction     = nullptr;
     QAction        *m_mirrorAction     = nullptr;
+    QMenu *m_editMenu = nullptr;
+    QAction *m_cutAction = nullptr;
+    QAction *m_copyAction = nullptr;
+    QAction *m_pasteAction = nullptr;
+    QAction *m_deleteAction = nullptr;
+    QPointer<QLineEdit> m_editTextTarget;
+    QByteArray m_lastPastePayload;
+    int m_pasteCount = 0;
     QMenu          *m_toolbarsMenu     = nullptr;
     SymbolPackageStore m_symbolPackageStore;
     // Rename (F2) is a QAction owned by MainWindow itself (not m_view) with

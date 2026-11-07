@@ -8,10 +8,13 @@ class TstSymbolLibrary : public QObject
     Q_OBJECT
 
 private slots:
-    // The built-in library holds exactly the seven shipped symbols, in
+    void monochromeFillJsonAndLegacyDefaults();
+    void svgMonochromeFillsAndInheritance();
+    // The built-in library holds exactly the nine packaged symbols, in
     // palette order, with their hand-written display name, category,
     // reference prefix and reference visibility.
-    void builtinLibraryHasSevenSymbolsWithExpectedMetadata();
+    void builtinLibraryHasExpectedMetadata();
+    void packagedArtworkMatchesTemplates();
 
     // Released terminal order, names and positions are frozen: saved wires
     // refer to terminals by index and derive endpoint coordinates from

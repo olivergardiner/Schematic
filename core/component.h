@@ -6,6 +6,9 @@
 
 #include <QPointF>
 #include <QString>
+#include <QStringList>
+#include <QVector>
+#include <optional>
 
 // Rotation is restricted to right-angle quadrants - see DECISIONS.md
 // "Symbols and labels". This keeps terminal geometry a
@@ -42,6 +45,17 @@ enum class Rotation {
 // model.
 struct LibrarySymbol;
 
+struct InstanceProperty
+{
+    QString id;
+    QString name; // Custom display name; reserved properties use fixed UI names.
+    QString value;
+    bool visible = true;
+};
+
+QString propertyIdFromName(const QString &name);
+QStringList validateInstanceProperties(const QVector<InstanceProperty> &properties);
+
 class Component
 {
 public:
@@ -57,11 +71,17 @@ public:
     Rotation rotation() const { return m_rotation; }
     void setRotation(Rotation rotation) { m_rotation = rotation; }
 
-    QString reference() const { return m_reference; }
-    void setReference(const QString &reference) { m_reference = reference; }
+    QString reference() const { return m_properties[0].value; }
+    void setReference(const QString &reference) { m_properties[0].value = reference; }
 
-    QString value() const { return m_value; }
-    void setValue(const QString &value) { m_value = value; }
+    QString value() const { return m_properties[1].value; }
+    void setValue(const QString &value) { m_properties[1].value = value; }
+    const QVector<InstanceProperty> &properties() const { return m_properties; }
+    const InstanceProperty *property(const QString &id) const;
+    void setProperties(const QVector<InstanceProperty> &properties) { m_properties = properties; }
+
+    std::optional<QPointF> propertyBlockOffset() const { return m_propertyBlockOffset; }
+    void setPropertyBlockOffset(std::optional<QPointF> offset) { m_propertyBlockOffset = offset; }
 
     bool mirrored() const { return m_mirrored; }
     void setMirrored(bool mirrored) { m_mirrored = mirrored; }
@@ -82,9 +102,9 @@ private:
     SymbolId m_symbolId;
     QPointF m_position;
     Rotation m_rotation = Rotation::Deg0;
-    QString m_reference;
-    QString m_value;
+    QVector<InstanceProperty> m_properties{{"reference", {}, {}, true}, {"value", {}, {}, true}};
     bool m_mirrored = false;
+    std::optional<QPointF> m_propertyBlockOffset;
 };
 
 // Rotates a local symbol-space offset by the given quadrant rotation.

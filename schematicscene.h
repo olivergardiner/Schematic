@@ -4,6 +4,8 @@
 #include "identifiers.h"
 #include "pendingwireendpoint.h"
 #include "symbolid.h"
+#include "documentselection.h"
+#include "document.h"
 
 #include <QGraphicsScene>
 
@@ -32,8 +34,9 @@ class SchematicScene : public QGraphicsScene
     Q_OBJECT
 
 public:
+    using Selection = DocumentSelection;
     using EditCommitter = std::function<bool(const QString &, const std::function<bool()> &,
-                                             std::function<QVector<ComponentId>()>)>;
+                                             std::function<Selection()>)>;
 
     enum class EditMode
     {
@@ -83,23 +86,39 @@ public:
     std::optional<ComponentId> singleSelectedComponent() const;
     QVector<ComponentId> selectedComponentIds() const;
 
+    Selection selection() const;
+    void restoreSelection(const Selection &selection);
+    void selectInBox(const QRectF &rect, bool crossing, const Selection &baseline);
+    bool canStartSelectionBox(QPointF position) const;
+
     // Restores a model snapshot in place, then rebuilds and reselects the
-    // listed components that still exist.
-    void restoreAfterDocumentChange(const QVector<ComponentId> &selection);
+    // listed component and wire identities that still exist.
+    void restoreAfterDocumentChange(const Selection &selection);
+    bool transformSelected(SelectionTransform::Kind kind, int quarterTurns = 0);
+    bool moveInProgress() const { return m_dragging; }
+    void cancelMove();
+    void deleteSelection();
+    bool resetPropertyPositions(const QVector<ComponentId> &ids);
 
 signals:
+    // A canvas selection gesture starts before its eventual selection change.
+    void selectionInteractionStarted();
+    void moveStateChanged();
+    // Cancel transient view gestures before mode changes or item replacement.
+    void selectionGestureReset();
     // A short, user-facing explanation of why the in-progress interaction
     // did nothing (e.g. "Start a wire from a terminal, node, or existing
     // wire.") - MainWindow may surface this in a status bar.
     void statusMessage(const QString &message);
     void editModeChanged(SchematicScene::EditMode mode);
     // Emitted when a ComponentItem or its label is double-clicked in
-    // Select mode - MainWindow opens the reference/value edit dialog for
+    // Select mode - MainWindow reveals the Properties dock for
     // componentId in response (see MainWindow::onEditComponentLabels()).
     void componentDoubleClicked(ComponentId componentId);
 
 protected:
     void mousePressEvent(QGraphicsSceneMouseEvent *event) override;
+    void contextMenuEvent(QGraphicsSceneContextMenuEvent *event) override;
     void mouseMoveEvent(QGraphicsSceneMouseEvent *event) override;
     void mouseReleaseEvent(QGraphicsSceneMouseEvent *event) override;
     void mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) override;
@@ -117,10 +136,11 @@ private:
         QPointF point;
     };
 
-    void rebuild(const QVector<ComponentId> *selectionOverride = nullptr);
+    void rebuild(const Selection *selectionOverride = nullptr);
+    void renderDocument(const Document &document, const Selection &selection);
     void addWireItems(const WireRoute &route);
     void addJunctionItem(QPointF point);
-    void addComponentItems(const Component &component);
+    void addComponentItems(const Component &component, const Document &document);
 
     QPointF snapToGrid(QPointF point) const;
     qreal hitToleranceInSceneUnits() const;
@@ -136,29 +156,27 @@ private:
     void endDrag();
 
     void extendPendingWire(QPointF scenePos);
-    void deleteSelection();
+
     bool commitEdit(const QString &description, const std::function<bool()> &operation,
-                    std::function<QVector<ComponentId>()> afterSelection = {});
+                    std::function<Selection()> afterSelection = {});
 
     Document *m_document = nullptr;
     EditCommitter m_editCommitter;
     EditMode m_mode = EditMode::Select;
     SymbolId m_placeKind = SymbolIds::Resistor;
 
-    // Select-mode manual drag state: preview by moving only the dragged
-    // symbol's items; attached wires reshape only once
-    // Document::moveComponent() commits on release.
+    // Preview comes from the original snapshot, never the live document.
     bool m_dragging = false;
+    bool m_propertyDragging = false;
+    QPointF m_propertyOriginalOffset;
+    bool m_dragThresholdPassed = false;
+    bool m_dragCandidateValid = true;
     ComponentId m_dragComponentId = kInvalidComponentId;
     QPointF m_dragOriginalPosition;
     QPointF m_dragPressScenePos;
-    QPointF m_dragCurrentSnappedPosition;
-    // The dragged component's artwork group plus its label items, moved
-    // together by the same preview delta - see beginDrag()/updateDrag().
-    // m_dragItemOrigins holds each item's pre-drag scene position, parallel
-    // to m_dragItems by index.
-    QVector<QGraphicsItem *> m_dragItems;
-    QVector<QPointF> m_dragItemOrigins;
+    QPointF m_dragDisplacement;
+    Selection m_dragSelection;
+    std::optional<Document> m_dragOriginal;
 
     // DrawWire-mode pending-wire state. m_pendingVertices always starts
     // with the resolved start point; m_pendingStart is only meaningful

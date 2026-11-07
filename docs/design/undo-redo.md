@@ -2,6 +2,8 @@
 
 Status: **approved; implementation completed.** Durable choices are recorded in [DECISIONS.md](../../DECISIONS.md); [ROADMAP.md](../../ROADMAP.md) tracks remaining work.
 
+Follow-up: the approved and implemented [group-transform design](group-transforms.md) extends selection snapshots to include wire IDs. References below to the first implementation's component-only selection limit describe its original scope; current selection restoration includes components and wires.
+
 ## 1. Purpose and scope
 
 Add undo and redo for edits to the open schematic document. The feature includes edit grouping, dirty-state behavior, and restoring the user's selection where practical. It does not include undo for view-only changes, tool selection, pan/zoom, or symbol-library management.
@@ -80,9 +82,9 @@ Confirm that this clean-index behavior matches the desired user experience befor
 
 ## 7. Selection restoration
 
-Capture selected component IDs immediately before and after each command. After undo or redo, rebuild the scene and reselect IDs that exist in the restored document. For a command that creates a component, redo should select it and undo should restore the prior selection. For deletion, undo should restore the deleted selection; redo should restore the selection that remained after deletion.
+Capture selected component and wire IDs immediately before and after each command. After undo or redo, rebuild the scene and reselect IDs that exist in the restored document. For a command that creates a component, redo should select it and undo should restore the prior selection. For deletion, undo should restore the deleted selection; redo should restore the selection that remained after deletion.
 
-Selection is UI state, not document state. It must not affect serialization or dirty state. If a saved component ID no longer exists after a restore, skip it. Wire selection is not restored in the first implementation. Multi-selection behavior remains limited by the current editor capabilities.
+Selection is UI state, not document state. It must not affect serialization or dirty state. If a saved component or wire ID no longer exists after a restore, skip it. The initial wire-selection deferral was superseded by the group-transform follow-up.
 
 ## 8. Risks and constraints
 
@@ -109,3 +111,11 @@ After design approval, implementation is complete when:
 - Treat each committed grid-spacing change as its own command; do not coalesce changes in the first version.
 - Do not impose a history-size limit in the first version. Revisit if normal use shows material memory pressure.
 - Restoring an undone snapshot restores its ID allocation counters. Reuse of IDs from undone edits is acceptable because IDs are document-local and only current state is serialized.
+
+## Instance-properties follow-up
+
+Instance-property edits are implemented: committing one value, visibility change, or custom-property operation across selected components is one atomic snapshot command. Rejected/no-op edits add no history. Property data and visibility restore with undo/redo; selection remains UI state.
+
+## Clipboard follow-up
+
+The approved [Edit menu/clipboard design](edit-menu-clipboard.md) is implemented. Cut and Paste each create one snapshot command with selection restoration; Copy does not change history or dirty state. When a line editor has focus, menu Undo/Redo operate on its text instead of the document. Clipboard contents and repeated-paste cascade counters are application state outside document undo history.

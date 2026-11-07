@@ -19,9 +19,28 @@ struct DocumentLoadResult;
 
 enum class FlipAxis { Horizontal, Vertical };
 
+struct SelectionTransform
+{
+    enum class Kind { Translate, Rotate, FlipHorizontal, FlipVertical };
+    Kind kind = Kind::Translate;
+    QPointF displacement;
+    QPointF pivot;
+    int quarterTurns = 0; // Positive is clockwise in canvas coordinates.
+};
+
 struct Net
 {
     QVector<TerminalRef> terminals;
+};
+
+struct PropertyEdit
+{
+    enum class Kind { SetValue, SetVisible, Add, Remove, Rename };
+    Kind kind = Kind::SetValue;
+    QString id;
+    QString name;
+    QString value;
+    bool visible = false;
 };
 
 class Document
@@ -55,6 +74,12 @@ public:
     bool setComponentTransform(ComponentId id, Rotation rotation, bool mirrored);
     bool flipComponent(ComponentId id, FlipAxis axis);
 
+    // Atomic, identity-based group edit. All candidates derive from the
+    // same original state and only final route geometry is validated.
+    bool transformSelection(const QVector<ComponentId> &components,
+                            const QVector<WireId> &wires,
+                            const SelectionTransform &transform);
+
 
     // Renames/re-values an already-placed component. Both reference and
     // value are trimmed before validation and storage (so "R1" and " R1 "
@@ -66,6 +91,10 @@ public:
     // current reference is allowed). value has no uniqueness constraint and
     // may be empty after trimming - see DECISIONS.md "Symbols and labels".
     bool setComponentLabels(ComponentId id, const QString &reference, const QString &value);
+    bool setPropertyBlockOffset(const QVector<ComponentId> &ids, std::optional<QPointF> offset);
+
+    bool editProperties(const QVector<ComponentId> &ids, const QVector<PropertyEdit> &edits,
+                        QStringList *errors = nullptr);
 
     std::optional<WireId> addWire(const WireEndpoint &start,
                                   const QVector<QPointF> &interiorVertices,
@@ -86,12 +115,18 @@ public:
                                            const QVector<QPointF> &interiorVertices,
                                            const PendingWireEndpoint &end);
 
+    QByteArray copyFragment(const QVector<ComponentId> &components, const QVector<WireId> &wires,
+                            QStringList *errors = nullptr) const;
+    bool pasteFragment(const QByteArray &bytes, QPointF displacement,
+                       QVector<ComponentId> *components = nullptr, QVector<WireId> *wires = nullptr,
+                       QStringList *errors = nullptr);
+
     QVector<Net> computeNets() const;
     QVector<QPointF> junctionPoints() const;
 
-    // Version-3 JSON embeds used symbol definitions, grid, components, nodes, and route points with
-    // explicit terminal/node endpoint identities. Nets and junctions are
-    // derived and are never serialized.
+    // Version-6 JSON stores property-block placement and embeds symbol definitions (including black/white fill),
+    // grid, components, nodes, and identity-linked route points. Versions
+    // 1-5 remain readable. Nets and junctions are derived, never serialized.
     QJsonObject toJson() const;
     QByteArray toJsonBytes() const;
     static DocumentLoadResult fromJson(const QJsonObject &root);

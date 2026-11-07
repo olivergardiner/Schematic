@@ -9,8 +9,28 @@
 #include <QTest>
 
 namespace {
+QJsonObject asLegacy(QJsonObject root, int version)
+{
+    root["formatVersion"] = version;
+    auto components = root["components"].toArray();
+    for (int i = 0; i < components.size(); ++i) {
+        auto c = components[i].toObject();
+        if (c.contains("properties")) {
+            for (const auto &p : c["properties"].toArray()) {
+                const auto entry = p.toObject();
+                if (entry["id"] == "reference" || entry["id"] == "value")
+                    c[entry["id"].toString()] = entry["value"];
+            }
+            c.remove("properties");
+        }
+        components[i] = c;
+    }
+    root["components"] = components;
+    return root;
+}
 QJsonObject asVersion1(QJsonObject root)
 {
+    root = asLegacy(root, 1);
     root.insert(QStringLiteral("formatVersion"), 1);
     QJsonArray comps = root.value(QStringLiteral("components")).toArray();
     for (int i = 0; i < comps.size(); ++i) {
@@ -81,7 +101,7 @@ void TstDocumentJson::rejectsInvalidAndRepairsStaleEndpoints()
     QVERIFY(!repaired.warnings.isEmpty());
     QCOMPARE(repaired.document->wires().first().vertices.first(), QPointF(20, 0));
 
-    root.insert(QStringLiteral("formatVersion"), 4);
+    root.insert(QStringLiteral("formatVersion"), 7);
     QVERIFY(!Document::fromJson(root).document);
 }
 
@@ -179,7 +199,7 @@ QJsonObject documentWithReferences(const QVector<QPair<SymbolId, QString>> &part
     Document source;
     for (int i = 0; i < parts.size(); ++i)
         source.addComponent(parts[i].first, {i * 100.0, 0});
-    QJsonObject root = source.toJson();
+    QJsonObject root = asLegacy(source.toJson(), 4);
     QJsonArray components = root.value(QStringLiteral("components")).toArray();
     for (int i = 0; i < parts.size(); ++i) {
         QJsonObject component = components[i].toObject();
@@ -306,7 +326,48 @@ void TstDocumentJson::serializesNodesInStableOrder()
     QCOMPARE(loaded.document->toJsonBytes(), bytes);
 }
 
-void TstDocumentJson::writesV3AndRoundTripsMirroring()
+void TstDocumentJson::blackFillsEmbedAndLegacyStaysWhite()
+{
+    Document document;
+    auto symbol = *builtinSymbolLibrary().find(SymbolIds::Resistor);
+    symbol.id = SymbolId("BlackFillSnapshotTest");
+    // Keep the resistor body polygon, excluding its lead primitives.
+    symbol.primitives.resize(1);
+    symbol.primitives[0].fillColor = PrimitiveFillColor::Black;
+    QStringList errors;
+    QVERIFY(document.useSymbol(symbol, &errors));
+    QVERIFY(document.addComponent(symbol.id, {0,0}) != kInvalidComponentId);
+    const auto root = document.toJson();
+    QCOMPARE(root["formatVersion"].toInt(), 6);
+    const auto loaded = Document::fromJson(root);
+    QVERIFY(loaded.document);
+    QCOMPARE(loaded.document->symbol(symbol.id)->primitives[0].fillColor, PrimitiveFillColor::Black);
+    QCOMPARE(loaded.document->toJson(), root);
+    auto legacy = asLegacy(root, 3);
+    auto symbols = legacy["symbols"].toArray();
+    auto definition = symbols[0].toObject();
+    auto primitives = definition["primitives"].toArray();
+    auto polygon = primitives[0].toObject(); polygon.remove("fillColor"); polygon["filled"] = true;
+    primitives[0] = polygon; definition["primitives"] = primitives;
+    symbols[0] = definition; legacy["symbols"] = symbols;
+    const auto old = Document::fromJson(legacy);
+    QVERIFY(old.document);
+    QCOMPARE(old.document->symbol(symbol.id)->primitives[0].fillColor, PrimitiveFillColor::White);
+    QCOMPARE(old.document->toJson()["formatVersion"].toInt(), 6);
+    QVERIFY(sameTerminalSignature(*old.document->symbol(symbol.id), symbol));
+    Document presentation;
+    presentation.addComponent(SymbolIds::Resistor, {});
+    auto recolored = *presentation.symbol(SymbolIds::Resistor);
+    recolored.primitives.first().fillColor = PrimitiveFillColor::Black;
+    QVERIFY(presentation.useSymbol(recolored, &errors));
+    const auto conflict = Document::fromJson(presentation.toJson());
+    QVERIFY(conflict.document);
+    QCOMPARE(conflict.conflicts.size(), 1);
+    QCOMPARE(conflict.conflicts.first().kind, SymbolConflictKind::Presentation);
+    QCOMPARE(conflict.document->symbol(SymbolIds::Resistor)->primitives.first().fillColor, PrimitiveFillColor::Black);
+}
+
+void TstDocumentJson::writesV5AndRoundTripsMirroring()
 {
     Document d;
     const auto a = d.addComponent(SymbolIds::Resistor, {0, 0});
@@ -314,7 +375,7 @@ void TstDocumentJson::writesV3AndRoundTripsMirroring()
     QVERIFY(d.setComponentMirrored(a, true));
     QVERIFY(d.addWire(makeTerminalEndpoint(a, 1), {}, makeTerminalEndpoint(b, 0)));
     const QJsonObject root = d.toJson();
-    QCOMPARE(root.value(QStringLiteral("formatVersion")).toInt(), 3);
+    QCOMPARE(root.value(QStringLiteral("formatVersion")).toInt(), 6);
     for (const QJsonValue &v : root.value(QStringLiteral("components")).toArray())
         QVERIFY(v.toObject().value(QStringLiteral("mirrored")).isBool());
     const DocumentLoadResult loaded = Document::fromJsonBytes(d.toJsonBytes());
@@ -332,22 +393,22 @@ void TstDocumentJson::loadsV1AsUnmirroredAndUpgradesOnSave()
     QVERIFY2(loaded.errors.isEmpty(), qPrintable(loaded.errors.join(QLatin1Char('\n'))));
     QVERIFY(loaded.document);
     QVERIFY(!loaded.document->component(a)->mirrored());
-    QCOMPARE(loaded.document->toJson().value(QStringLiteral("formatVersion")).toInt(), 3);
+    QCOMPARE(loaded.document->toJson().value(QStringLiteral("formatVersion")).toInt(), 6);
 }
 
 void TstDocumentJson::rejectsInvalidVersionAndMirroredCombinations()
 {
     Document d;
     d.addComponent(SymbolIds::Resistor, {0, 0});
-    const QJsonObject v2 = d.toJson();
+    const QJsonObject v2 = asLegacy(d.toJson(), 2);
     const QJsonObject v1 = asVersion1(v2);
 
     QVERIFY(!Document::fromJson(withComponentField(v1, QStringLiteral("mirrored"), false)).document); // v1 forbids it
     QVERIFY(!Document::fromJson(withComponentField(v2, QStringLiteral("mirrored"), QJsonValue::Undefined)).document); // v2 requires it
     QVERIFY(!Document::fromJson(withComponentField(v2, QStringLiteral("mirrored"), 1)).document); // must be bool
     QVERIFY(!Document::fromJson(withComponentField(v2, QStringLiteral("mirrored"), QStringLiteral("true"))).document);
-    QJsonObject v3 = v2; v3.insert(QStringLiteral("formatVersion"), 4);
-    QVERIFY(!Document::fromJson(v3).document);
+    QJsonObject future = v2; future.insert(QStringLiteral("formatVersion"), 7);
+    QVERIFY(!Document::fromJson(future).document);
     QJsonObject v0 = v2; v0.insert(QStringLiteral("formatVersion"), 0);
     QVERIFY(!Document::fromJson(v0).document);
 }

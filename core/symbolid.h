@@ -31,15 +31,16 @@ private:
     QString m_value;
 };
 
-// IDs of the seven symbols shipped in the built-in library. These strings
-// are identical to the pre-library SymbolKind serialization names, which is
-// what lets version 1 and 2 documents load unchanged.
+// Packaged symbol identities. Original IDs retain the pre-library names
+// and terminal interfaces so version 1/2 documents still load unchanged.
 namespace SymbolIds {
 inline const SymbolId Resistor{QStringLiteral("Resistor")};
 inline const SymbolId Capacitor{QStringLiteral("Capacitor")};
+inline const SymbolId ElectrolyticCapacitor{QStringLiteral("ElectrolyticCapacitor")};
 inline const SymbolId Diode{QStringLiteral("Diode")};
 inline const SymbolId Ground{QStringLiteral("Ground")};
 inline const SymbolId OpAmp{QStringLiteral("OpAmp")};
+inline const SymbolId OpAmpGrid10{QStringLiteral("OpAmp.Grid10")};
 inline const SymbolId Potentiometer{QStringLiteral("Potentiometer")};
 inline const SymbolId Jack{QStringLiteral("Jack")};
 } // namespace SymbolIds

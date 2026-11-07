@@ -2,6 +2,7 @@
 #define SCHEMATICVIEW_H
 
 #include "symbolid.h"
+#include "schematicscene.h"
 
 #include <QGraphicsView>
 
@@ -14,6 +15,7 @@ class SchematicView : public QGraphicsView
 
 public:
     explicit SchematicView(QWidget *parent = nullptr);
+    void setScene(QGraphicsScene *scene);
 
     qreal zoomFactor() const { return m_zoomFactor; }
 
@@ -35,6 +37,9 @@ signals:
     void symbolDropped(const SymbolId &id, const QPointF &scenePos);
 
 protected:
+    void keyPressEvent(QKeyEvent *event) override;
+    void paintEvent(QPaintEvent *event) override;
+    void focusOutEvent(QFocusEvent *event) override;
     void wheelEvent(QWheelEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
@@ -46,6 +51,15 @@ protected:
 
 private:
     void applyZoom(qreal factor);
+    void cancelSelectionBox();
+    void updateSelectionBox(QPoint position);
+    bool m_boxPending = false;
+    bool m_boxActive = false;
+    bool m_boxAdditive = false;
+    QPoint m_boxStart;
+    QPoint m_boxEnd;
+    SchematicScene::Selection m_boxInitialSelection;
+    QMetaObject::Connection m_boxResetConnection;
 
     static constexpr qreal kZoomStep = 1.15;
     static constexpr qreal kMinZoom  = 0.05;
@@ -58,11 +72,10 @@ private:
     qreal m_gridSpacingMinor = 10.0;
 
     // Middle-button panning temporarily swaps to ScrollHandDrag (which
-    // requires a fake left-button press per QGraphicsView's own documented
-    // hand-drag implementation) without disturbing the default
-    // RubberBandDrag mode used for left-button rubber-band selection, or
-    // the existing Ctrl+wheel zoom.
+    // requires a fake left-button press) without disturbing custom box
+    // selection or the existing Ctrl+wheel zoom.
     bool m_middleButtonPanning = false;
+    bool m_panningWasInteractive = true;
 };
 
 #endif // SCHEMATICVIEW_H

@@ -5,6 +5,8 @@
 #include <QDragMoveEvent>
 #include <QDropEvent>
 #include <QMouseEvent>
+#include <QApplication>
+#include <QKeyEvent>
 #include <QWheelEvent>
 #include <QPainter>
 #include <QScrollBar>
@@ -18,7 +20,7 @@ SchematicView::SchematicView(QWidget *parent)
     setRenderHint(QPainter::TextAntialiasing, true);
     setRenderHint(QPainter::SmoothPixmapTransform, true);
     setViewportUpdateMode(QGraphicsView::FullViewportUpdate);
-    setDragMode(QGraphicsView::RubberBandDrag);
+    setDragMode(QGraphicsView::NoDrag);
     setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
     setResizeAnchor(QGraphicsView::AnchorViewCenter);
     setMouseTracking(true);
@@ -30,6 +32,75 @@ SchematicView::SchematicView(QWidget *parent)
     setFocusPolicy(Qt::StrongFocus);
     setAcceptDrops(true);
     viewport()->setAcceptDrops(true);
+}
+
+void SchematicView::setScene(QGraphicsScene *newScene)
+{
+    cancelSelectionBox();
+    disconnect(m_boxResetConnection);
+    QGraphicsView::setScene(newScene);
+    if (auto *schematic = qobject_cast<SchematicScene *>(newScene))
+        m_boxResetConnection = connect(schematic, &SchematicScene::selectionGestureReset,
+                                      this, &SchematicView::cancelSelectionBox);
+}
+
+void SchematicView::cancelSelectionBox()
+{
+    const bool pending = m_boxPending;
+    m_boxPending = m_boxActive = false;
+    if (pending) {
+        if (auto *schematic = qobject_cast<SchematicScene *>(scene()))
+            schematic->restoreSelection(m_boxInitialSelection);
+        viewport()->update();
+    }
+}
+
+void SchematicView::updateSelectionBox(QPoint position)
+{
+    m_boxEnd = position;
+    if (!m_boxActive && (position - m_boxStart).manhattanLength()
+                           < QApplication::startDragDistance())
+        return;
+    m_boxActive = true;
+    if (auto *schematic = qobject_cast<SchematicScene *>(scene()))
+        schematic->selectInBox(QRectF(mapToScene(m_boxStart), mapToScene(m_boxEnd)).normalized(),
+                               m_boxEnd.x() < m_boxStart.x(),
+                               m_boxAdditive ? m_boxInitialSelection : SchematicScene::Selection{});
+    viewport()->update();
+}
+
+void SchematicView::keyPressEvent(QKeyEvent *event)
+{
+    if (m_boxPending && event->key() == Qt::Key_Escape) {
+        cancelSelectionBox();
+        event->accept();
+        return;
+    }
+    if (m_boxPending)
+        cancelSelectionBox();
+    QGraphicsView::keyPressEvent(event);
+}
+
+void SchematicView::focusOutEvent(QFocusEvent *event)
+{
+    cancelSelectionBox();
+    if (auto *schematic = qobject_cast<SchematicScene *>(scene())) schematic->cancelMove();
+    QGraphicsView::focusOutEvent(event);
+}
+
+void SchematicView::paintEvent(QPaintEvent *event)
+{
+    QGraphicsView::paintEvent(event);
+    if (!m_boxActive)
+        return;
+    QPainter painter(viewport());
+    const bool crossing = m_boxEnd.x() < m_boxStart.x();
+    const QColor color = crossing ? QColor(0, 135, 65) : QColor(35, 95, 210);
+    painter.setPen(QPen(color, 1, crossing ? Qt::DashLine : Qt::SolidLine));
+    QColor fill = color;
+    fill.setAlpha(30);
+    painter.setBrush(fill);
+    painter.drawRect(QRect(m_boxStart, m_boxEnd).normalized());
 }
 
 void SchematicView::dragEnterEvent(QDragEnterEvent *event)
@@ -127,19 +198,27 @@ void SchematicView::wheelEvent(QWheelEvent *event)
 void SchematicView::mouseMoveEvent(QMouseEvent *event)
 {
     emit mouseScenePositionChanged(mapToScene(event->pos()));
+    if (m_boxPending) {
+        updateSelectionBox(event->pos());
+        event->accept();
+        return;
+    }
     QGraphicsView::mouseMoveEvent(event);
 }
 
 void SchematicView::mousePressEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::MiddleButton) {
+        cancelSelectionBox();
+        if (auto *schematic = qobject_cast<SchematicScene *>(scene())) schematic->cancelMove();
         // Temporarily behave like left-button hand-drag panning without
-        // disturbing the default RubberBandDrag mode used for left-button
-        // rubber-band selection (see the constructor) - QGraphicsView's own
+        // disturbing custom left-button selection - QGraphicsView's own
         // ScrollHandDrag implementation only responds to the left button,
         // so a synthetic left-button press/release is forwarded while the
         // middle button is actually held.
         m_middleButtonPanning = true;
+        m_panningWasInteractive = isInteractive();
+        setInteractive(false);
         setDragMode(QGraphicsView::ScrollHandDrag);
         QMouseEvent fake(QEvent::MouseButtonPress, event->pos(), event->globalPosition(),
                          Qt::LeftButton, Qt::LeftButton, event->modifiers());
@@ -147,16 +226,40 @@ void SchematicView::mousePressEvent(QMouseEvent *event)
         event->accept();
         return;
     }
+    if (event->button() == Qt::LeftButton && !m_middleButtonPanning) {
+        if (auto *schematic = qobject_cast<SchematicScene *>(scene())) {
+            if (schematic->canStartSelectionBox(mapToScene(event->pos()))) {
+                emit schematic->selectionInteractionStarted();
+                setFocus(Qt::MouseFocusReason);
+                m_boxInitialSelection = schematic->selection();
+                m_boxStart = m_boxEnd = event->pos();
+                m_boxAdditive = event->modifiers().testFlag(Qt::ControlModifier);
+                m_boxPending = true;
+                event->accept();
+                return;
+            }
+        }
+    }
     QGraphicsView::mousePressEvent(event);
 }
 
 void SchematicView::mouseReleaseEvent(QMouseEvent *event)
 {
+    if (m_boxPending && event->button() == Qt::LeftButton) {
+        updateSelectionBox(event->pos());
+        if (!m_boxActive && !m_boxAdditive)
+            scene()->clearSelection();
+        m_boxPending = m_boxActive = false;
+        viewport()->update();
+        event->accept();
+        return;
+    }
     if (m_middleButtonPanning && event->button() == Qt::MiddleButton) {
         QMouseEvent fake(QEvent::MouseButtonRelease, event->pos(), event->globalPosition(),
                          Qt::LeftButton, Qt::NoButton, event->modifiers());
         QGraphicsView::mouseReleaseEvent(&fake);
-        setDragMode(QGraphicsView::RubberBandDrag);
+        setDragMode(QGraphicsView::NoDrag);
+        setInteractive(m_panningWasInteractive);
         m_middleButtonPanning = false;
         event->accept();
         return;

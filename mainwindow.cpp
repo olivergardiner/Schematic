@@ -1,4 +1,6 @@
 #include "mainwindow.h"
+#include "propertiespanel.h"
+#include "preferencesdialog.h"
 #include "schematicscene.h"
 #include "schematicview.h"
 
@@ -10,6 +12,8 @@
 #include "symbolimportdialog.h"
 
 #include <QApplication>
+#include <QClipboard>
+#include <QMimeData>
 #include <QAccessible>
 #include <QMenuBar>
 #include <QToolBar>
@@ -310,6 +314,7 @@ MainWindow::MainWindow(QWidget *parent)
     createMenus();
     createToolBar();
     createSymbolDock();
+    createPropertiesDock();
     createStatusBar();
     if (!symbolLoadWarnings.isEmpty())
         QMessageBox::warning(this, tr("Symbol Library"), symbolLoadWarnings.join(QLatin1Char('\n')));
@@ -324,12 +329,15 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onEditComponentLabels);
     connect(m_scene, &SchematicScene::selectionChanged,
             this, &MainWindow::updateRenameActionEnabled);
+    connect(m_scene, &SchematicScene::moveStateChanged,
+            this, &MainWindow::updateRenameActionEnabled);
     connect(m_scene, &SchematicScene::editModeChanged, this,
             [this](SchematicScene::EditMode mode) {
                 if (mode == SchematicScene::EditMode::Select && m_selectAction)
                     m_selectAction->setChecked(true);
                 else if (mode == SchematicScene::EditMode::DrawWire && m_drawWireAction)
                     m_drawWireAction->setChecked(true);
+                updateRenameActionEnabled();
             });
     connect(m_view, &SchematicView::symbolDropped, this,
             [this](const SymbolId &id, const QPointF &position) {
@@ -347,22 +355,64 @@ MainWindow::MainWindow(QWidget *parent)
     m_view->setGridSpacing(m_document.gridSpacing());
     m_scene->setEditCommitter([this](const QString &description,
                                      const std::function<bool()> &operation,
-                                     std::function<QVector<ComponentId>()> afterSelection) {
+                                     std::function<DocumentSelection()> afterSelection) {
         return m_editController->commit(description, operation, std::move(afterSelection));
     });
     m_editController->setSelectionCallbacks(
-        [this]() { return m_scene->selectedComponentIds(); },
-        [this](const QVector<ComponentId> &selection) {
+        [this]() { return m_scene->selection(); },
+        [this](const DocumentSelection &selection) {
             m_scene->restoreAfterDocumentChange(selection);
             syncGridControls();
             updateWindowTitle();
         });
     connect(m_editController->undoStack(), &QUndoStack::cleanChanged,
             this, &MainWindow::updateWindowTitle);
+    connect(QApplication::clipboard(), &QClipboard::dataChanged, this, [this] {
+        const auto *mime = QApplication::clipboard()->mimeData();
+        if (!mime || mime->data("application/x-schematic-fragment+json") != m_lastPastePayload) {
+            m_lastPastePayload.clear(); m_pasteCount = 0;
+        }
+        updateEditActions();
+    });
+    connect(qApp, &QApplication::focusChanged, this, [this](QWidget *, QWidget *now) {
+        if (!qobject_cast<QMenu *>(now) && !QApplication::activePopupWidget()) {
+            m_editTextTarget = now && isAncestorOf(now) ? qobject_cast<QLineEdit *>(now) : nullptr;
+        }
+        if (m_editTextTarget) {
+            connect(m_editTextTarget, &QLineEdit::textChanged, this, &MainWindow::updateEditActions, Qt::UniqueConnection);
+            connect(m_editTextTarget, &QLineEdit::selectionChanged, this, &MainWindow::updateEditActions, Qt::UniqueConnection);
+        }
+        updateRenameActionEnabled();
+    });
     updateRenameActionEnabled();
 }
 
-MainWindow::~MainWindow() = default;
+MainWindow::~MainWindow()
+{
+    disconnect(qApp, nullptr, this, nullptr);
+    disconnect(QApplication::clipboard(), nullptr, this, nullptr);
+    // Stop deferred editor callbacks and detach the scene while the model
+    // and controls are still alive, before QObject deletes child widgets.
+    delete m_propertiesDock;
+    m_propertiesPanel = nullptr;
+    disconnect(m_scene, nullptr, this, nullptr);
+    m_view->setScene(nullptr);
+    m_scene->bindDocument(nullptr);
+}
+
+void MainWindow::createPropertiesDock()
+{
+    m_propertiesDock = new QDockWidget(tr("Properties"),this);
+    m_propertiesDock->setObjectName("propertiesDock");
+    m_propertiesPanel = new PropertiesPanel(&m_document,m_scene,m_editController,m_propertiesDock);
+    m_propertiesDock->setWidget(m_propertiesPanel);
+    m_propertiesDock->setMinimumWidth(330);
+    addDockWidget(Qt::LeftDockWidgetArea,m_propertiesDock);
+    if (auto *symbols = findChild<QDockWidget *>("symbolDock")) {
+        splitDockWidget(symbols, m_propertiesDock, Qt::Vertical);
+        resizeDocks({symbols, m_propertiesDock}, {500, 300}, Qt::Vertical);
+    }
+}
 
 void MainWindow::createActions()
 {
@@ -397,6 +447,8 @@ void MainWindow::createMenus()
     exitAction->setShortcut(QKeySequence::Quit);
 
     auto *editMenu = menuBar()->addMenu(tr("&Edit"));
+    m_editMenu = editMenu;
+    connect(editMenu, &QMenu::aboutToShow, this, &MainWindow::updateEditActions);
     m_undoAction = m_editController->undoStack()->createUndoAction(this, tr("&Undo"));
     m_undoAction->setObjectName("undoAction");
     m_undoAction->setShortcut(QKeySequence::Undo);
@@ -409,7 +461,26 @@ void MainWindow::createMenus()
     m_redoAction->setIcon(historyIcon(true));
     m_redoAction->setToolTip(tr("Redo"));
     editMenu->addAction(m_redoAction);
+    disconnect(m_undoAction, nullptr, m_editController->undoStack(), nullptr);
+    disconnect(m_redoAction, nullptr, m_editController->undoStack(), nullptr);
+    connect(m_undoAction, &QAction::triggered, this, [this] {
+        if (m_editTextTarget) m_editTextTarget->undo(); else m_editController->undoStack()->undo();
+        updateEditActions();
+    });
+    connect(m_redoAction, &QAction::triggered, this, [this] {
+        if (m_editTextTarget) m_editTextTarget->redo(); else m_editController->undoStack()->redo();
+        updateEditActions();
+    });
 
+    editMenu->addSeparator();
+    const auto clipboardAction = [this,editMenu](const QString &title, const QString &operation, QKeySequence::StandardKey key) {
+        auto *action = editMenu->addAction(title, this, [this,operation] { clipboardEdit(operation); });
+        action->setObjectName(operation + "Action"); action->setShortcuts(key); return action;
+    };
+    m_cutAction = clipboardAction(tr("Cu&t"), "cut", QKeySequence::Cut);
+    m_copyAction = clipboardAction(tr("&Copy"), "copy", QKeySequence::Copy);
+    m_pasteAction = clipboardAction(tr("&Paste"), "paste", QKeySequence::Paste);
+    m_deleteAction = clipboardAction(tr("&Delete"), "delete", QKeySequence::Delete);
     editMenu->addSeparator();
     m_renameAction = editMenu->addAction(tr("&Rename..."), this,
                                          &MainWindow::onRenameSelectedComponent);
@@ -423,6 +494,11 @@ void MainWindow::createMenus()
     m_renameAction->setShortcutContext(Qt::WindowShortcut);
     m_renameAction->setEnabled(false); // Enabled only while exactly one component is selected.
     addAction(m_renameAction);
+
+    editMenu->addSeparator();
+    auto *preferencesAction = editMenu->addAction(tr("&Preferences…"), this, &MainWindow::onPreferences);
+    preferencesAction->setObjectName("preferencesAction");
+    preferencesAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Comma));
 
     auto *viewMenu = menuBar()->addMenu(tr("&View"));
     auto *zoomInAction = viewMenu->addAction(tr("Zoom &In"), m_view, &SchematicView::zoomIn);
@@ -492,27 +568,40 @@ void MainWindow::createToolBar()
 
     m_rotateLeftAction = editToolBar->addAction(transformIcon(TransformIcon::RotateLeft), tr("Rotate Left"));
     m_rotateLeftAction->setObjectName("rotateLeftComponentAction");
-    m_rotateLeftAction->setToolTip(tr("Rotate the selected component 90 degrees counterclockwise"));
+    m_rotateLeftAction->setToolTip(tr("Rotate the selection 90 degrees counterclockwise"));
     m_rotateLeftAction->setStatusTip(m_rotateLeftAction->toolTip());
     connect(m_rotateLeftAction, &QAction::triggered, this, &MainWindow::onRotateLeftSelectedComponent);
     m_rotateAction = editToolBar->addAction(transformIcon(TransformIcon::RotateRight), tr("Rotate Right"));
     m_rotateAction->setObjectName("rotateComponentAction");
-    m_rotateAction->setToolTip(tr("Rotate the selected component 90 degrees clockwise"));
+    m_rotateAction->setToolTip(tr("Rotate the selection 90 degrees clockwise"));
     m_rotateAction->setStatusTip(m_rotateAction->toolTip());
     connect(m_rotateAction, &QAction::triggered,
             this, &MainWindow::onRotateSelectedComponent);
     m_mirrorAction = editToolBar->addAction(transformIcon(TransformIcon::FlipHorizontal), tr("Flip Horizontal"));
     m_mirrorAction->setObjectName("mirrorComponentAction");
-    m_mirrorAction->setToolTip(tr("Flip the selected component left to right on the canvas"));
+    m_mirrorAction->setToolTip(tr("Flip the selection left to right on the canvas"));
     m_mirrorAction->setStatusTip(m_mirrorAction->toolTip());
     connect(m_mirrorAction, &QAction::triggered,
             this, &MainWindow::onMirrorSelectedComponent);
 
     m_flipVerticalAction = editToolBar->addAction(transformIcon(TransformIcon::FlipVertical), tr("Flip Vertical"));
     m_flipVerticalAction->setObjectName("flipVerticalComponentAction");
-    m_flipVerticalAction->setToolTip(tr("Flip the selected component top to bottom on the canvas"));
+    m_flipVerticalAction->setToolTip(tr("Flip the selection top to bottom on the canvas"));
     m_flipVerticalAction->setStatusTip(m_flipVerticalAction->toolTip());
     connect(m_flipVerticalAction, &QAction::triggered, this, &MainWindow::onFlipVerticalSelectedComponent);
+
+    m_rotateLeftAction->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_R));
+    m_rotateAction->setShortcut(QKeySequence(Qt::Key_R));
+    m_mirrorAction->setShortcut(QKeySequence(Qt::Key_H));
+    m_flipVerticalAction->setShortcut(QKeySequence(Qt::Key_V));
+    for (auto *action : {m_rotateLeftAction, m_rotateAction, m_mirrorAction, m_flipVerticalAction}) {
+        action->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+        m_view->addAction(action);
+        action->setToolTip(action->toolTip() + " (" + action->shortcut().toString(QKeySequence::NativeText) + ")");
+        m_editMenu->insertAction(m_renameAction, action);
+        if (action == m_rotateAction) m_editMenu->insertSeparator(m_renameAction);
+    }
+    m_editMenu->insertSeparator(m_renameAction);
 
     auto *viewToolBar = addToolBar(tr("View"));
     viewToolBar->setObjectName("viewToolBar");
@@ -812,9 +901,11 @@ bool MainWindow::maybeSave()
 
 void MainWindow::onNew()
 {
+    m_propertiesPanel->invalidate();
     if (!maybeSave())
         return;
 
+    m_lastPastePayload.clear(); m_pasteCount = 0;
     m_document = Document();
     m_scene->bindDocument(&m_document);
     m_editController->resetHistory();
@@ -825,6 +916,7 @@ void MainWindow::onNew()
 
 void MainWindow::onOpen()
 {
+    m_propertiesPanel->invalidate();
     const QString path = QFileDialog::getOpenFileName(this, tr("Open Schematic"), QString(),
         tr("Schematic Files (*.schematic);;All Files (*)"));
     if (!path.isEmpty()) openDocumentFrom(path);
@@ -832,6 +924,7 @@ void MainWindow::onOpen()
 
 bool MainWindow::openDocumentFrom(const QString &path)
 {
+    m_propertiesPanel->invalidate();
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
         QMessageBox::warning(this, tr("Schematic"),
@@ -886,6 +979,7 @@ bool MainWindow::openDocumentFrom(const QString &path)
         if (!updates.isEmpty()) rebuildSymbolDockContents();
     }
     if (result.conflicts.isEmpty() && !maybeSave()) return false;
+    m_lastPastePayload.clear(); m_pasteCount = 0;
     m_document = *result.document;
     m_scene->bindDocument(&m_document);
     m_editController->resetHistory();
@@ -1022,41 +1116,13 @@ void MainWindow::onFlipVerticalSelectedComponent() { flipSelectedComponent(FlipA
 
 void MainWindow::rotateSelectedComponent(int degrees)
 {
-    const std::optional<ComponentId> selected = m_scene->singleSelectedComponent();
-    if (!selected)
-        return;
-    const Component *component = m_document.component(*selected);
-    if (!component)
-        return;
-
-    const Rotation nextRotation = static_cast<Rotation>(
-        (static_cast<int>(component->rotation()) + degrees + 360) % 360);
-    if (!m_editController->commit(degrees > 0 ? tr("Rotate component right") : tr("Rotate component left"),
-            [this, id = *selected, nextRotation]() {
-                return m_document.rotateComponent(id, nextRotation);
-            })) {
-        statusBar()->showMessage(
-            tr("That component cannot be rotated without breaking a wire connection."), 3500);
-    }
+    m_scene->transformSelected(SelectionTransform::Kind::Rotate, degrees / 90);
 }
 
 void MainWindow::flipSelectedComponent(FlipAxis axis)
 {
-    const std::optional<ComponentId> selected = m_scene->singleSelectedComponent();
-    if (!selected)
-        return;
-    const Component *component = m_document.component(*selected);
-    if (!component)
-        return;
-
-    if (!m_editController->commit(axis == FlipAxis::Horizontal
-                ? tr("Flip component horizontally") : tr("Flip component vertically"),
-            [this, id = *selected, axis]() {
-                return m_document.flipComponent(id, axis);
-            })) {
-        statusBar()->showMessage(
-            tr("That component cannot be mirrored without breaking a wire connection."), 3500);
-    }
+    m_scene->transformSelected(axis == FlipAxis::Horizontal
+        ? SelectionTransform::Kind::FlipHorizontal : SelectionTransform::Kind::FlipVertical);
 }
 
 void MainWindow::onPlaceComponentKindChanged(const SymbolId &id)
@@ -1067,83 +1133,110 @@ void MainWindow::onPlaceComponentKindChanged(const SymbolId &id)
 
 void MainWindow::onEditComponentLabels(ComponentId componentId)
 {
-    const Component *component = m_document.component(componentId);
-    if (!component)
-        return;
-
-    QDialog dialog(this);
-    dialog.setWindowTitle(tr("Edit Component"));
-    auto *form = new QFormLayout;
-    auto *referenceEdit = new QLineEdit(component->reference(), &dialog);
-    auto *valueEdit = new QLineEdit(component->value(), &dialog);
-    form->addRow(tr("Reference:"), referenceEdit);
-    form->addRow(tr("Value:"), valueEdit);
-
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
-    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-
-    auto *layout = new QVBoxLayout(&dialog);
-    layout->addLayout(form);
-    layout->addWidget(buttons);
-
-    while (dialog.exec() == QDialog::Accepted) {
-        const QString reference = referenceEdit->text();
-        const QString value = valueEdit->text();
-        if (m_editController->commit(tr("Edit component labels"),
-                [this, componentId, reference, value]() {
-                    return m_document.setComponentLabels(componentId, reference, value);
-                })) {
-            return;
-        }
-        const Component *current = m_document.component(componentId);
-        if (current && current->reference() == reference.trimmed()
-            && current->value() == value.trimmed())
-            return;
-        QMessageBox::warning(&dialog, tr("Schematic"),
-            tr("The reference must be non-empty and unique among components."));
-    }
+    if (!m_document.component(componentId)) return;
+    m_scene->cancelMove();
+    m_scene->restoreSelection({{componentId}, {}});
+    m_propertiesDock->show();
+    m_propertiesDock->raise();
+    m_propertiesPanel->focusProperty("value");
 }
 
 void MainWindow::onRenameSelectedComponent()
 {
-    const std::optional<ComponentId> selected = m_scene->singleSelectedComponent();
-    if (!selected)
-        return;
-    const Component *component = m_document.component(*selected);
-    if (!component)
-        return;
-
-    bool ok = false;
-    const QString newReference = QInputDialog::getText(this, tr("Rename Component"),
-        tr("Reference:"), QLineEdit::Normal, component->reference(), &ok);
-    if (!ok)
-        return;
-
-    if (!m_editController->commit(tr("Rename component"),
-            [this, id = *selected, newReference]() {
-                const Component *current = m_document.component(id);
-                return current && m_document.setComponentLabels(id, newReference,
-                                                                 current->value());
-            })) {
-        const Component *current = m_document.component(*selected);
-        if (current && current->reference() == newReference.trimmed())
-            return;
-        QMessageBox::warning(this, tr("Schematic"),
-            tr("The reference must be non-empty and unique among components."));
-        return;
-    }
+    if (!m_scene->singleSelectedComponent()) return;
+    m_propertiesDock->show();
+    m_propertiesDock->raise();
+    m_propertiesPanel->focusProperty("reference");
 }
-
 void MainWindow::updateRenameActionEnabled()
 {
     const bool oneComponentSelected = m_scene->singleSelectedComponent().has_value();
+    const bool canTransform = !m_editTextTarget && !m_scene->selection().isEmpty()
+        && m_scene->editMode() == SchematicScene::EditMode::Select && !m_scene->moveInProgress();
     if (m_renameAction)
         m_renameAction->setEnabled(oneComponentSelected);
-    if (m_rotateLeftAction) m_rotateLeftAction->setEnabled(oneComponentSelected);
-    if (m_flipVerticalAction) m_flipVerticalAction->setEnabled(oneComponentSelected);
+    if (m_rotateLeftAction) m_rotateLeftAction->setEnabled(canTransform);
+    if (m_flipVerticalAction) m_flipVerticalAction->setEnabled(canTransform);
     if (m_rotateAction)
-        m_rotateAction->setEnabled(oneComponentSelected);
+        m_rotateAction->setEnabled(canTransform);
     if (m_mirrorAction)
-        m_mirrorAction->setEnabled(oneComponentSelected);
+        m_mirrorAction->setEnabled(canTransform);
+    updateEditActions();
+}
+
+namespace {
+constexpr auto schematicClipboardMime = "application/x-schematic-fragment+json";
+}
+
+void MainWindow::updateEditActions()
+{
+    if (!m_cutAction) return;
+    const auto *mime = QApplication::clipboard()->mimeData();
+    m_undoAction->setEnabled(m_editTextTarget ? m_editTextTarget->isUndoAvailable() : m_editController->undoStack()->canUndo());
+    m_redoAction->setEnabled(m_editTextTarget ? m_editTextTarget->isRedoAvailable() : m_editController->undoStack()->canRedo());
+    if (m_editTextTarget) {
+        const bool editable = !m_editTextTarget->isReadOnly();
+        m_copyAction->setEnabled(m_editTextTarget->hasSelectedText());
+        m_cutAction->setEnabled(editable && m_editTextTarget->hasSelectedText());
+        m_pasteAction->setEnabled(editable && mime && mime->hasText());
+        m_deleteAction->setEnabled(editable && (m_editTextTarget->hasSelectedText()
+            || m_editTextTarget->cursorPosition() < m_editTextTarget->text().size()));
+    } else {
+        const bool ready = m_scene->editMode() == SchematicScene::EditMode::Select && !m_scene->moveInProgress();
+        const bool selected = ready && !m_scene->selection().isEmpty();
+        m_copyAction->setEnabled(selected); m_cutAction->setEnabled(selected);
+        m_deleteAction->setEnabled(selected);
+        m_pasteAction->setEnabled(ready && mime && mime->hasFormat(schematicClipboardMime));
+    }
+}
+
+void MainWindow::clipboardEdit(const QString &operation)
+{
+    if (m_editTextTarget) {
+        if (operation == "copy") m_editTextTarget->copy();
+        else if (operation == "cut") m_editTextTarget->cut();
+        else if (operation == "paste") m_editTextTarget->paste();
+        else if (operation == "delete" && !m_editTextTarget->isReadOnly()) m_editTextTarget->del();
+        updateEditActions(); return;
+    }
+    if (m_scene->editMode() != SchematicScene::EditMode::Select || m_scene->moveInProgress()) return;
+    if (m_propertiesPanel) m_propertiesPanel->invalidate();
+    if (operation == "delete") { m_scene->deleteSelection(); return; }
+    auto *clipboard = QApplication::clipboard();
+    const auto selection = m_scene->selection();
+    QStringList errors;
+    if (operation == "copy" || operation == "cut") {
+        const auto bytes = m_document.copyFragment(selection.components, selection.wires, &errors);
+        if (bytes.isEmpty()) { onSceneStatusMessage(errors.join('\n')); return; }
+        auto *mime = new QMimeData; mime->setData(schematicClipboardMime, bytes); clipboard->setMimeData(mime);
+        if (!clipboard->mimeData() || clipboard->mimeData()->data(schematicClipboardMime) != bytes) {
+            onSceneStatusMessage(tr("Could not publish the schematic selection to the clipboard.")); return;
+        }
+        m_lastPastePayload.clear(); m_pasteCount = 0;
+        if (operation == "cut") m_editController->commit(tr("Cut selection"), [this,selection] {
+            bool changed = false;
+            for (auto id : selection.wires) changed |= m_document.removeWire(id);
+            for (auto id : selection.components) changed |= m_document.removeComponent(id);
+            return changed;
+        }, [] { return DocumentSelection{}; });
+    } else if (operation == "paste") {
+        const auto *mime = clipboard->mimeData();
+        if (!mime || !mime->hasFormat(schematicClipboardMime)) return;
+        const auto bytes = mime->data(schematicClipboardMime);
+        const int count = bytes == m_lastPastePayload ? m_pasteCount + 1 : 1;
+        const qreal distance = count * m_document.gridSpacing();
+        DocumentSelection added;
+        if (m_editController->commit(tr("Paste selection"), [this,&added,&errors,bytes,distance] {
+            return m_document.pasteFragment(bytes, {distance,distance}, &added.components, &added.wires, &errors);
+        }, [&added] { return added; })) {
+            m_lastPastePayload = bytes; m_pasteCount = count;
+        } else onSceneStatusMessage(errors.join('\n'));
+    }
+    updateEditActions();
+}
+
+void MainWindow::onPreferences()
+{
+    PreferencesDialog dialog(this);
+    dialog.exec();
 }

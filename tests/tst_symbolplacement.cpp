@@ -36,6 +36,7 @@ class SymbolPlacementTests : public QObject
     Q_OBJECT
 
 private slots:
+    void newPackagedSymbolsPlaceWireAndUndo();
     void dropPlacementSnapsSelectsAndUndoRedoes();
     void unknownSymbolIsRejectedWithoutHistory();
     void escapeCancelsDraftAndReturnsToSelect();
@@ -55,11 +56,11 @@ void SymbolPlacementTests::dropPlacementSnapsSelectsAndUndoRedoes()
     scene.setPlaceComponentKind(SymbolIds::Resistor);
     scene.setEditCommitter([&edits](const QString &description,
                                     const std::function<bool()> &operation,
-                                    std::function<QVector<ComponentId>()> afterSelection) {
+                                    std::function<DocumentSelection()> afterSelection) {
         return edits.commit(description, operation, std::move(afterSelection));
     });
-    edits.setSelectionCallbacks([&scene]() { return scene.selectedComponentIds(); },
-                               [&scene](const QVector<ComponentId> &selection) {
+    edits.setSelectionCallbacks([&scene]() { return scene.selection(); },
+                               [&scene](const DocumentSelection &selection) {
         scene.restoreAfterDocumentChange(selection);
     });
 
@@ -97,7 +98,7 @@ void SymbolPlacementTests::unknownSymbolIsRejectedWithoutHistory()
     scene.bindDocument(&document);
     scene.setEditCommitter([&edits](const QString &description,
                                     const std::function<bool()> &operation,
-                                    std::function<QVector<ComponentId>()> afterSelection) {
+                                    std::function<DocumentSelection()> afterSelection) {
         return edits.commit(description, operation, std::move(afterSelection));
     });
 
@@ -120,7 +121,7 @@ void SymbolPlacementTests::escapeCancelsDraftAndReturnsToSelect()
     scene.bindDocument(&document);
     scene.setEditCommitter([&edits](const QString &description,
                                     const std::function<bool()> &operation,
-                                    std::function<QVector<ComponentId>()> afterSelection) {
+                                    std::function<DocumentSelection()> afterSelection) {
         return edits.commit(description, operation, std::move(afterSelection));
     });
     QVector<SchematicScene::EditMode> modeChanges;
@@ -140,6 +141,38 @@ void SymbolPlacementTests::escapeCancelsDraftAndReturnsToSelect()
     scene.pressAt(document.terminalPosition(*document.component(right), 0));
     QVERIFY(document.wires().isEmpty());
     scene.pressEscape();
+}
+
+void SymbolPlacementTests::newPackagedSymbolsPlaceWireAndUndo()
+{
+    for (const auto &symbol : {SymbolIds::ElectrolyticCapacitor, SymbolIds::OpAmpGrid10}) {
+        Document document;
+        DocumentEditController edits(&document);
+        SchematicScene scene;
+        scene.bindDocument(&document);
+        scene.setEditCommitter([&](const QString &label, const std::function<bool()> &operation,
+                                   std::function<DocumentSelection()> after) {
+            return edits.commit(label, operation, std::move(after));
+        });
+        edits.setSelectionCallbacks([&]() { return scene.selection(); },
+            [&](const DocumentSelection &selected) { scene.restoreAfterDocumentChange(selected); });
+        QVERIFY(scene.placeComponentAt(symbol, {3,7}));
+        const auto a = *scene.singleSelectedComponent();
+        QCOMPARE(document.component(a)->position(), QPointF(0,10));
+        QVERIFY(scene.placeComponentAt(symbol, {103,7}));
+        const auto b = *scene.singleSelectedComponent();
+        QVERIFY(edits.commit("Connect new symbols", [&]() {
+            return document.addWire(makeTerminalEndpoint(a,0), {}, makeTerminalEndpoint(b,0)).has_value();
+        }));
+        QCOMPARE(document.wires().size(), 1);
+        edits.undoStack()->undo(); QVERIFY(document.wires().isEmpty());
+        edits.undoStack()->undo(); QVERIFY(!document.component(b));
+        edits.undoStack()->undo(); QVERIFY(document.components().isEmpty());
+        edits.undoStack()->redo(); edits.undoStack()->redo(); edits.undoStack()->redo();
+        QCOMPARE(document.components().size(), 2);
+        QCOMPARE(document.wires().size(), 1);
+        QCOMPARE(document.component(a)->symbolId(), symbol);
+    }
 }
 
 QTEST_MAIN(SymbolPlacementTests)

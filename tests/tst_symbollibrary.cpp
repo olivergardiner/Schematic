@@ -2,6 +2,8 @@
 
 #include "symbollibrary.h"
 #include "symbolsvg.h"
+#include "document.h"
+#include "documentloadresult.h"
 
 #include <QDir>
 #include <QFile>
@@ -75,17 +77,19 @@ void checkKinds(const SymbolId &id, const QVector<PrimitiveKind> &expected)
 
 } // namespace
 
-void TstSymbolLibrary::builtinLibraryHasSevenSymbolsWithExpectedMetadata()
+void TstSymbolLibrary::builtinLibraryHasExpectedMetadata()
 {
     struct Expected { SymbolId id; const char *name; const char *category; const char *prefix; bool shows; };
     const QVector<Expected> expected = {
         {SymbolIds::Resistor,      "Resistor",          "Passives",   "R",   true},
         {SymbolIds::Capacitor,     "Capacitor",         "Passives",   "C",   true},
+        {SymbolIds::ElectrolyticCapacitor, "Electrolytic Capacitor", "Passives", "C", true},
         {SymbolIds::Diode,         "Diode",             "Semiconductors/Diodes", "D", true},
         {SymbolIds::Ground,        "Ground",            "Signals",    "GND", false},
-        {SymbolIds::OpAmp,         "Op-Amp",            "Semiconductors/ICs", "U", true},
+        {SymbolIds::OpAmpGrid10,   "Op-Amp",            "Semiconductors/ICs", "U", true},
         {SymbolIds::Potentiometer, "Potentiometer",     "Passives",   "VR",  true},
         {SymbolIds::Jack,          "Input/Output Jack", "Connectors", "J",   true},
+        {SymbolIds::OpAmp, "Op-Amp (Legacy)", "Compatibility/Legacy Symbols", "U", true},
     };
     const SymbolLibrary &library = builtinSymbolLibrary();
     QCOMPARE(library.size(), expected.size());
@@ -100,11 +104,62 @@ void TstSymbolLibrary::builtinLibraryHasSevenSymbolsWithExpectedMetadata()
     }
 }
 
+void TstSymbolLibrary::packagedArtworkMatchesTemplates()
+{
+    struct Template { const char *file; SymbolId id; };
+    const QVector<Template> templates{
+        {"resistor", SymbolIds::Resistor}, {"capacitor", SymbolIds::Capacitor},
+        {"electrolytic-capacitor", SymbolIds::ElectrolyticCapacitor}, {"op-amp", SymbolIds::OpAmpGrid10}};
+    SymbolLibrary coexist = builtinSymbolLibrary();
+    for (const auto &entry : templates) {
+        const QString base = QString("../symbol-templates/grid10/%1").arg(entry.file);
+        const QString metadataPath = QTest::qFindTestData(qPrintable(base + ".json"), __FILE__, __LINE__);
+        const QString svgPath = QTest::qFindTestData(qPrintable(base + ".svg"), __FILE__, __LINE__);
+        QFile metadata(metadataPath), svg(svgPath);
+        QVERIFY(metadata.open(QIODevice::ReadOnly)); QVERIFY(svg.open(QIODevice::ReadOnly));
+        auto imported = SymbolSvgImporter::importSymbol(metadata.readAll(), svg.readAll(), QFileInfo(svg).absolutePath());
+        QVERIFY2(imported.symbol, qPrintable(imported.errors.join('\n')));
+        const auto *packaged = builtinSymbolLibrary().find(entry.id);
+        QVERIFY(packaged);
+        QStringList errors;
+        // Existing manually imported Grid10.* entries have distinct identities.
+        QVERIFY2(coexist.add(*imported.symbol, &errors), qPrintable(errors.join('\n')));
+        imported.symbol->id = packaged->id;
+        imported.symbol->displayName = packaged->displayName;
+        imported.symbol->category = packaged->category;
+        QCOMPARE(SymbolLibrary::symbolToJson(*imported.symbol), SymbolLibrary::symbolToJson(*packaged));
+        Document document;
+        const auto a = document.addComponent(entry.id, {0,0});
+        const auto b = document.addComponent(entry.id, {100,0});
+        QVERIFY(a != kInvalidComponentId && b != kInvalidComponentId);
+        const auto wire = document.addWire(makeTerminalEndpoint(a,0), {}, makeTerminalEndpoint(b,0));
+        QVERIFY(wire);
+        QVERIFY(document.transformSelection({a,b}, {}, {SelectionTransform::Kind::Translate, {10,10}}));
+        QVERIFY(document.transformSelection({a,b}, {}, {SelectionTransform::Kind::Rotate, {}, {}, 1}));
+        QVERIFY(document.transformSelection({a,b}, {}, {SelectionTransform::Kind::FlipHorizontal}));
+        const auto loaded = Document::fromJsonBytes(document.toJsonBytes());
+        QVERIFY(loaded.document);
+        QCOMPARE(loaded.document->toJsonBytes(), document.toJsonBytes());
+    }
+    QCOMPARE(coexist.size(), 13);
+    const auto *capacitor = builtinSymbolLibrary().find(SymbolIds::Capacitor);
+    QCOMPARE(capacitor->primitives[2].fillColor, PrimitiveFillColor::Black);
+    QCOMPARE(capacitor->primitives[3].fillColor, PrimitiveFillColor::Black);
+    const auto *electrolytic = builtinSymbolLibrary().find(SymbolIds::ElectrolyticCapacitor);
+    QCOMPARE(electrolytic->primitives[2].fillColor, PrimitiveFillColor::White);
+    QCOMPARE(electrolytic->primitives[3].fillColor, PrimitiveFillColor::Black);
+}
+
 void TstSymbolLibrary::builtinTerminalsAreFrozen()
 {
     checkTerminals(SymbolIds::Resistor, {{"1", -20, 0}, {"2", 20, 0}});
     if (QTest::currentTestFailed()) return;
     checkTerminals(SymbolIds::Capacitor, {{"1", -20, 0}, {"2", 20, 0}});
+    if (QTest::currentTestFailed()) return;
+    checkTerminals(SymbolIds::ElectrolyticCapacitor, {{"+", -20, 0}, {"-", 20, 0}});
+    if (QTest::currentTestFailed()) return;
+    checkTerminals(SymbolIds::OpAmpGrid10, {{"in+", -30, -10}, {"in-", -30, 10}, {"out", 30, 0},
+                                         {"v+", 0, -20}, {"v-", 0, 20}});
     if (QTest::currentTestFailed()) return;
     checkTerminals(SymbolIds::Diode, {{"anode", -20, 0}, {"cathode", 20, 0}});
     if (QTest::currentTestFailed()) return;
@@ -121,9 +176,13 @@ void TstSymbolLibrary::builtinTerminalsAreFrozen()
 void TstSymbolLibrary::builtinPrimitiveShapes()
 {
     using K = PrimitiveKind;
-    checkKinds(SymbolIds::Resistor, {K::Line, K::Line, K::Polygon});
+    checkKinds(SymbolIds::Resistor, {K::Polygon, K::Line, K::Line});
     if (QTest::currentTestFailed()) return;
-    checkKinds(SymbolIds::Capacitor, {K::Line, K::Line, K::Line, K::Line});
+    checkKinds(SymbolIds::Capacitor, {K::Line, K::Line, K::Polygon, K::Polygon});
+    if (QTest::currentTestFailed()) return;
+    checkKinds(SymbolIds::ElectrolyticCapacitor, {K::Line, K::Line, K::Polygon, K::Polygon, K::Line, K::Line});
+    if (QTest::currentTestFailed()) return;
+    checkKinds(SymbolIds::OpAmpGrid10, {K::Polygon, K::Line, K::Line, K::Line, K::Line, K::Line, K::Line, K::Line, K::Line});
     if (QTest::currentTestFailed()) return;
     checkKinds(SymbolIds::Diode, {K::Line, K::Line, K::Polygon, K::Line});
     if (QTest::currentTestFailed()) return;
@@ -623,6 +682,7 @@ void TstSymbolLibrary::symbolSvgRoundTripsBuiltinLibrary()
             QCOMPARE(b.radius,a.radius);
             QCOMPARE(b.filled.value_or(b.kind==PrimitiveKind::Polygon),
                      a.filled.value_or(a.kind==PrimitiveKind::Polygon));
+            QCOMPARE(b.fillColor, a.fillColor);
             QCOMPARE(b.fillRule,a.fillRule);
             QCOMPARE(b.segments.size(),a.segments.size());
             for (int j=0;j<a.segments.size();++j) {
@@ -635,6 +695,84 @@ void TstSymbolLibrary::symbolSvgRoundTripsBuiltinLibrary()
     LibrarySymbol unsafe=makeValid();
     unsafe.id=SymbolId(QStringLiteral("../unsafe"));
     QVERIFY(!SymbolSvgExporter::exportSymbol(unsafe).errors.isEmpty());
+}
+
+void TstSymbolLibrary::monochromeFillJsonAndLegacyDefaults()
+{
+    auto symbol = makeValid();
+    SymbolPrimitive polygon;
+    polygon.kind = PrimitiveKind::Polygon;
+    polygon.points = {{-10,-10}, {10,-10}, {10,10}, {-10,10}};
+    symbol.primitives = {polygon};
+    const auto legacy = SymbolLibrary::symbolToJson(symbol);
+    QStringList errors;
+    auto parsed = SymbolLibrary::parseSymbol(legacy, &errors);
+    QVERIFY(parsed);
+    QVERIFY(primitiveIsFilled(parsed->primitives.first()));
+    QCOMPARE(parsed->primitives.first().fillColor, PrimitiveFillColor::White);
+    auto explicitWhite = legacy;
+    auto primitives = explicitWhite["primitives"].toArray();
+    auto entry = primitives[0].toObject(); entry["fillColor"] = "white";
+    primitives[0] = entry; explicitWhite["primitives"] = primitives;
+    parsed = SymbolLibrary::parseSymbol(explicitWhite, &errors);
+    QVERIFY(parsed);
+    QCOMPARE(SymbolLibrary::symbolToJson(*parsed), legacy);
+    symbol.primitives[0].fillColor = PrimitiveFillColor::Black;
+    const auto black = SymbolLibrary::symbolToJson(symbol);
+    parsed = SymbolLibrary::parseSymbol(black, &errors);
+    QVERIFY(parsed);
+    QCOMPARE(parsed->primitives.first().fillColor, PrimitiveFillColor::Black);
+    QCOMPARE(SymbolLibrary::symbolToJson(*parsed), black);
+    for (const QJsonValue bad : {QJsonValue("red"), QJsonValue(true), QJsonValue(42), QJsonValue()}) {
+        auto invalid = black;
+        auto items = invalid["primitives"].toArray();
+        auto item = items[0].toObject(); item["fillColor"] = bad; items[0] = item;
+        invalid["primitives"] = items;
+        errors.clear(); QVERIFY(!SymbolLibrary::parseSymbol(invalid, &errors)); QVERIFY(!errors.isEmpty());
+    }
+    symbol.primitives[0].filled = false;
+    QVERIFY(!validateLibrarySymbol(symbol).isEmpty());
+    symbol.primitives[0].filled = true;
+    symbol.primitives[0].fillColor = static_cast<PrimitiveFillColor>(99);
+    QVERIFY(!validateLibrarySymbol(symbol).isEmpty());
+    // Preserve previously accepted open-primitive white flags, but not black.
+    symbol = makeValid(); symbol.primitives[0].filled = true;
+    QVERIFY(validateLibrarySymbol(symbol).isEmpty());
+    symbol.primitives[0].fillColor = PrimitiveFillColor::Black;
+    QVERIFY(!validateLibrarySymbol(symbol).isEmpty());
+}
+
+void TstSymbolLibrary::svgMonochromeFillsAndInheritance()
+{
+    const auto artwork = SymbolSvgImporter::importArtwork(QByteArrayLiteral(
+        "<svg><g fill='white'><rect width='20' height='20'/><g fill='black'>"
+        "<circle r='5'/><polygon fill='none' points='0,0 10,0 0,10'/>"
+        "<path fill='white' d='M0 0H20V20H0Z'/></g></g><rect width='4' height='4'/></svg>"));
+    QVERIFY2(artwork.errors.isEmpty(), qPrintable(artwork.errors.join('\n')));
+    QCOMPARE(artwork.primitives.size(), 5);
+    QCOMPARE(artwork.primitives[0].fillColor, PrimitiveFillColor::White);
+    QCOMPARE(artwork.primitives[1].fillColor, PrimitiveFillColor::Black);
+    QVERIFY(!primitiveIsFilled(artwork.primitives[2]));
+    QCOMPARE(artwork.primitives[3].fillColor, PrimitiveFillColor::White);
+    QCOMPARE(artwork.primitives[4].fillColor, PrimitiveFillColor::Black); // SVG default
+    for (const auto &color : QStringList{"BLACK", "#000", "#000000", "rgb(0, 0, 0)",
+                                       "White", "#FFF", "#ffffff", "rgb(255, 255, 255)"}) {
+        const auto imported = SymbolSvgImporter::importArtwork(
+            QString("<svg><rect style='fill:%1' width='20' height='20'/></svg>").arg(color).toUtf8());
+        QVERIFY(imported.errors.isEmpty());
+        auto symbol = makeValid(); symbol.primitives = imported.primitives;
+        const auto exported = SymbolSvgExporter::exportSymbol(symbol);
+        QVERIFY(exported.errors.isEmpty());
+        const auto again = SymbolSvgImporter::importSymbol(exported.sidecar, exported.svg, "/symbols");
+        QVERIFY(again.symbol);
+        QCOMPARE(SymbolLibrary::symbolToJson(*again.symbol), SymbolLibrary::symbolToJson(symbol));
+    }
+    for (const auto &color : QStringList{"red", "currentColor", "url(#paint)", "transparent", "#0008"}) {
+        const auto imported = SymbolSvgImporter::importArtwork(
+            QString("<svg><rect fill='%1' width='20' height='20'/></svg>").arg(color).toUtf8());
+        QVERIFY(!imported.errors.isEmpty());
+        QVERIFY(imported.errors.join(' ').contains("unsupported fill"));
+    }
 }
 
 void TstSymbolLibrary::symbolJsonSerializationAndArtworkOnlyImportRoundTrip()

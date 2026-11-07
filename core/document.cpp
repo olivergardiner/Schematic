@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <QSet>
+#include <QRegularExpression>
 
 namespace {
 
@@ -124,6 +126,9 @@ ComponentId Document::addComponent(const SymbolId &symbolId, QPointF position, R
     for (const Component &existing : m_components)
         used.insert(existing.reference());
     item.setReference(firstUnusedReference(symbol->referencePrefix, used));
+    auto properties = item.properties();
+    properties[0].visible = symbol->showsReference;
+    item.setProperties(properties);
     m_components.append(item);
     return id;
 }
@@ -196,25 +201,176 @@ bool Document::commitComponentChange(ComponentId id, const Component &changed)
     return true;
 }
 
-bool Document::setComponentLabels(ComponentId id, const QString &reference, const QString &value)
+bool Document::transformSelection(const QVector<ComponentId> &componentIds,
+                                  const QVector<WireId> &wireIds,
+                                  const SelectionTransform &transform)
 {
-    auto it = std::find_if(m_components.begin(), m_components.end(),
-                           [id](const Component &item) { return item.id() == id; });
-    if (it == m_components.end())
+    const auto finite = [](QPointF p) { return std::isfinite(p.x()) && std::isfinite(p.y()); };
+    if ((componentIds.isEmpty() && wireIds.isEmpty())
+        || !finite(transform.displacement) || !finite(transform.pivot))
         return false;
-
-    const QString trimmedReference = reference.trimmed();
-    const QString trimmedValue = value.trimmed();
-    if (trimmedReference.isEmpty())
-        return false;
-
-    for (const Component &other : m_components) {
-        if (other.id() != id && other.reference() == trimmedReference)
-            return false;
+    const int turns = (transform.quarterTurns % 4 + 4) % 4;
+    switch (transform.kind) {
+    case SelectionTransform::Kind::Translate:
+    case SelectionTransform::Kind::Rotate:
+    case SelectionTransform::Kind::FlipHorizontal:
+    case SelectionTransform::Kind::FlipVertical: break;
+    default: return false;
+    }
+    const auto map = [&](QPointF p) {
+        if (transform.kind == SelectionTransform::Kind::Translate)
+            return p + transform.displacement;
+        QPointF offset = p - transform.pivot;
+        if (transform.kind == SelectionTransform::Kind::Rotate)
+            offset = rotateOffset(offset, static_cast<Rotation>(turns * 90));
+        else if (transform.kind == SelectionTransform::Kind::FlipHorizontal)
+            offset.setX(-offset.x());
+        else
+            offset.setY(-offset.y());
+        return transform.pivot + offset;
+    };
+    QSet<ComponentId> selectedComponents;
+    QSet<WireId> movingRoutes;
+    for (ComponentId id : componentIds) {
+        if (!component(id)) return false;
+        selectedComponents.insert(id);
+    }
+    for (WireId id : wireIds) {
+        if (!wire(id)) return false;
+        movingRoutes.insert(id);
+    }
+    for (const WireRoute &route : m_wires) {
+        if (isTerminal(route.start) && isTerminal(route.end)
+            && selectedComponents.contains(std::get<TerminalRef>(route.start).component)
+            && selectedComponents.contains(std::get<TerminalRef>(route.end).component))
+            movingRoutes.insert(route.id);
     }
 
-    it->setReference(trimmedReference);
-    it->setValue(trimmedValue);
+    Document candidate = *this;
+    for (Component &item : candidate.m_components) {
+        if (!selectedComponents.contains(item.id())) continue;
+        item.setPosition(map(item.position()));
+        int degrees = static_cast<int>(item.rotation());
+        if (transform.kind == SelectionTransform::Kind::Rotate)
+            degrees = (degrees + turns * 90) % 360;
+        else if (transform.kind != SelectionTransform::Kind::Translate) {
+            degrees = (360 + (transform.kind == SelectionTransform::Kind::FlipVertical ? 180 : 0)
+                       - degrees) % 360;
+            item.setMirrored(!item.mirrored());
+        }
+        item.setRotation(static_cast<Rotation>(degrees));
+        if (!finite(item.position())) return false;
+    }
+    for (auto node = candidate.m_nodes.begin(); node != candidate.m_nodes.end(); ++node) {
+        bool incident = false;
+        bool allMoving = true;
+        for (const WireRoute &route : m_wires) {
+            if ((isNode(route.start) && std::get<NodeId>(route.start) == node.key())
+                || (isNode(route.end) && std::get<NodeId>(route.end) == node.key())) {
+                incident = true;
+                allMoving &= movingRoutes.contains(route.id);
+            }
+        }
+        if (incident && allMoving) node.value() = map(node.value());
+        if (!finite(node.value())) return false;
+    }
+    for (WireRoute &route : candidate.m_wires) {
+        if (movingRoutes.contains(route.id)) {
+            for (QPointF &point : route.vertices) point = map(point);
+        }
+        QPointF start, end;
+        if (!candidate.endpointPosition(route.start, &start)
+            || !candidate.endpointPosition(route.end, &end)) return false;
+        const bool startChanged = !samePoint(route.vertices.first(), start);
+        const bool endChanged = !samePoint(route.vertices.last(), end);
+        // Stage BOTH identity-derived endpoints before corner insertion or
+        // validation. Intermediate single-end states need not be valid.
+        auto &points = route.vertices;
+        points.first() = start;
+        points.last() = end;
+        if (startChanged) {
+            while (points.size() > 2 && samePoint(points[0], points[1])) points.removeAt(1);
+        }
+        if (endChanged) {
+            while (points.size() > 2 && samePoint(points.last(), points[points.size() - 2]))
+                points.removeAt(points.size() - 2);
+        }
+        if (startChanged && !near(points[0].x(), points[1].x())
+            && !near(points[0].y(), points[1].y()))
+            points.insert(1, QPointF(points[0].x(), points[1].y()));
+        if (endChanged && !near(points.last().x(), points[points.size() - 2].x())
+            && !near(points.last().y(), points[points.size() - 2].y()))
+            points.insert(points.size() - 1, QPointF(points.last().x(), points[points.size() - 2].y()));
+        if (validateRouteGeometry(points) != RouteGeometryError::None) return false;
+    }
+    m_components = std::move(candidate.m_components);
+    m_nodes = std::move(candidate.m_nodes);
+    m_wires = std::move(candidate.m_wires);
+    return true;
+}
+
+bool Document::setComponentLabels(ComponentId id, const QString &reference, const QString &value)
+{
+    return editProperties({id}, {{PropertyEdit::Kind::SetValue, "reference", {}, reference},
+                                 {PropertyEdit::Kind::SetValue, "value", {}, value}});
+}
+
+bool Document::editProperties(const QVector<ComponentId> &ids, const QVector<PropertyEdit> &edits,
+                              QStringList *errors)
+{
+    const auto fail = [&](const QString &message) { if (errors) errors->append(message); return false; };
+    if (ids.isEmpty() || edits.isEmpty()) return fail(QStringLiteral("No properties selected."));
+    const QRegularExpression key("^[a-z][a-z0-9_]*$");
+    for (const auto &edit : edits)
+        if (!key.match(edit.id).hasMatch()) return fail(QStringLiteral("Invalid property ID."));
+    QSet<ComponentId> targets;
+    for (auto id : ids) {
+        if (!component(id)) return fail(QStringLiteral("A selected component no longer exists."));
+        targets.insert(id);
+    }
+    auto candidate = m_components;
+    for (auto &item : candidate) {
+        if (!targets.contains(item.id())) continue;
+        auto properties = item.properties();
+        for (const auto &edit : edits) {
+            auto found = std::find_if(properties.begin(), properties.end(), [&](const InstanceProperty &p) { return p.id == edit.id; });
+            const bool reserved = edit.id == "reference" || edit.id == "value";
+            switch (edit.kind) {
+            case PropertyEdit::Kind::Add:
+                if (reserved || found != properties.end()) return fail(QStringLiteral("That property already exists or is reserved."));
+                properties.append({edit.id, edit.name.trimmed(), edit.value.trimmed(), edit.visible});
+                break;
+            case PropertyEdit::Kind::Remove:
+                if (reserved) return fail(QStringLiteral("Reference and Value cannot be removed."));
+                if (found != properties.end()) properties.erase(found);
+                break;
+            case PropertyEdit::Kind::Rename:
+                if (reserved || found == properties.end()) return fail(QStringLiteral("Only an existing custom property can be renamed."));
+                found->name = edit.name.trimmed();
+                break;
+            case PropertyEdit::Kind::SetValue:
+            case PropertyEdit::Kind::SetVisible:
+                if (found == properties.end()) {
+                    if (reserved) return fail(QStringLiteral("Missing reserved property."));
+                    properties.append({edit.id, edit.name.isEmpty() ? edit.id : edit.name.trimmed(), {}, false});
+                    found = properties.end() - 1;
+                }
+                if (edit.kind == PropertyEdit::Kind::SetValue) found->value = edit.value.trimmed();
+                else found->visible = edit.visible;
+                break;
+            default: return fail(QStringLiteral("Unknown property operation."));
+            }
+        }
+        const auto problems = validateInstanceProperties(properties);
+        if (!problems.isEmpty()) return fail(problems.join('\n'));
+        item.setProperties(properties);
+    }
+    QSet<QString> references;
+    for (const auto &item : candidate) {
+        if (references.contains(item.reference())) return fail(QStringLiteral("Reference must be unique among components."));
+        references.insert(item.reference());
+    }
+    m_components = std::move(candidate);
     return true;
 }
 
@@ -586,4 +742,16 @@ WireId Document::allocateWireId()
     if (m_nextWireId == kInvalidWireId)
         return kInvalidWireId;
     return m_nextWireId++;
+}
+
+// Presentation-only edit: validate all targets before changing any instance.
+bool Document::setPropertyBlockOffset(const QVector<ComponentId> &ids, std::optional<QPointF> offset)
+{
+    if (ids.isEmpty() || (offset && (!std::isfinite(offset->x()) || !std::isfinite(offset->y())))) return false;
+    for (auto id : ids) if (!component(id)) return false;
+    bool changed = false;
+    for (auto &item : m_components) if (ids.contains(item.id()) && item.propertyBlockOffset() != offset) {
+        item.setPropertyBlockOffset(offset); changed = true;
+    }
+    return changed;
 }

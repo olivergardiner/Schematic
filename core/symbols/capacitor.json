@@ -1,17 +1,93 @@
 {
-  "id": "Capacitor",
-  "name": "Capacitor",
-  "category": "Passives",
-  "referencePrefix": "C",
-  "showsReference": true,
-  "primitives": [
-    { "kind": "Line", "points": [[-20, 0], [-4, 0]] },
-    { "kind": "Line", "points": [[4, 0], [20, 0]] },
-    { "kind": "Line", "points": [[-4, -10], [-4, 10]] },
-    { "kind": "Line", "points": [[4, -10], [4, 10]] }
-  ],
-  "terminals": [
-    { "name": "1", "x": -20, "y": 0 },
-    { "name": "2", "x": 20, "y": 0 }
-  ]
+    "category": "Passives",
+    "id": "Capacitor",
+    "name": "Capacitor",
+    "primitives": [
+        {
+            "kind": "Line",
+            "points": [
+                [
+                    -20,
+                    0
+                ],
+                [
+                    -5,
+                    0
+                ]
+            ]
+        },
+        {
+            "kind": "Line",
+            "points": [
+                [
+                    5,
+                    0
+                ],
+                [
+                    20,
+                    0
+                ]
+            ]
+        },
+        {
+            "fillColor": "black",
+            "filled": true,
+            "kind": "Polygon",
+            "points": [
+                [
+                    -5,
+                    -10
+                ],
+                [
+                    -2,
+                    -10
+                ],
+                [
+                    -2,
+                    10
+                ],
+                [
+                    -5,
+                    10
+                ]
+            ]
+        },
+        {
+            "fillColor": "black",
+            "filled": true,
+            "kind": "Polygon",
+            "points": [
+                [
+                    2,
+                    -10
+                ],
+                [
+                    5,
+                    -10
+                ],
+                [
+                    5,
+                    10
+                ],
+                [
+                    2,
+                    10
+                ]
+            ]
+        }
+    ],
+    "referencePrefix": "C",
+    "showsReference": true,
+    "terminals": [
+        {
+            "name": "1",
+            "x": -20,
+            "y": 0
+        },
+        {
+            "name": "2",
+            "x": 20,
+            "y": 0
+        }
+    ]
 }

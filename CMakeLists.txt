@@ -47,6 +47,7 @@ add_library(schematiccore STATIC
     core/document.cpp
     core/documentloadresult.h
     core/documentjson.cpp
+    core/documentfragment.cpp
 )
 
 target_include_directories(schematiccore PUBLIC core)
@@ -68,9 +69,11 @@ qt_add_resources(schematiccore symbol_library
         core/symbols/manifest.json
         core/symbols/resistor.json
         core/symbols/capacitor.json
+        core/symbols/electrolytic-capacitor.json
         core/symbols/diode.json
         core/symbols/ground.json
         core/symbols/opamp.json
+        core/symbols/opamp-grid10.json
         core/symbols/potentiometer.json
         core/symbols/jack.json
 )
@@ -96,6 +99,11 @@ qt_add_executable(Schematic
     symbolpreviewwidget.h
     documenteditcontroller.cpp
     documenteditcontroller.h
+    documentselection.h
+    propertiespanel.cpp
+    propertiespanel.h
+    preferencesdialog.cpp
+    preferencesdialog.h
 )
 
 target_link_libraries(Schematic
