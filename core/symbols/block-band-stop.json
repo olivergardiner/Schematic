@@ -1,0 +1,98 @@
+{
+  "id": "Block.BandStop",
+  "name": "Band Stop Filter",
+  "category": "Block Schematics/Filters",
+  "referencePrefix": "B",
+  "showsReference": true,
+  "primitives": [
+    {
+      "kind": "Polygon",
+      "points": [
+        [
+          -20,
+          -20
+        ],
+        [
+          20,
+          -20
+        ],
+        [
+          20,
+          20
+        ],
+        [
+          -20,
+          20
+        ]
+      ],
+      "filled": true
+    },
+    {
+      "kind": "Line",
+      "points": [
+        [
+          -30,
+          0
+        ],
+        [
+          -20,
+          0
+        ]
+      ]
+    },
+    {
+      "kind": "Line",
+      "points": [
+        [
+          20,
+          0
+        ],
+        [
+          30,
+          0
+        ]
+      ]
+    },
+    {
+      "kind": "Polyline",
+      "points": [
+        [
+          -12,
+          -10
+        ],
+        [
+          -8,
+          -10
+        ],
+        [
+          -3,
+          10
+        ],
+        [
+          3,
+          10
+        ],
+        [
+          8,
+          -10
+        ],
+        [
+          12,
+          -10
+        ]
+      ]
+    }
+  ],
+  "terminals": [
+    {
+      "name": "in",
+      "x": -30,
+      "y": 0
+    },
+    {
+      "name": "out",
+      "x": 30,
+      "y": 0
+    }
+  ]
+}

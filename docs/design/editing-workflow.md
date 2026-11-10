@@ -94,7 +94,7 @@ Refocus the primary toolbar on document editing:
 - Select and Draw Wire modes.
 - Undo and Redo, enabled from the undo stack.
 - Rotate Left, Rotate Right, Flip Horizontal, and Flip Vertical, enabled only when exactly one component is selected. Use standard theme icons with matching drawn fallbacks when the platform has none.
-- Keep file actions as appropriate, but remove Zoom In/Out/Fit and grid spacing from the primary toolbar. Zoom remains in the View menu and Ctrl+mouse-wheel remains the main zoom interaction; put grid spacing in a secondary View control.
+- Keep file actions as appropriate, but remove Zoom In/Out/Fit and grid spacing from the primary toolbar. Zoom remains in the View menu and the wheel remains the main zoom interaction by default (Ctrl+wheel in the optional traditional preference); put grid spacing in a secondary View control.
 
 Use recognizable in-code icons, tooltips, and accessible names. Keep visible text for actions whose icons may be unclear. Rotation and flips call transactional `Document::rotateComponent()` and `Document::flipComponent()` through `DocumentEditController`; each action is one undo command. Flips use canvas axes, and the combined quadrant-rotation/mirror update validates only the final pose. If the model rejects a transform because an attached route would become invalid, leave the document and selection unchanged and show a concise status message.
 

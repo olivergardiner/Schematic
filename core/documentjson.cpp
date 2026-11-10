@@ -47,7 +47,14 @@ QJsonObject endpointJson(const WireEndpoint &endpoint)
 QJsonObject Document::toJson() const
 {
     QJsonObject root;
-    root.insert(QStringLiteral("formatVersion"), 6);
+    root.insert(QStringLiteral("formatVersion"), 10);
+    QJsonArray notes;
+    for (const auto &note : m_notes)
+        notes.append(QJsonObject{{"id", double(note.id)}, {"x", note.position.x()}, {"y", note.position.y()},
+                                 {"text", note.text}, {"width", note.width},
+                                 {"justification",propertyJustificationName(note.justification)},
+                                 {"fillColor",note.fillColor}, {"outlineColor",note.outlineColor}});
+    root.insert(QStringLiteral("notes"), notes);
     root.insert(QStringLiteral("grid"), QJsonObject{{QStringLiteral("spacing"), m_gridSpacing}});
     QJsonArray components;
     for (const Component &item : m_components) {
@@ -61,7 +68,8 @@ QJsonObject Document::toJson() const
             {QStringLiteral("kind"), item.symbolId().value()},
             {QStringLiteral("x"), item.position().x()}, {QStringLiteral("y"), item.position().y()},
             {QStringLiteral("rotation"), static_cast<int>(item.rotation())},
-            {QStringLiteral("mirrored"), item.mirrored()}, {QStringLiteral("properties"), properties}};
+            {QStringLiteral("mirrored"), item.mirrored()}, {QStringLiteral("properties"), properties},
+            {QStringLiteral("propertyBlockJustification"), propertyJustificationName(item.propertyBlockJustification())}};
         if (const auto offset = item.propertyBlockOffset())
             componentObject.insert("propertyBlockOffset", QJsonObject{{"x", offset->x()}, {"y", offset->y()}});
         components.append(componentObject);
@@ -69,8 +77,9 @@ QJsonObject Document::toJson() const
     root.insert(QStringLiteral("components"), components);
     QSet<QString> usedIds;
     for (const Component &item : m_components) usedIds.insert(item.symbolId().value());
-    auto sortedIds = usedIds.values();
-    std::sort(sortedIds.begin(), sortedIds.end());
+    QStringList layoutErrors;
+    const auto sortedIds = m_symbols.layoutClosure(usedIds.values(), &layoutErrors);
+    Q_ASSERT(layoutErrors.isEmpty());
     QJsonArray symbols;
     for (const QString &id : sortedIds)
         symbols.append(SymbolLibrary::symbolToJson(*symbol(SymbolId(id))));
@@ -119,8 +128,8 @@ DocumentLoadResult Document::fromJson(const QJsonObject &root)
     DocumentLoadResult result;
     const QJsonValue versionValue = root.value(QStringLiteral("formatVersion"));
     const int formatVersion = versionValue.isDouble() ? versionValue.toInt(-1) : -1;
-    if (versionValue.toDouble(-1) != formatVersion || formatVersion < 1 || formatVersion > 6) {
-        result.errors.append(QStringLiteral("Unsupported or missing formatVersion (expected 1–6)"));
+    if (versionValue.toDouble(-1) != formatVersion || formatVersion < 1 || formatVersion > 10) {
+        result.errors.append(QStringLiteral("Unsupported or missing formatVersion (expected 1-10)"));
         return result;
     }
     auto error = [&result](const QString &message) { result.errors.append(message); };
@@ -132,6 +141,8 @@ DocumentLoadResult Document::fromJson(const QJsonObject &root)
         for (const auto &entry : root.value(QStringLiteral("symbols")).toArray()) {
             QStringList errors;
             if (!entry.isObject()) errors << QStringLiteral("must be an object");
+            else if (formatVersion < 7 && entry.toObject().contains("layoutControls"))
+                errors << QStringLiteral("layoutControls require format v7");
             else resolved.addFromJson(entry.toObject(), &errors);
             for (const auto &message : errors)
                 error(QStringLiteral("symbols[%1]: %2").arg(index).arg(message));
@@ -144,7 +155,7 @@ DocumentLoadResult Document::fromJson(const QJsonObject &root)
         || spacing <= 0)
         error(QStringLiteral("grid.spacing must be a finite positive number"));
 
-    struct ParsedComponent { ComponentId id; SymbolId kind; QPointF position; Rotation rotation; QString reference; QString value; bool mirrored; QVector<InstanceProperty> properties; std::optional<QPointF> offset; };
+    struct ParsedComponent { ComponentId id; SymbolId kind; QPointF position; Rotation rotation; QString reference; QString value; bool mirrored; QVector<InstanceProperty> properties; std::optional<QPointF> offset; PropertyJustification justification; };
     QVector<ParsedComponent> parsedComponents;
     QHash<ComponentId, SymbolId> kinds;
     QSet<ComponentId> componentIds;
@@ -205,6 +216,15 @@ DocumentLoadResult Document::fromJson(const QJsonObject &root)
             } else {
                 mirrored = obj.value(QStringLiteral("mirrored")).toBool();
             }
+            PropertyJustification justification = PropertyJustification::Left;
+            if (formatVersion >= 8) {
+                const auto field = obj.value("propertyBlockJustification");
+                const auto parsed = field.isString() ? propertyJustificationFromName(field.toString()) : std::nullopt;
+                if (!parsed) { error(path + " requires propertyBlockJustification: left, middle or right"); valid = false; }
+                else justification = *parsed;
+            } else if (obj.contains("propertyBlockJustification")) {
+                error(path + " propertyBlockJustification requires format v8"); valid = false;
+            }
             std::optional<QPointF> offset;
             if (obj.contains("propertyBlockOffset")) {
                 qreal ox = 0, oy = 0; const auto value = obj.value("propertyBlockOffset");
@@ -216,7 +236,7 @@ DocumentLoadResult Document::fromJson(const QJsonObject &root)
             if (!valid) continue;
             componentIds.insert(id); kinds.insert(id, kindId);
             parsedComponents.append({id, kindId, {x, y}, static_cast<Rotation>(rot),
-                                     reference.toString(), valueField.toString().trimmed(), mirrored, properties, offset});
+                                     reference.toString(), valueField.toString().trimmed(), mirrored, properties, offset, justification});
         }
     }
 
@@ -321,8 +341,15 @@ DocumentLoadResult Document::fromJson(const QJsonObject &root)
 
     Document doc;
     doc.m_gridSpacing = spacing;
-    for (const auto &item : parsedComponents) {
-        if (!doc.symbol(item.kind)) { QStringList errors; doc.m_symbols.add(*resolved.find(item.kind), &errors); }
+    QStringList used;
+    for (const auto &item : parsedComponents) if (!used.contains(item.kind.value())) used.append(item.kind.value());
+    QStringList closureErrors;
+    const auto closure = resolved.layoutClosure(used, &closureErrors);
+    result.errors.append(closureErrors);
+    for (const auto &id : closure) {
+        QStringList errors;
+        doc.m_symbols.add(*resolved.find(SymbolId(id)), &errors);
+        result.errors.append(errors);
     }
     if (formatVersion >= 3) {
         for (const auto &definition : resolved.symbols()) {
@@ -340,6 +367,7 @@ DocumentLoadResult Document::fromJson(const QJsonObject &root)
         Component component(item.id, item.kind, item.position);
         component.setRotation(item.rotation); component.setMirrored(item.mirrored);
         component.setPropertyBlockOffset(item.offset);
+        component.setPropertyBlockJustification(item.justification);
         component.setProperties(item.properties); component.setReference(item.reference); component.setValue(item.value);
         const auto propertyErrors = validateInstanceProperties(component.properties());
         if (!propertyErrors.isEmpty()) { result.errors += propertyErrors; return result; }
@@ -379,6 +407,38 @@ DocumentLoadResult Document::fromJson(const QJsonObject &root)
     doc.m_nextComponentId = maxComponent == std::numeric_limits<quint32>::max() ? kInvalidComponentId : maxComponent + 1;
     doc.m_nextNodeId = maxNode == std::numeric_limits<quint32>::max() ? kInvalidNodeId : maxNode + 1;
     doc.m_nextWireId = maxWire == std::numeric_limits<quint32>::max() ? kInvalidWireId : maxWire + 1;
+    if (formatVersion >= 9) {
+        if (!root.value("notes").isArray()) { error("notes must be an array"); return result; }
+        QSet<NoteId> ids;
+        NoteId maximum = 0;
+        for (const auto &entry : root.value("notes").toArray()) {
+            const auto object = entry.toObject();
+            quint32 id = 0;
+            qreal x = 0, y = 0, width = 0;
+            if (!entry.isObject() || !idValue(object.value("id"), &id) || ids.contains(id)
+                || !number(object.value("x"), &x) || !number(object.value("y"), &y)
+                || !number(object.value("width"), &width) || width < kMinimumNoteWidth || width > kMaximumNoteWidth
+                || !std::isfinite(x + width) || !object.value("text").isString()
+                || object.value("text").toString().contains(QChar::Null)) {
+                error("Invalid text note: expected a unique positive id, finite position/width and plain text");
+                return result;
+            }
+            doc.m_notes.append({id, {x,y}, object.value("text").toString(), width});
+            if (formatVersion >= 10) {
+                const auto justification = propertyJustificationFromName(object.value("justification").toString());
+                const auto fill = object.value("fillColor").toString();
+                const auto outline = object.value("outlineColor").toString();
+                if (!justification || !validNoteColour(fill) || !validNoteColour(outline)) {
+                    error("Invalid text note appearance: expected justification and hex colours or none");
+                    return result;
+                }
+                auto &note = doc.m_notes.last();
+                note.justification = *justification; note.fillColor = fill.toLower(); note.outlineColor = outline.toLower();
+            }
+            ids.insert(id); maximum = qMax(maximum, id);
+        }
+        doc.m_nextNoteId = maximum == std::numeric_limits<quint32>::max() ? kInvalidNoteId : maximum + 1;
+    }
     result.document = std::move(doc);
     return result;
 }

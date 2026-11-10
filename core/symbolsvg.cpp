@@ -700,6 +700,13 @@ SymbolSvgImportResult SymbolSvgImporter::importSymbol(const QByteArray &sidecarJ
     result.warnings=ctx.warnings;
     result.errors.append(ctx.errors);
     if (result.errors.isEmpty()) {
+        if (object.contains("paletteVisible")) {
+            if (!object.value("paletteVisible").isBool()) result.errors << QStringLiteral("paletteVisible must be a boolean");
+            else ctx.symbol.paletteVisible = object.value("paletteVisible").toBool();
+        }
+        readSymbolLayoutControls(object, &ctx.symbol, &result.errors);
+        readSymbolDefaultValue(object, &ctx.symbol, &result.errors);
+        readSymbolPropertyJustification(object, &ctx.symbol, &result.errors);
         const QStringList validation=validateLibrarySymbol(ctx.symbol);
         for (const QString &problem:validation) result.errors << QStringLiteral("converted symbol: ")+problem;
     }
@@ -765,13 +772,18 @@ SymbolSvgExportResult SymbolSvgExporter::exportSymbol(const LibrarySymbol &symbo
 
     QJsonArray terminals;
     for (const SymbolTerminal &t:symbol.terminals) terminals.append(terminalJson(t));
-    const QJsonObject sidecar{{QStringLiteral("id"),symbol.id.value()},
+    QJsonObject sidecar{{QStringLiteral("id"),symbol.id.value()},
         {QStringLiteral("name"),symbol.displayName},{QStringLiteral("category"),symbol.category},
         {QStringLiteral("referencePrefix"),symbol.referencePrefix},
         {QStringLiteral("showsReference"),symbol.showsReference},
         {QStringLiteral("svg"),result.svgFileName},
         {QStringLiteral("origin"),QJsonObject{{QStringLiteral("x"),0},{QStringLiteral("y"),0}}},
         {QStringLiteral("terminals"),terminals}};
+    if (!symbol.layoutControls.isEmpty()) sidecar.insert("layoutControls", symbolLayoutControlsJson(symbol));
+    if (!symbol.paletteVisible) sidecar.insert("paletteVisible", false);
+    if (!symbol.defaultValue.isEmpty()) sidecar.insert("defaultValue", symbol.defaultValue);
+    if (symbol.defaultPropertyJustification != PropertyJustification::Left)
+        sidecar.insert("defaultPropertyJustification", propertyJustificationName(symbol.defaultPropertyJustification));
     result.sidecar=QJsonDocument(sidecar).toJson(QJsonDocument::Indented);
     return result;
 }

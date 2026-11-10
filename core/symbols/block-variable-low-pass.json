@@ -1,0 +1,122 @@
+{
+  "id": "Block.VariableLowPass",
+  "name": "Variable Low Pass Filter",
+  "category": "Block Schematics/Filters",
+  "referencePrefix": "B",
+  "showsReference": true,
+  "primitives": [
+    {
+      "kind": "Polygon",
+      "points": [
+        [
+          -20,
+          -20
+        ],
+        [
+          20,
+          -20
+        ],
+        [
+          20,
+          20
+        ],
+        [
+          -20,
+          20
+        ]
+      ],
+      "filled": true
+    },
+    {
+      "kind": "Line",
+      "points": [
+        [
+          -30,
+          0
+        ],
+        [
+          -20,
+          0
+        ]
+      ]
+    },
+    {
+      "kind": "Line",
+      "points": [
+        [
+          20,
+          0
+        ],
+        [
+          30,
+          0
+        ]
+      ]
+    },
+    {
+      "kind": "Polyline",
+      "points": [
+        [
+          -12,
+          -10
+        ],
+        [
+          -3,
+          -10
+        ],
+        [
+          7,
+          10
+        ],
+        [
+          12,
+          10
+        ]
+      ]
+    },
+    {
+      "kind": "Line",
+      "points": [
+        [
+          -14,
+          14
+        ],
+        [
+          14,
+          -14
+        ]
+      ]
+    },
+    {
+      "kind": "Polygon",
+      "points": [
+        [
+          7,
+          -14
+        ],
+        [
+          14,
+          -14
+        ],
+        [
+          14,
+          -7
+        ]
+      ],
+      "filled": true,
+      "fillColor": "black"
+    }
+  ],
+  "terminals": [
+    {
+      "name": "in",
+      "x": -30,
+      "y": 0
+    },
+    {
+      "name": "out",
+      "x": 30,
+      "y": 0
+    }
+  ]
+}

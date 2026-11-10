@@ -426,9 +426,13 @@ void SymbolImportDialog::updateImportEnabled()
     candidate.primitives = m_primitives;
     for (const SymbolTerminal &terminal : m_rawTerminals)
         candidate.terminals.append({terminal.name.trimmed(), terminal.offset - m_origin});
+    QStringList layoutErrors;
+    readSymbolLayoutControls(QJsonDocument::fromJson(m_sourceSidecar).object(), &candidate, &layoutErrors);
+    readSymbolDefaultValue(QJsonDocument::fromJson(m_sourceSidecar).object(), &candidate, &layoutErrors);
+    readSymbolPropertyJustification(QJsonDocument::fromJson(m_sourceSidecar).object(), &candidate, &layoutErrors);
     static const QRegularExpression validId(QStringLiteral("^[A-Za-z0-9][A-Za-z0-9._-]*$"));
     m_importButton->setEnabled(m_store && !m_sourceSvg.isEmpty()
-        && m_importerErrors.isEmpty() && validId.match(candidate.id.value()).hasMatch()
+        && m_importerErrors.isEmpty() && layoutErrors.isEmpty() && validId.match(candidate.id.value()).hasMatch()
         && validateLibrarySymbol(candidate).isEmpty());
 }
 
@@ -440,7 +444,7 @@ QByteArray SymbolImportDialog::makeFinalSidecar() const
                                      {QStringLiteral("x"), terminal.offset.x()},
                                      {QStringLiteral("y"), terminal.offset.y()}});
     }
-    const QJsonObject sidecar{{QStringLiteral("id"), m_idEdit->text().trimmed()},
+    QJsonObject sidecar{{QStringLiteral("id"), m_idEdit->text().trimmed()},
         {QStringLiteral("name"), m_nameEdit->text().trimmed()},
         {QStringLiteral("category"), m_categoryEdit->text().trimmed()},
         {QStringLiteral("referencePrefix"), m_prefixEdit->text().trimmed()},
@@ -449,6 +453,12 @@ QByteArray SymbolImportDialog::makeFinalSidecar() const
         {QStringLiteral("origin"), QJsonObject{{QStringLiteral("x"), m_origin.x()},
                                                {QStringLiteral("y"), m_origin.y()}}},
         {QStringLiteral("terminals"), terminals}};
+    const auto source = QJsonDocument::fromJson(m_sourceSidecar).object();
+    if (source.contains("layoutControls")) sidecar.insert("layoutControls", source.value("layoutControls"));
+    if (source.contains("paletteVisible")) sidecar.insert("paletteVisible", source.value("paletteVisible"));
+    if (source.contains("defaultValue")) sidecar.insert("defaultValue", source.value("defaultValue"));
+    if (source.contains("defaultPropertyJustification"))
+        sidecar.insert("defaultPropertyJustification", source.value("defaultPropertyJustification"));
     return QJsonDocument(sidecar).toJson(QJsonDocument::Indented);
 }
 

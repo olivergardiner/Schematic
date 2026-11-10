@@ -1,5 +1,13 @@
 # Roadmap
 
+**Implemented: terminal connections on placement.** Canvas placement and palette drops attach exact terminal contacts to unambiguous wire interiors/corners and bare junctions in one undoable edit. Terminal junctions show a dot with two wire ends plus the symbol lead. Ambiguous crossings and occupied component-terminal sites remain unconnected with feedback. Deleting a component now preserves its wire legs as detached endpoints. Automatic connection during movement remains outside this change.
+
+**Implemented: category-tree library manifests.** The approved [manifest design](docs/design/category-tree-manifest.md) puts hierarchy and ordering in one nested tree, shared by core loading, the palette, and writable-library saves. Flat manifests remain readable and upgrade on successful save; symbol/document identities are unchanged.
+
+**Implemented: rails, grounds and signal ports.** The approved [connection-symbol design](docs/design/signal-connections.md) adds a generic power rail, chassis/signal grounds and directional ports, keeps the existing earth interface, groups Signals into Power Rails/Grounds/Ports, and initializes editable Value labels from library defaults. Labels and direction are presentation-only; matching names do not merge nets.
+
+**Implemented: OTA bias layout selection.** The approved [symbol layout variant design](docs/design/symbol-layout-variants.md) adds Above/Below controls for one selected OTA, explicit terminal-role mapping, transactional wire repair, undo, and self-contained v7 document/clipboard persistence. Supply-terminal switching and package grouping remain deferred.
+
 This document describes open work and possible future directions. It is not a fixed schedule or a promise of delivery. Settled behavior and architecture belong in [DECISIONS.md](DECISIONS.md); project goals and collaboration guidance belong in [AGENTS.md](AGENTS.md).
 
 ## Suggested implementation order
@@ -24,7 +32,7 @@ Undo/redo is implemented per [its approved design](docs/design/undo-redo.md). Th
 
 ### Editing workflow
 
-- **Implemented:** [Preferences dialog](docs/design/preferences-dialog.md): Edit > Preferences… opens a tabbed application dialog with an initially empty General tab and a Close button. Release and native Windows lifecycle checks pass. Actual preference controls and persistence remain separate follow-up work.
+- **Implemented:** [Preferences dialog](docs/design/preferences-dialog.md): Edit > Preferences… opens General and Appearance tabs with staged OK/Cancel settings. Appearance provides the property block grid (default 2 units); offscreen lifecycle, persistence and cancellation checks pass.
 
 - **Implemented:** [Edit menu groups and clipboard](docs/design/edit-menu-clipboard.md): grouped Cut/Copy/Paste/Delete, rotate and flip actions with shortcuts, text-focus handling, and a topology-preserving schematic clipboard. Cut/Copy/Paste now work on schematic selections and focused text fields; native menu and shortcut checks pass.
 
@@ -38,14 +46,14 @@ Undo/redo is implemented per [its approved design](docs/design/undo-redo.md). Th
 
 - **Implemented:** Extract the shared symbol renderer and replace the flat text list with a category tree and graphical symbol grid.
 - **Implemented:** Drag a palette symbol to the snapped canvas position through the shared undoable placement path.
-- **Implemented:** Provide separate, movable File, Tools, Edit, and View toolbars; show or hide toolbars and dock panels from View > Toolbars; restore their layout between sessions. Keep zoom in the View menu/Ctrl+wheel.
+- **Implemented:** Provide separate, movable File, Tools, Edit, and View toolbars; show or hide toolbars and dock panels from View > Toolbars; restore their layout between sessions. Keep zoom in the View menu and configurable wheel controls (CAD style by default).
 - **Implemented:** Show terminal markers and a hover cue for candidate wire connections; Escape cancels a draft and returns to Select.
 
 Palette placement and toolbar edits use the established edit-commit path so they are undoable from introduction.
 
 ### Reliability and usability
 
-- Investigate the existing Debug `MainWindow` shutdown assertion in `schematicopen_tests` (`transformToolbarActionsAreUndoable`); reproduced on the unchanged revision with Qt 6.11.1 / MinGW 13.1 during [group-selection verification](docs/design/group-selection.md).
+- **Fixed:** The Debug `MainWindow` shutdown assertion (and possible Release shutdown crash) came from undo-stack title callbacks during child destruction. Those callbacks are disconnected during teardown. The full window suite now passes in MinGW Debug and Release following SVG export integration.
 
 - Bound grid-rendering work for very small document grid spacing while preserving exact spacing for snapping.
 - Decide how users recover from an invalid vertex in a pending wire (for example, reject it with feedback or provide a remove-last-vertex action).
@@ -56,7 +64,7 @@ Palette placement and toolbar edits use the established edit-commit path so they
 
 ## Symbol library growth
 
-**Implemented:** the [built-in template refresh](docs/design/builtin-template-refresh.md) replaces compatible resistor/capacitor artwork, adds the electrolytic and grid-aligned op-amp, and retains the original op-amp identity in a Compatibility category. The nine-entry library is checked against the source templates; all seven Release suites pass and palette captures were visually inspected.
+**Implemented:** the [built-in template refresh](docs/design/builtin-template-refresh.md) replaces compatible resistor/capacitor artwork, adds the electrolytic and grid-aligned op-amp, and originally retained the old op-amp in a Compatibility category. The user approved removing that entry and category on 2026-11-07 because no saved schematics depend on it. The nine-entry library is checked against the source templates; all seven Release suites pass and palette captures were visually inspected.
 
 The [draft symbol style guide](docs/design/symbol-style-guide.md) proposes shared drawing rules and component-specific conventions. The four reviewed [Grid 10 templates](symbol-templates/grid10/README.md) are now references for the packaged refresh; capacitors use black box plates, with a hollow positive plate for the electrolytic. The broader guide and future component-family conventions remain open; monochrome black-fill rendering support is implemented.
 
@@ -77,20 +85,21 @@ Agree the precise set, geometry, categories, and acceptance checks as part of th
 
 The approved [symbol import design](docs/design/symbol-import.md) describes a restricted SVG profile, in-app metadata and terminal editing, conversion to the native symbol definition, library storage, and document embedding. J1–J4 are implemented; the [J4 plan](docs/design/symbol-import-j4-plan.md) records verification and the outstanding manual visual check, and J5 symbol content will need its own scoped plan. Inkscape or another SVG editor remains the drawing tool; the application does not include a general-purpose artwork editor in this scope.
 
-Exporting an individual symbol as SVG and its metadata sidecar supports authoring and round trips. Exporting a complete schematic to SVG is a separate required future capability; it is not part of the symbol-creation feature.
+Exporting an individual symbol as SVG and its metadata sidecar supports authoring and round trips. Complete-schematic SVG export is now implemented separately through File > SVG Export, Ctrl+E and the File toolbar; see the [export design](docs/design/svg-export.md).
 
 ## Other possible directions
 
-- Export complete schematics to SVG (required future capability); PNG and PDF export are also possible later formats.
-- Add free-text annotations and callouts, and improve label placement for rotated or crowded symbols.
+- PNG and PDF export are possible later formats; [complete-schematic SVG export](docs/design/svg-export.md) is implemented.
+- Plain wrapped [text notes](docs/design/text-notes.md) are implemented, including Properties editing, draggable width handles, v9 persistence, clipboard/undo and SVG export. Callout arrows and further text styling remain possible future work.
 - Persistent named groups and custom transform pivots remain later possibilities beyond the implemented [selection transforms](docs/design/group-transforms.md).
 - Add UI and file-I/O tests where they fit the existing headless model-test setup.
 
 ## Open design questions
 
-- Should a junction dot appear where multiple wire routes meet a component terminal? Current rendering derives dots from shared route endpoint identities with three or more wire ends.
 - If future symbol features require per-instance metadata or net naming, what document-format changes and migration rules are needed?
 
 ## Planning and status
 
 For substantial work, inspect the current code and propose a short, reviewable plan before implementation. Each proposal should state scope, design choices that are costly to change, and acceptance checks. Follow the approval process in [AGENTS.md](AGENTS.md). Update this roadmap when priorities or open questions change; record settled cross-cutting choices in [DECISIONS.md](DECISIONS.md).
+
+**Implemented:** [Property-block appearance](docs/design/property-block-appearance.md): independent anchor snapping, Left/Middle/Right instance justification with symbol defaults, mixed-selection editing and undo, v8 persistence and legacy migration.

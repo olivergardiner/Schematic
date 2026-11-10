@@ -1,4 +1,5 @@
 #include "symbollibrary.h"
+#include "symbolmanifest.h"
 
 #include <QFile>
 #include <QJsonArray>
@@ -10,6 +11,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <functional>
 
 namespace {
 
@@ -177,9 +179,39 @@ QString firstUnusedReference(const QString &prefix, const QSet<QString> &used)
     }
 }
 
+namespace {
+bool singleLineDefaultValue(const QString &text)
+{
+    return !text.contains('\n') && !text.contains('\r') && !text.contains(QChar(0))
+        && !text.contains(QChar(0x2028)) && !text.contains(QChar(0x2029));
+}
+}
+
+void readSymbolDefaultValue(const QJsonObject &object, LibrarySymbol *symbol, QStringList *errors)
+{
+    if (!object.contains("defaultValue")) return;
+    const auto value = object.value("defaultValue");
+    if (!value.isString() || !singleLineDefaultValue(value.toString()))
+        errors->append(QStringLiteral("defaultValue must be single-line text"));
+    else symbol->defaultValue = value.toString().trimmed();
+}
+
+void readSymbolPropertyJustification(const QJsonObject &object, LibrarySymbol *symbol, QStringList *errors)
+{
+    if (!object.contains("defaultPropertyJustification")) return;
+    const auto value = object.value("defaultPropertyJustification");
+    const auto parsed = value.isString() ? propertyJustificationFromName(value.toString()) : std::nullopt;
+    if (!parsed) errors->append(QStringLiteral("defaultPropertyJustification must be left, middle or right"));
+    else symbol->defaultPropertyJustification = *parsed;
+}
+
 QStringList validateLibrarySymbol(const LibrarySymbol &symbol)
 {
-    QStringList errors;
+    QStringList errors = validateSymbolLayoutControls(symbol);
+    if (propertyJustificationName(symbol.defaultPropertyJustification).isEmpty())
+        errors << QStringLiteral("Invalid default property justification");
+    if (!singleLineDefaultValue(symbol.defaultValue) || symbol.defaultValue != symbol.defaultValue.trimmed())
+        errors << QStringLiteral("defaultValue must be trimmed single-line text");
     if (symbol.id.isEmpty())
         errors << QStringLiteral("id must not be empty");
     else if (symbol.id.value() != symbol.id.value().trimmed())
@@ -535,6 +567,13 @@ std::optional<LibrarySymbol> SymbolLibrary::parseSymbol(const QJsonObject &objec
         }
     }
 
+    if (object.contains("paletteVisible")) {
+        if (!object.value("paletteVisible").isBool()) problems << QStringLiteral("paletteVisible must be a boolean");
+        else symbol.paletteVisible = object.value("paletteVisible").toBool();
+    }
+    readSymbolDefaultValue(object, &symbol, &problems);
+    readSymbolPropertyJustification(object, &symbol, &problems);
+    readSymbolLayoutControls(object, &symbol, &problems);
     if (problems.isEmpty())
         problems = validateLibrarySymbol(symbol);
     if (!problems.isEmpty()) {
@@ -589,13 +628,19 @@ QJsonObject SymbolLibrary::symbolToJson(const LibrarySymbol &symbol)
                                      {QStringLiteral("x"), terminal.offset.x()},
                                      {QStringLiteral("y"), terminal.offset.y()}});
     }
-    return {{QStringLiteral("id"), symbol.id.value()},
+    QJsonObject result{{QStringLiteral("id"), symbol.id.value()},
             {QStringLiteral("name"), symbol.displayName},
             {QStringLiteral("category"), symbol.category},
             {QStringLiteral("referencePrefix"), symbol.referencePrefix},
             {QStringLiteral("showsReference"), symbol.showsReference},
             {QStringLiteral("primitives"), primitives},
             {QStringLiteral("terminals"), terminals}};
+    if (!symbol.layoutControls.isEmpty()) result.insert("layoutControls", symbolLayoutControlsJson(symbol));
+    if (!symbol.paletteVisible) result.insert("paletteVisible", false);
+    if (!symbol.defaultValue.isEmpty()) result.insert("defaultValue", symbol.defaultValue);
+    if (symbol.defaultPropertyJustification != PropertyJustification::Left)
+        result.insert("defaultPropertyJustification", propertyJustificationName(symbol.defaultPropertyJustification));
+    return result;
 }
 
 bool SymbolLibrary::add(const LibrarySymbol &symbol, QStringList *errors)
@@ -609,6 +654,7 @@ bool SymbolLibrary::add(const LibrarySymbol &symbol, QStringList *errors)
     }
     m_index.insert(symbol.id, m_symbols.size());
     m_symbols.append(symbol);
+    ensureCategory(symbol.category)->symbols.append(symbol.id);
     return true;
 }
 
@@ -627,6 +673,14 @@ bool SymbolLibrary::replace(const LibrarySymbol &symbol, QStringList *errors)
     if (!problems.isEmpty()) {
         appendAll(errors, label(symbol.id) + QStringLiteral(": "), problems);
         return false;
+    }
+    if (m_symbols[it.value()].category != symbol.category) {
+        std::function<void(QVector<SymbolCategory> &)> remove;
+        remove = [&](QVector<SymbolCategory> &nodes) {
+            for (auto &node : nodes) { node.symbols.removeAll(symbol.id); remove(node.children); }
+        };
+        remove(m_categories);
+        ensureCategory(symbol.category)->symbols.append(symbol.id);
     }
     m_symbols[it.value()] = symbol;
     return true;
@@ -652,29 +706,33 @@ SymbolLibrary SymbolLibrary::loadFromDirectory(const QString &directory, QString
     };
 
     SymbolLibrary library;
-    QJsonObject manifest;
-    if (readJson(directory + QStringLiteral("/manifest.json"), &manifest)) {
-        const QJsonValue listed = manifest.value(QStringLiteral("symbols"));
-        if (!listed.isArray()) {
-            local << QStringLiteral("%1/manifest.json: \"symbols\" must be an array of file names")
-                         .arg(directory);
-        } else {
-            for (const QJsonValue &entry : listed.toArray()) {
-                if (!entry.isString()) {
-                    local << QStringLiteral("%1/manifest.json: file names must be strings").arg(directory);
-                    continue;
+    QJsonObject object;
+    if (readJson(directory + QStringLiteral("/manifest.json"), &object)) {
+        const auto manifest = SymbolManifest::fromJson(object, &local);
+        if (manifest) {
+            library.declareCategories(manifest->categoryPaths());
+            for (const auto &entry : manifest->entries()) {
+                const QString path = directory + QLatin1Char('/') + entry.file;
+                QJsonObject definition;
+                if (!readJson(path, &definition)) continue;
+                QStringList problems;
+                const auto symbol = parseSymbol(definition, &problems);
+                if (symbol) {
+                    if (!manifest->legacy && symbol->category != entry.category)
+                        problems << QStringLiteral("Category mismatch: manifest places %1 in %2, definition says %3")
+                            .arg(entry.file, entry.category, symbol->category);
+                    else library.add(*symbol, &problems);
                 }
-                const QString path = directory + QLatin1Char('/') + entry.toString();
-                QJsonObject object;
-                if (!readJson(path, &object))
-                    continue;
-                QStringList entryErrors;
-                library.addFromJson(object, &entryErrors);
-                appendAll(&local, path + QStringLiteral(": "), entryErrors);
+                appendAll(&local, path + QStringLiteral(": "), problems);
             }
         }
     }
 
+    for (const auto &symbol : library.symbols())
+        for (const auto &control : symbol.layoutControls)
+            for (const auto &choice : control.choices)
+                if (const auto *target = library.find(choice.symbolId))
+                    layoutTerminalMapping(symbol, control, choice, *target, &local);
     if (!local.isEmpty()) {
         if (errors)
             errors->append(local);
@@ -689,11 +747,80 @@ const LibrarySymbol *SymbolLibrary::find(const SymbolId &id) const
     return it == m_index.cend() ? nullptr : &m_symbols[it.value()];
 }
 
+SymbolCategory *SymbolLibrary::ensureCategory(const QString &path)
+{
+    auto *siblings = &m_categories;
+    SymbolCategory *node = nullptr;
+    for (const auto &segment : libraryCategoryPath(path)) {
+        node = nullptr;
+        for (auto &candidate : *siblings) if (candidate.name == segment) { node = &candidate; break; }
+        if (!node) { siblings->append({segment, {}, {}, false}); node = &siblings->last(); }
+        siblings = &node->children;
+    }
+    return node;
+}
+
+void SymbolLibrary::declareCategories(const QStringList &paths)
+{
+    for (const auto &path : paths) ensureCategory(path)->declared = true;
+}
+
+QVector<SymbolCategory> SymbolLibrary::categoryTree() const
+{
+    std::function<QVector<SymbolCategory>(const QVector<SymbolCategory> &)> visible;
+    visible = [&](const QVector<SymbolCategory> &nodes) {
+        QVector<SymbolCategory> result;
+        for (auto node : nodes) {
+            node.children = visible(node.children);
+            bool hasVisibleSymbol = false;
+            for (const auto &id : node.symbols) {
+                const auto *symbol = find(id);
+                hasVisibleSymbol |= symbol && symbol->paletteVisible;
+            }
+            if (node.declared || hasVisibleSymbol || !node.children.isEmpty()) result.append(node);
+        }
+        return result;
+    };
+    return visible(m_categories);
+}
+
+QStringList SymbolLibrary::categories() const
+{
+    QStringList result;
+    std::function<void(const QVector<SymbolCategory> &, const QString &)> visit;
+    visit = [&](const QVector<SymbolCategory> &nodes, const QString &parent) {
+        for (const auto &node : nodes) {
+            const auto path = parent.isEmpty() ? node.name : parent + QLatin1Char('/') + node.name;
+            result.append(path); visit(node.children, path);
+        }
+    };
+    visit(categoryTree(), {}); return result;
+}
+
+QVector<const LibrarySymbol *> SymbolLibrary::paletteSymbols() const
+{
+    QVector<const LibrarySymbol *> result;
+    std::function<void(const QVector<SymbolCategory> &)> visit;
+    visit = [&](const QVector<SymbolCategory> &nodes) {
+        for (const auto &node : nodes) {
+            for (const auto &id : node.symbols) {
+                const auto *symbol = find(id);
+                if (symbol && symbol->paletteVisible) result.append(symbol);
+            }
+            visit(node.children);
+        }
+    };
+    visit(categoryTree()); return result;
+}
+
 const SymbolLibrary &builtinSymbolLibrary()
 {
     static const SymbolLibrary library = [] {
         QStringList errors;
         SymbolLibrary loaded = SymbolLibrary::loadFromDirectory(QStringLiteral(":/symbols"), &errors);
+        QStringList ids;
+        for (const auto &symbol : loaded.symbols()) ids.append(symbol.id.value());
+        loaded.layoutClosure(ids, &errors);
         if (!errors.isEmpty())
             qFatal("Built-in symbol library is invalid:\n%s", qPrintable(errors.join(QLatin1Char('\n'))));
         return loaded;

@@ -1,0 +1,48 @@
+{
+  "id": "Ground.Signal",
+  "name": "Signal Ground",
+  "category": "Signals/Grounds",
+  "referencePrefix": "GND",
+  "showsReference": false,
+  "primitives": [
+    {
+      "kind": "Line",
+      "points": [
+        [
+          0,
+          -20
+        ],
+        [
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "kind": "Polygon",
+      "points": [
+        [
+          -10,
+          0
+        ],
+        [
+          10,
+          0
+        ],
+        [
+          0,
+          10
+        ]
+      ],
+      "filled": true
+    }
+  ],
+  "terminals": [
+    {
+      "name": "connection",
+      "x": 0,
+      "y": -20
+    }
+  ],
+  "defaultPropertyJustification": "middle"
+}

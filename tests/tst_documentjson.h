@@ -43,10 +43,10 @@ private slots:
     // A document using an id that is not in the library is rejected, and
     // the error names the id.
     void rejectsUnknownSymbolIdNamingIt();
-    // A hand-written document in the pre-library format (all seven symbols,
+    // A hand-written v2 document using current symbols (seven components,
     // rotation, mirroring, four wires) loads with no warnings and derives
     // the geometry worked out by hand from the symbol definitions.
-    void loadsPreLibraryDocumentUnchanged();
+    void loadsV2DocumentWithCurrentSymbolsUnchanged();
 };
 
 #endif

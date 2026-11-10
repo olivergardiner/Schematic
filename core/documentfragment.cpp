@@ -6,14 +6,19 @@
 #include <cmath>
 
 QByteArray Document::copyFragment(const QVector<ComponentId> &components,
-                                  const QVector<WireId> &wires, QStringList *errors) const
+                                  const QVector<WireId> &wires, QStringList *errors, const QVector<NoteId> &notes) const
 {
     const auto fail = [&](const QString &message) { if (errors) errors->append(message); return QByteArray{}; };
-    if (components.isEmpty() && wires.isEmpty()) return fail("Select components or wires to copy.");
+    if (components.isEmpty() && wires.isEmpty() && notes.isEmpty()) return fail("Select objects to copy.");
+    for (auto id : notes) if (!note(id)) return fail("A selected note no longer exists.");
     for (auto id : components) if (!component(id)) return fail("A selected component no longer exists.");
     for (auto id : wires) if (!wire(id)) return fail("A selected wire no longer exists.");
     Document fragment;
     fragment.m_gridSpacing = m_gridSpacing;
+    for (const auto &item : m_notes) if (notes.contains(item.id)) fragment.m_notes.append(item);
+    // Keep the source document's alternatives; never substitute installed
+    // definitions while copying an embedded layout family.
+    fragment.m_symbols = m_symbols;
     for (const auto &item : m_components) if (components.contains(item.id())) {
         fragment.m_components.append(item);
         if (!fragment.symbol(item.symbolId())) {
@@ -43,7 +48,22 @@ QByteArray Document::copyFragment(const QVector<ComponentId> &components,
 }
 
 bool Document::pasteFragment(const QByteArray &bytes, QPointF displacement,
-                             QVector<ComponentId> *components, QVector<WireId> *wires, QStringList *errors)
+                             QVector<ComponentId> *components, QVector<WireId> *wires, QStringList *errors,
+                             QVector<NoteId> *notes)
+{
+    return pasteFragmentImpl(bytes, displacement, false, components, wires, errors, notes);
+}
+
+bool Document::pasteFragmentAt(const QByteArray &bytes, QPointF target,
+                               QVector<ComponentId> *components, QVector<WireId> *wires, QStringList *errors,
+                               QVector<NoteId> *notes)
+{
+    return pasteFragmentImpl(bytes, target, true, components, wires, errors, notes);
+}
+
+bool Document::pasteFragmentImpl(const QByteArray &bytes, QPointF displacement, bool atTarget,
+                                 QVector<ComponentId> *components, QVector<WireId> *wires, QStringList *errors,
+                                 QVector<NoteId> *notes)
 {
     const auto fail = [&](const QString &message) { if (errors) errors->append(message); return false; };
     if (!std::isfinite(displacement.x()) || !std::isfinite(displacement.y())) return fail("Invalid paste displacement.");
@@ -52,31 +72,63 @@ bool Document::pasteFragment(const QByteArray &bytes, QPointF displacement,
     const auto root = json.object();
     if (parseError.error != QJsonParseError::NoError || !json.isObject()
         || root.value("clipboardVersion").toDouble(-1) != 1 || !root.value("document").isObject()
-        || root.value("document").toObject().value("formatVersion").toDouble(-1) != 6)
+        || (root.value("document").toObject().value("formatVersion").toDouble(-1) != 6
+            && root.value("document").toObject().value("formatVersion").toDouble(-1) != 7
+            && root.value("document").toObject().value("formatVersion").toDouble(-1) != 8
+            && root.value("document").toObject().value("formatVersion").toDouble(-1) != 9
+            && root.value("document").toObject().value("formatVersion").toDouble(-1) != 10))
         return fail("Unsupported or malformed schematic clipboard data.");
     auto loaded = fromJson(root.value("document").toObject());
     if (!loaded.document || !loaded.warnings.isEmpty())
         return fail((loaded.errors + loaded.warnings).join('\n'));
     const auto &fragment = *loaded.document;
-    if (fragment.components().isEmpty() && fragment.wires().isEmpty()) return fail("The clipboard fragment is empty.");
+    if (fragment.components().isEmpty() && fragment.wires().isEmpty() && fragment.notes().isEmpty()) return fail("The clipboard fragment is empty.");
+    if (atTarget) {
+        bool first = true;
+        QPointF minimum, maximum;
+        const auto include = [&](QPointF point) {
+            if (first) { minimum = maximum = point; first = false; }
+            else {
+                minimum.setX(std::min(minimum.x(), point.x())); minimum.setY(std::min(minimum.y(), point.y()));
+                maximum.setX(std::max(maximum.x(), point.x())); maximum.setY(std::max(maximum.y(), point.y()));
+            }
+        };
+        for (const auto &item : fragment.components()) include(item.position());
+        for (const auto &item : fragment.notes()) include(item.position);
+        for (const auto &route : fragment.wires())
+            for (QPointF point : route.vertices) include(point);
+        const QPointF centre = minimum / 2.0 + maximum / 2.0;
+        displacement -= centre;
+        if (!std::isfinite(displacement.x()) || !std::isfinite(displacement.y()))
+            return fail("Invalid paste displacement.");
+    }
     if (!idsAvailable(m_nextComponentId, fragment.components().size())
-        || !idsAvailable(m_nextWireId, fragment.wires().size()) || !idsAvailable(m_nextNodeId, fragment.nodes().size()))
+        || !idsAvailable(m_nextWireId, fragment.wires().size()) || !idsAvailable(m_nextNodeId, fragment.nodes().size())
+        || !idsAvailable(m_nextNoteId, fragment.notes().size()))
         return fail("There are not enough available document identities for this paste.");
     Document candidate = *this;
-    for (const auto &item : fragment.components()) {
-        const auto *definition = fragment.symbol(item.symbolId());
-        const auto *existing = candidate.symbol(item.symbolId());
+    for (const auto &entry : fragment.m_symbols.symbols()) {
+        const auto *definition = &entry;
+        const auto *existing = candidate.symbol(definition->id);
         if (existing && SymbolLibrary::symbolToJson(*existing) != SymbolLibrary::symbolToJson(*definition))
-            return fail(QString("Cannot paste: symbol %1 has a different definition in this document.").arg(item.symbolId().value()));
+            return fail(QString("Cannot paste: symbol %1 has a different definition in this document.").arg(definition->id.value()));
         if (!existing) {
             QStringList problems;
-            if (!candidate.useSymbol(*definition, &problems)) return fail(problems.join('\n'));
+            if (!candidate.m_symbols.add(*definition, &problems)) return fail(problems.join('\n'));
         }
     }
     QHash<ComponentId, ComponentId> componentMap;
     QHash<NodeId, NodeId> nodeMap;
     QVector<ComponentId> addedComponents;
     QVector<WireId> addedWires;
+    QVector<NoteId> addedNotes;
+    for (const auto &item : fragment.notes()) {
+        const auto id = candidate.addNote(item.position + displacement, item.text, item.width);
+        if (!id) return fail("Pasted note geometry is invalid.");
+        auto &copy = candidate.m_notes.last();
+        copy.justification = item.justification; copy.fillColor = item.fillColor; copy.outlineColor = item.outlineColor;
+        addedNotes.append(id);
+    }
     for (const auto &item : fragment.components()) {
         const auto position = item.position() + displacement;
         if (!std::isfinite(position.x()) || !std::isfinite(position.y())) return fail("Pasted position is outside the supported range.");
@@ -86,6 +138,7 @@ bool Document::pasteFragment(const QByteArray &bytes, QPointF displacement,
         auto properties = item.properties(); properties[0].value = copy.reference();
         copy.setProperties(properties); copy.setMirrored(item.mirrored());
         copy.setPropertyBlockOffset(item.propertyBlockOffset());
+        copy.setPropertyBlockJustification(item.propertyBlockJustification());
         componentMap.insert(item.id(), id); addedComponents.append(id);
     }
     auto nodeIds = fragment.nodes().keys(); std::sort(nodeIds.begin(), nodeIds.end());
@@ -110,5 +163,6 @@ bool Document::pasteFragment(const QByteArray &bytes, QPointF displacement,
     *this = std::move(candidate);
     if (components) *components = addedComponents;
     if (wires) *wires = addedWires;
+    if (notes) *notes = addedNotes;
     return true;
 }

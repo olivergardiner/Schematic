@@ -1,0 +1,105 @@
+{
+  "id": "PNP.Compact30",
+  "name": "PNP",
+  "category": "Semiconductors/Transistors",
+  "referencePrefix": "Q",
+  "showsReference": true,
+  "primitives": [
+    {
+      "kind": "Line",
+      "points": [
+        [
+          -20,
+          0
+        ],
+        [
+          -5,
+          0
+        ]
+      ]
+    },
+    {
+      "kind": "Line",
+      "points": [
+        [
+          -5,
+          10
+        ],
+        [
+          -5,
+          -10
+        ]
+      ]
+    },
+    {
+      "kind": "Polyline",
+      "points": [
+        [
+          -5,
+          5
+        ],
+        [
+          10,
+          14
+        ],
+        [
+          10,
+          20
+        ]
+      ]
+    },
+    {
+      "kind": "Polyline",
+      "points": [
+        [
+          -5,
+          -5
+        ],
+        [
+          10,
+          -14
+        ],
+        [
+          10,
+          -20
+        ]
+      ]
+    },
+    {
+      "kind": "Polygon",
+      "points": [
+        [
+          -3,
+          -6.2
+        ],
+        [
+          3.431,
+          -7.143
+        ],
+        [
+          0.859,
+          -11.431
+        ]
+      ],
+      "filled": true,
+      "fillColor": "black"
+    }
+  ],
+  "terminals": [
+    {
+      "name": "base",
+      "x": -20,
+      "y": 0
+    },
+    {
+      "name": "collector",
+      "x": 10,
+      "y": 20
+    },
+    {
+      "name": "emitter",
+      "x": 10,
+      "y": -20
+    }
+  ]
+}

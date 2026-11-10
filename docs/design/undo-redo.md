@@ -118,4 +118,4 @@ Instance-property edits are implemented: committing one value, visibility change
 
 ## Clipboard follow-up
 
-The approved [Edit menu/clipboard design](edit-menu-clipboard.md) is implemented. Cut and Paste each create one snapshot command with selection restoration; Copy does not change history or dirty state. When a line editor has focus, menu Undo/Redo operate on its text instead of the document. Clipboard contents and repeated-paste cascade counters are application state outside document undo history.
+The approved [Edit menu/clipboard design](edit-menu-clipboard.md) is implemented. Cut and Paste each create one snapshot command with selection restoration; Copy does not change history or dirty state. When a line editor has focus, menu Undo/Redo operate on its text instead of the document. Clipboard contents and canvas pointer position are application state outside document undo history.

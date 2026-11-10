@@ -23,7 +23,7 @@ private slots:
 void SymbolRendererTests::previewFitsTargetAndPaintsArtwork()
 {
     const SymbolLibrary &library = builtinSymbolLibrary();
-    const LibrarySymbol *symbol = library.find(SymbolIds::OpAmp);
+    const LibrarySymbol *symbol = library.find(SymbolIds::OpAmpGrid10);
     QVERIFY(symbol);
 
     QImage image(64, 48, QImage::Format_ARGB32_Premultiplied);
@@ -131,14 +131,14 @@ void SymbolRendererTests::pathPrimitivesRenderCurvesFillAndFillRules()
 
 void SymbolRendererTests::symbolMimeDataCarriesKnownVersionedId()
 {
-    std::unique_ptr<QMimeData> mimeData(SymbolMimeData::create(SymbolIds::OpAmp));
+    std::unique_ptr<QMimeData> mimeData(SymbolMimeData::create(SymbolIds::OpAmpGrid10));
     QCOMPARE(QString::fromLatin1(SymbolMimeData::kSymbolIdMimeType),
              QStringLiteral("application/vnd.schematic.symbol-id-v1"));
     QCOMPARE(mimeData->formats(), QStringList{QString::fromLatin1(
                  SymbolMimeData::kSymbolIdMimeType)});
     const std::optional<SymbolId> decoded = SymbolMimeData::read(mimeData.get());
     QVERIFY(decoded);
-    QCOMPARE(decoded->value(), SymbolIds::OpAmp.value());
+    QCOMPARE(decoded->value(), SymbolIds::OpAmpGrid10.value());
 
     QMimeData unknown;
     unknown.setData(QString::fromLatin1(SymbolMimeData::kSymbolIdMimeType),
@@ -147,7 +147,7 @@ void SymbolRendererTests::symbolMimeDataCarriesKnownVersionedId()
 
     QMimeData wrongVersion;
     wrongVersion.setData(QStringLiteral("application/vnd.schematic.symbol-id-v2"),
-                         SymbolIds::OpAmp.value().toUtf8());
+                         SymbolIds::OpAmpGrid10.value().toUtf8());
     QVERIFY(!SymbolMimeData::read(&wrongVersion));
 }
 

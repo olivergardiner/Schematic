@@ -2,6 +2,7 @@
 #define SCHEMATICITEMS_H
 
 #include "identifiers.h"
+#include "textnote.h"
 
 #include <QGraphicsItemGroup>
 #include <QGraphicsPathItem>
@@ -10,6 +11,12 @@
 #include <QPainterPathStroker>
 #include <QPen>
 #include <QStyleOptionGraphicsItem>
+#include <QGraphicsTextItem>
+#include <QTextDocument>
+#include <QTextOption>
+#include <QTextCursor>
+#include <QTextBlockFormat>
+#include <cmath>
 
 // Small QGraphicsItem subclasses that tag scene items with the model
 // identity they represent, so SchematicScene's mouse handlers can map a hit
@@ -31,27 +38,25 @@ public:
     explicit ComponentItem(ComponentId id) : m_id(id) {}
     ComponentId componentId() const { return m_id; }
 
-    // QGraphicsItemGroup::paint() draws nothing of its own (only its
-    // children paint), so the built-in dashed selection rectangle
-    // QGraphicsItem would otherwise draw via the ItemState_Selected style
-    // option never appears. Drawing it explicitly here is the standard Qt
-    // workaround for selection feedback on group items.
-    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option,
-              QWidget *widget) override
-    {
-        QGraphicsItemGroup::paint(painter, option, widget);
-        if (isSelected()) {
-            QPen pen(Qt::DashLine);
-            pen.setColor(Qt::blue);
-            pen.setCosmetic(true);
-            painter->setPen(pen);
-            painter->setBrush(Qt::NoBrush);
-            painter->drawRect(boundingRect());
-        }
-    }
+    // Selection is shown by artwork/label colour, without a group rectangle.
+    void paint(QPainter *, const QStyleOptionGraphicsItem *, QWidget *) override {}
 
 private:
     ComponentId m_id;
+};
+
+// Suppress Qt's default path-item selection decoration, including when its
+// selected state is inherited from the component group.
+class ComponentPrimitiveItem : public QGraphicsPathItem
+{
+public:
+    explicit ComponentPrimitiveItem(const QPainterPath &path) : QGraphicsPathItem(path) {}
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override
+    {
+        QStyleOptionGraphicsItem appearance(*option);
+        appearance.state &= ~QStyle::State_Selected;
+        QGraphicsPathItem::paint(painter, &appearance, widget);
+    }
 };
 
 // A single upright drag target containing the visible property rows.
@@ -111,6 +116,17 @@ public:
     explicit WireItem(WireId id) : m_id(id) {}
     WireId wireId() const { return m_id; }
 
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *) override
+    {
+        painter->save();
+        QPen appearance = pen();
+        if (option->state & QStyle::State_Selected) appearance.setColor(Qt::red);
+        painter->setPen(appearance);
+        painter->setBrush(Qt::NoBrush);
+        painter->drawPath(path());
+        painter->restore();
+    }
+
     QPainterPath shape() const override
     {
         // QGraphicsPathItem's default shape also includes the implicitly
@@ -125,6 +141,55 @@ public:
 
 private:
     WireId m_id;
+};
+
+class NoteItem : public QGraphicsTextItem
+{
+public:
+    enum { Type = UserType + 5 };
+    int type() const override { return Type; }
+    explicit NoteItem(const TextNote &note) : m_id(note.id) {
+        QFont font; font.setPixelSize(10); setFont(font);
+        // Keep text clear of the box edge, including when right-aligned.
+        document()->setDocumentMargin(4);
+        auto option = document()->defaultTextOption();
+        option.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
+        document()->setDefaultTextOption(option);
+        setPlainText(note.text); setTextWidth(note.width); setPos(note.position);
+        QTextCursor cursor(document()); cursor.select(QTextCursor::Document);
+        QTextBlockFormat format;
+        format.setAlignment(note.justification == PropertyJustification::Middle ? Qt::AlignHCenter
+                            : note.justification == PropertyJustification::Right ? Qt::AlignRight : Qt::AlignLeft);
+        cursor.mergeBlockFormat(format);
+        m_fill = note.fillColor == QLatin1String("none") ? QBrush(Qt::NoBrush) : QBrush(QColor(note.fillColor));
+        m_outline = note.outlineColor == QLatin1String("none") ? QPen(Qt::NoPen) : QPen(QColor(note.outlineColor),1);
+        setDefaultTextColor(Qt::black); setTextInteractionFlags(Qt::NoTextInteraction);
+        setFlag(QGraphicsItem::ItemIsSelectable, true); setZValue(4);
+    }
+    NoteId noteId() const { return m_id; }
+    QPainterPath shape() const override { QPainterPath path; path.addRect(boundingRect()); return path; }
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override {
+        painter->save(); painter->setPen(m_outline); painter->setBrush(m_fill);
+        if (m_fill.style() != Qt::NoBrush || m_outline.style() != Qt::NoPen)
+            painter->drawRect(boundingRect().adjusted(0.5,0.5,-0.5,-0.5));
+        painter->restore();
+        QStyleOptionGraphicsItem clean(*option); clean.state &= ~QStyle::State_Selected;
+        QGraphicsTextItem::paint(painter, &clean, widget);
+        if (!isSelected()) return;
+        painter->save();
+        painter->setPen(QPen(QColor(35,105,155), 0, Qt::DashLine));
+        painter->setBrush(Qt::NoBrush); painter->drawRect(boundingRect());
+        const qreal scale = std::hypot(painter->worldTransform().m11(), painter->worldTransform().m12());
+        const qreal size = scale > 0 ? qMin(qreal(6)/scale, boundingRect().height()) : 6;
+        painter->setPen(QPen(QColor(35,105,155),0)); painter->setBrush(Qt::white);
+        for (qreal x : {qreal(0), boundingRect().width() - size})
+            painter->drawRect(QRectF(x, boundingRect().center().y()-size/2, size, size));
+        painter->restore();
+    }
+private:
+    NoteId m_id;
+    QBrush m_fill;
+    QPen m_outline;
 };
 
 #endif // SCHEMATICITEMS_H

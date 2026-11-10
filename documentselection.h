@@ -9,9 +9,10 @@ struct DocumentSelection
 {
     QVector<ComponentId> components;
     QVector<WireId> wires;
-    bool isEmpty() const { return components.isEmpty() && wires.isEmpty(); }
+    QVector<NoteId> notes;
+    bool isEmpty() const { return components.isEmpty() && wires.isEmpty() && notes.isEmpty(); }
     bool operator==(const DocumentSelection &other) const
-    { return components == other.components && wires == other.wires; }
+    { return components == other.components && wires == other.wires && notes == other.notes; }
 };
 
 #endif

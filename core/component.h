@@ -3,6 +3,7 @@
 
 #include "identifiers.h"
 #include "symbolid.h"
+#include "propertyjustification.h"
 
 #include <QPointF>
 #include <QString>
@@ -82,6 +83,8 @@ public:
 
     std::optional<QPointF> propertyBlockOffset() const { return m_propertyBlockOffset; }
     void setPropertyBlockOffset(std::optional<QPointF> offset) { m_propertyBlockOffset = offset; }
+    PropertyJustification propertyBlockJustification() const { return m_propertyBlockJustification; }
+    void setPropertyBlockJustification(PropertyJustification value) { m_propertyBlockJustification = value; }
 
     bool mirrored() const { return m_mirrored; }
     void setMirrored(bool mirrored) { m_mirrored = mirrored; }
@@ -98,6 +101,7 @@ public:
     QPointF terminalPosition(TerminalId terminal, const LibrarySymbol &symbol) const;
 
 private:
+    friend class Document;
     ComponentId m_id = kInvalidComponentId;
     SymbolId m_symbolId;
     QPointF m_position;
@@ -105,6 +109,7 @@ private:
     QVector<InstanceProperty> m_properties{{"reference", {}, {}, true}, {"value", {}, {}, true}};
     bool m_mirrored = false;
     std::optional<QPointF> m_propertyBlockOffset;
+    PropertyJustification m_propertyBlockJustification = PropertyJustification::Left;
 };
 
 // Rotates a local symbol-space offset by the given quadrant rotation.

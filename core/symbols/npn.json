@@ -1,0 +1,105 @@
+{
+  "id": "NPN.Compact30",
+  "name": "NPN",
+  "category": "Semiconductors/Transistors",
+  "referencePrefix": "Q",
+  "showsReference": true,
+  "primitives": [
+    {
+      "kind": "Line",
+      "points": [
+        [
+          -20,
+          0
+        ],
+        [
+          -5,
+          0
+        ]
+      ]
+    },
+    {
+      "kind": "Line",
+      "points": [
+        [
+          -5,
+          -10
+        ],
+        [
+          -5,
+          10
+        ]
+      ]
+    },
+    {
+      "kind": "Polyline",
+      "points": [
+        [
+          -5,
+          -5
+        ],
+        [
+          10,
+          -14
+        ],
+        [
+          10,
+          -20
+        ]
+      ]
+    },
+    {
+      "kind": "Polyline",
+      "points": [
+        [
+          -5,
+          5
+        ],
+        [
+          10,
+          14
+        ],
+        [
+          10,
+          20
+        ]
+      ]
+    },
+    {
+      "kind": "Polygon",
+      "points": [
+        [
+          8,
+          12.8
+        ],
+        [
+          1.569,
+          11.857
+        ],
+        [
+          4.141,
+          7.569
+        ]
+      ],
+      "filled": true,
+      "fillColor": "black"
+    }
+  ],
+  "terminals": [
+    {
+      "name": "base",
+      "x": -20,
+      "y": 0
+    },
+    {
+      "name": "collector",
+      "x": 10,
+      "y": -20
+    },
+    {
+      "name": "emitter",
+      "x": 10,
+      "y": 20
+    }
+  ]
+}

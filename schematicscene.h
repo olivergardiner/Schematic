@@ -19,6 +19,7 @@ class Component;
 struct WireRoute;
 class ComponentItem;
 class ComponentLabelItem;
+class NoteItem;
 
 // SchematicScene hosts the schematic symbols, wires and annotations that
 // make up a drawing, and interprets mouse/keyboard input as
@@ -43,9 +44,13 @@ public:
         Select,
         PlaceComponent,
         DrawWire,
+        PlaceNote,
     };
 
     explicit SchematicScene(QObject *parent = nullptr);
+    ~SchematicScene() override;
+    qreal propertyBlockGridSpacing() const { return m_propertyBlockGridSpacing; }
+    void setPropertyBlockGridSpacing(qreal spacing);
 
     // Binds document as the scene's live, mutable data source and performs
     // an immediate full rebuild from it. Every interactive handler
@@ -70,9 +75,11 @@ public:
     // Adds one snapped symbol instance through the same undoable path as
     // click-to-place. Used by palette drops without changing the active mode.
     bool placeComponentAt(const SymbolId &id, QPointF scenePos);
+    bool placeNoteAt(QPointF scenePos);
 
     // The symbol placed by a click while editMode() == PlaceComponent.
     void setPlaceComponentKind(const SymbolId &id) { m_placeKind = id; }
+    void setKeepPlacingSymbols(bool enabled) { m_keepPlacingSymbols = enabled; }
 
     // Discards any in-progress wire (see DrawWire mode) with zero Document
     // calls - equivalent to pressing Escape. Exposed so MainWindow can
@@ -115,6 +122,7 @@ signals:
     // Select mode - MainWindow reveals the Properties dock for
     // componentId in response (see MainWindow::onEditComponentLabels()).
     void componentDoubleClicked(ComponentId componentId);
+    void noteEditRequested(NoteId noteId);
 
 protected:
     void mousePressEvent(QGraphicsSceneMouseEvent *event) override;
@@ -133,6 +141,7 @@ private:
         TerminalRef terminal;
         NodeId node = kInvalidNodeId;
         WireId wire = kInvalidWireId;
+        int segment = -1;
         QPointF point;
     };
 
@@ -141,33 +150,45 @@ private:
     void addWireItems(const WireRoute &route);
     void addJunctionItem(QPointF point);
     void addComponentItems(const Component &component, const Document &document);
+    void updateComponentSelectionAppearance();
 
     QPointF snapToGrid(QPointF point) const;
     qreal hitToleranceInSceneUnits() const;
     HitResult hitTestConnection(QPointF scenePos) const;
+    HitResult hitTestWireSegment(QPointF scenePos) const;
     void setWireHoverCandidate(bool visible, QPointF point = {});
     // Finds the enclosing ComponentItem/ComponentLabelItem (if any) for an
     // item returned by itemAt(), so a click on either a symbol or its
     // labels drives the same select/drag/delete behaviour.
     ComponentItem *componentItemAt(QPointF scenePos) const;
+    NoteItem *noteItemAt(QPointF scenePos) const;
 
     void beginDrag(ComponentItem *item, QPointF scenePos);
     void updateDrag(QPointF scenePos);
     void endDrag();
 
-    void extendPendingWire(QPointF scenePos);
+    void extendPendingWire(QPointF scenePos, bool finishAtPoint = false);
 
     bool commitEdit(const QString &description, const std::function<bool()> &operation,
                     std::function<Selection()> afterSelection = {});
 
     Document *m_document = nullptr;
+    qreal m_propertyBlockGridSpacing = 2.0;
     EditCommitter m_editCommitter;
     EditMode m_mode = EditMode::Select;
+    bool m_keepPlacingSymbols = false;
     SymbolId m_placeKind = SymbolIds::Resistor;
 
     // Preview comes from the original snapshot, never the live document.
     bool m_dragging = false;
     bool m_propertyDragging = false;
+    NoteId m_dragNoteId = kInvalidNoteId;
+    int m_noteResizeSide = 0;
+    QPointF m_noteResizePosition;
+    qreal m_noteResizeWidth = 160;
+    WireId m_dragWireId = kInvalidWireId;
+    int m_dragSegment = -1;
+    bool m_dragSegmentHorizontal = false;
     QPointF m_propertyOriginalOffset;
     bool m_dragThresholdPassed = false;
     bool m_dragCandidateValid = true;

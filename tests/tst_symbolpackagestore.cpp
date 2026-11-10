@@ -1,4 +1,5 @@
 #include "../symbolpackagestore.h"
+#include "symbolmanifest.h"
 
 #include <QFile>
 #include <QDir>
@@ -45,6 +46,7 @@ private slots:
     void savesReloadsAndProtectsTerminalSignature();
     void embeddedBatchOverridesAndRollsBack();
     void rejectsUnsafeManifestAndRollsBackWriteFailure();
+    void nestedManifestWritingOrderingAndLegacyUpgrade();
 };
 
 void SymbolPackageStoreTests::savesReloadsAndProtectsTerminalSignature()
@@ -117,6 +119,57 @@ void SymbolPackageStoreTests::rejectsUnsafeManifestAndRollsBackWriteFailure()
     QVERIFY(!errors.isEmpty());
     QCOMPARE(readFile(sourcesPath), QByteArrayLiteral("keep me"));
     QVERIFY(!QFile::exists(blockedDirectory.filePath(QStringLiteral("manifest.json"))));
+}
+
+void SymbolPackageStoreTests::nestedManifestWritingOrderingAndLegacyUpgrade()
+{
+    struct Restore { SymbolLibrary saved; ~Restore() { applicationSymbolLibrary() = saved; } } restore{applicationSymbolLibrary()};
+    QTemporaryDir directory; QVERIFY(directory.isValid());
+    auto first = packageSymbol(); first.id = SymbolId("LegacyFirst");
+    auto second = first; second.id = SymbolId("LegacySecond");
+    const auto fileName = [](const LibrarySymbol &symbol) { return symbol.id.value()+".json"; };
+    QVERIFY(writeFile(directory.filePath(fileName(first)), QJsonDocument(SymbolLibrary::symbolToJson(first)).toJson()));
+    QVERIFY(writeFile(directory.filePath(fileName(second)), QJsonDocument(SymbolLibrary::symbolToJson(second)).toJson()));
+    QVERIFY(writeFile(directory.filePath("manifest.json"),QJsonDocument(QJsonObject{
+        {"symbols",QJsonArray{fileName(second),fileName(first)}},
+        {"categories",QJsonArray{"Extra/Empty","Tests/Storage"}}}).toJson()));
+    SymbolPackageStore store(directory.path());
+    SymbolLibrary legacy;
+    auto errors = store.loadInto(&legacy); QVERIFY2(errors.isEmpty(),qPrintable(errors.join('\n')));
+    applicationSymbolLibrary() = legacy;
+    auto third = first; third.id = SymbolId("LegacyThird");
+    QVERIFY2(store.save(third,"<svg/>","{}",&errors),qPrintable(errors.join('\n')));
+    const auto manifest = [&]() { return QJsonDocument::fromJson(readFile(directory.filePath("manifest.json"))).object(); };
+    QVERIFY(!manifest().contains("symbols"));
+    const auto parsed = SymbolManifest::fromJson(manifest(),&errors);
+    QVERIFY(parsed); QVERIFY(!parsed->legacy);
+    QVERIFY(parsed->categoryPaths().contains("Extra/Empty"));
+    const auto orderedFiles = [&](const QJsonObject &object) {
+        QStringList files; QStringList problems;
+        const auto tree = SymbolManifest::fromJson(object,&problems);
+        if (tree) for (const auto &entry : tree->entries()) files.append(entry.file);
+        return files;
+    };
+    QCOMPARE(orderedFiles(manifest()),QStringList({fileName(second),fileName(first),fileName(third)}));
+    first.displayName = "Refined first";
+    QVERIFY(store.save(first,"<svg/>","{}",&errors));
+    QCOMPARE(orderedFiles(manifest()),QStringList({fileName(second),fileName(first),fileName(third)}));
+    second.category = "Tests/Moved";
+    QVERIFY2(store.save(second,"<svg/>","{}",&errors),qPrintable(errors.join('\n')));
+    QCOMPARE(orderedFiles(manifest()),QStringList({fileName(first),fileName(third),fileName(second)}));
+    SymbolLibrary reloaded;
+    errors = store.loadInto(&reloaded); QVERIFY2(errors.isEmpty(),qPrintable(errors.join('\n')));
+    QStringList live, restarted;
+    for (const auto *symbol : applicationSymbolLibrary().paletteSymbols()) live.append(symbol->id.value());
+    for (const auto *symbol : reloaded.paletteSymbols()) restarted.append(symbol->id.value());
+    QCOMPARE(live,restarted);
+    QCOMPARE(reloaded.categoryTree().first().children.first().name,QString("Empty"));
+    // An invalid collection cannot partially alter an already populated registry.
+    const auto before = reloaded.categories(); const int size = reloaded.size();
+    first.category = "Wrong";
+    QVERIFY(writeFile(directory.filePath(fileName(first)),QJsonDocument(SymbolLibrary::symbolToJson(first)).toJson()));
+    errors = store.loadInto(&reloaded);
+    QVERIFY(!errors.isEmpty()); QCOMPARE(reloaded.categories(),before); QCOMPARE(reloaded.size(),size);
 }
 
 void SymbolPackageStoreTests::embeddedBatchOverridesAndRollsBack()

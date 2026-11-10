@@ -2,8 +2,10 @@
 #define SYMBOLLIBRARY_H
 
 #include "symbolid.h"
+#include "propertyjustification.h"
 
 #include <QHash>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QPointF>
 #include <QRectF>
@@ -76,6 +78,20 @@ struct SymbolTerminal
     QPointF offset;
 };
 
+struct LayoutTerminalMapping { QString from; QString to; };
+struct SymbolLayoutChoice {
+    QString key;
+    QString label;
+    SymbolId symbolId;
+    QVector<LayoutTerminalMapping> terminals;
+};
+struct SymbolLayoutControl {
+    QString key;
+    QString label;
+    QString current;
+    QVector<SymbolLayoutChoice> choices;
+};
+
 // One symbol as served by a SymbolLibrary. Terminal order is the
 // TerminalId that saved wires refer to, so for a released symbol it must
 // never change; changed geometry gets a new id.
@@ -90,12 +106,35 @@ struct LibrarySymbol
     bool showsReference = true;
     QVector<SymbolPrimitive> primitives;
     QVector<SymbolTerminal> terminals;
+    QVector<SymbolLayoutControl> layoutControls;
+    bool paletteVisible = true;
+    QString defaultValue; // Copied into Value only when a new instance is created.
+    PropertyJustification defaultPropertyJustification = PropertyJustification::Left;
 };
+
+void readSymbolDefaultValue(const QJsonObject &object, LibrarySymbol *symbol, QStringList *errors);
+void readSymbolPropertyJustification(const QJsonObject &object, LibrarySymbol *symbol, QStringList *errors);
+
+const SymbolLayoutControl *symbolLayoutControl(const LibrarySymbol &symbol, const QString &key);
+QStringList validateSymbolLayoutControls(const LibrarySymbol &symbol);
+// Complete, one-to-one source index -> target index mapping; empty on error.
+QVector<int> layoutTerminalMapping(const LibrarySymbol &source, const SymbolLayoutControl &control,
+                                 const SymbolLayoutChoice &choice, const LibrarySymbol &target,
+                                 QStringList *errors);
+void readSymbolLayoutControls(const QJsonObject &object, LibrarySymbol *symbol, QStringList *errors);
+QJsonArray symbolLayoutControlsJson(const LibrarySymbol &symbol);
 
 // Splits a category path ("Semiconductors/Diodes") into its segments, outermost
 // first. A single-level category yields one segment. Does not validate; an
 // invalid path (see validateLibrarySymbol()) may yield empty segments.
 QStringList libraryCategoryPath(const QString &category);
+
+struct SymbolCategory {
+    QString name;
+    QVector<SymbolId> symbols;
+    QVector<SymbolCategory> children;
+    bool declared = false; // Explicit empty categories remain visible.
+};
 
 // Returns one message per problem found; empty means valid. Checks: non-empty
 // (and untrimmed-clean) id, non-empty display name and prefix; a category
@@ -135,20 +174,34 @@ public:
     bool addFromJson(const QJsonObject &object, QStringList *errors);
     bool replace(const LibrarySymbol &symbol, QStringList *errors);
 
-    // Loads <directory>/manifest.json - {"symbols": ["a.json", ...]} - and
-    // every listed file, which works for both a Qt resource path (":/symbols")
-    // and a disk directory. All-or-nothing: if anything fails, errors are
+    // Loads the nested category manifest and its symbol files. Legacy flat
+    // manifests remain readable. Nested placement must match each definition.
+    // Works for Qt resources (":/symbols") and disk directories.
+    // All-or-nothing: if anything fails, errors are
     // appended to *errors and an empty library is returned.
     static SymbolLibrary loadFromDirectory(const QString &directory, QStringList *errors);
 
     // The returned pointer is valid until the next add().
     const LibrarySymbol *find(const SymbolId &id) const;
     const QVector<LibrarySymbol> &symbols() const { return m_symbols; }
+    // Preorder paths from the same tree used by the palette. Declared empty
+    // nodes remain visible; undeclared hidden-only branches are omitted.
+    QStringList categories() const;
+    QVector<SymbolCategory> categoryTree() const;
+    QVector<const LibrarySymbol *> paletteSymbols() const;
+    // Merge declared paths from another collection without disturbing the
+    // order already established by earlier collections (e.g. packaged data).
+    void declareCategories(const QStringList &paths);
+    // Reachable symbol IDs, validating all declared mappings. Missing targets
+    // are errors; cycles are expected (e.g. Above <-> Below).
+    QStringList layoutClosure(const QStringList &roots, QStringList *errors) const;
     int size() const { return m_symbols.size(); }
 
 private:
     QVector<LibrarySymbol> m_symbols;
     QHash<SymbolId, int> m_index;
+    SymbolCategory *ensureCategory(const QString &path);
+    QVector<SymbolCategory> m_categories;
 };
 
 // The library compiled into the application from :/symbols. Loaded and

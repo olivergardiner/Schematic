@@ -4,7 +4,7 @@ project(Schematic LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Widgets)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Widgets Svg)
 
 qt_standard_project_setup()
 
@@ -32,9 +32,13 @@ add_library(schematiccore STATIC
     core/symbolid.h
     core/symbollibrary.h
     core/symbollibrary.cpp
+    core/symbollayouts.cpp
+    core/symbolmanifest.h
+    core/symbolmanifest.cpp
     core/symbolsvg.h
     core/symbolsvg.cpp
     core/component.h
+    core/propertyjustification.h
     core/component.cpp
     core/terminalref.h
     core/wireendpoint.h
@@ -45,6 +49,8 @@ add_library(schematiccore STATIC
     core/routegeometry.cpp
     core/document.h
     core/document.cpp
+    core/textnote.h
+    core/documentnotes.cpp
     core/documentloadresult.h
     core/documentjson.cpp
     core/documentfragment.cpp
@@ -71,11 +77,42 @@ qt_add_resources(schematiccore symbol_library
         core/symbols/capacitor.json
         core/symbols/electrolytic-capacitor.json
         core/symbols/diode.json
+        core/symbols/schottky-diode.json
+        core/symbols/zener-diode.json
+        core/symbols/led.json
+        core/symbols/pnp.json
+        core/symbols/npn.json
+        core/symbols/n-channel-jfet.json
+        core/symbols/p-channel-jfet.json
+        core/symbols/n-channel-mosfet.json
+        core/symbols/p-channel-mosfet.json
         core/symbols/ground.json
-        core/symbols/opamp.json
+        core/symbols/rail-vcc.json
+        core/symbols/ground-chassis.json
+        core/symbols/ground-signal.json
+        core/symbols/port-input.json
+        core/symbols/port-output.json
+        core/symbols/port-bidirectional.json
         core/symbols/opamp-grid10.json
+        core/symbols/opamp-no-supplies.json
+        core/symbols/ota-with-supplies.json
+        core/symbols/ota-with-supplies-bias-above.json
+        core/symbols/ota-no-supplies.json
+        core/symbols/ota-no-supplies-bias-above.json
+        core/symbols/darlington-buffer-lm13700.json
         core/symbols/potentiometer.json
+        core/symbols/preset-resistor.json
         core/symbols/jack.json
+        core/symbols/block-high-pass.json
+        core/symbols/block-low-pass.json
+        core/symbols/block-band-pass.json
+        core/symbols/block-buffer.json
+        core/symbols/block-summing-node.json
+        core/symbols/block-band-stop.json
+        core/symbols/block-variable-high-pass.json
+        core/symbols/block-variable-low-pass.json
+        core/symbols/block-variable-band-pass.json
+        core/symbols/block-variable-band-stop.json
 )
 
 qt_add_executable(Schematic
@@ -91,6 +128,8 @@ qt_add_executable(Schematic
     symbolmimedata.h
     symbolrenderer.cpp
     symbolrenderer.h
+    schematicsvgexporter.cpp
+    schematicsvgexporter.h
     symbolpackagestore.cpp
     symbolpackagestore.h
     symbolimportdialog.cpp
@@ -111,6 +150,7 @@ target_link_libraries(Schematic
         Qt6::Core
         Qt6::Gui
         Qt6::Widgets
+        Qt6::Svg
         schematiccore
 )
 

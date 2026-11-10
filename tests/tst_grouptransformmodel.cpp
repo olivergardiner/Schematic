@@ -100,7 +100,7 @@ void TstGroupTransformModel::boundaryWiresAndAtomicRejection()
 void TstGroupTransformModel::quadrantCompositionAndRoundTrip()
 {
     Document original;
-    const auto first = original.addComponent(SymbolIds::OpAmp, {3.5, 7.5}, Rotation::Deg90);
+    const auto first = original.addComponent(SymbolIds::OpAmpGrid10, {3.5, 7.5}, Rotation::Deg90);
     const auto second = original.addComponent(SymbolIds::Resistor, {103.5, 7.5}, Rotation::Deg270);
     QVERIFY(original.setComponentMirrored(first, true));
     const QPointF pivot(42.25, 10.75);

@@ -1,0 +1,56 @@
+{
+  "id": "Port.Input",
+  "name": "Input",
+  "category": "Signals/Ports",
+  "referencePrefix": "PORT",
+  "showsReference": false,
+  "primitives": [
+    {
+      "kind": "Polygon",
+      "points": [
+        [
+          -10,
+          -6
+        ],
+        [
+          4,
+          -6
+        ],
+        [
+          10,
+          0
+        ],
+        [
+          4,
+          6
+        ],
+        [
+          -10,
+          6
+        ]
+      ],
+      "filled": true
+    },
+    {
+      "kind": "Line",
+      "points": [
+        [
+          10,
+          0
+        ],
+        [
+          20,
+          0
+        ]
+      ]
+    }
+  ],
+  "terminals": [
+    {
+      "name": "connection",
+      "x": 20,
+      "y": 0
+    }
+  ],
+  "defaultValue": "IN"
+}

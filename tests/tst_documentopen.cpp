@@ -4,15 +4,26 @@
 #include "symbolsvg.h"
 #include "../propertiespanel.h"
 #include "../schematicview.h"
+#include "../schematicitems.h"
 #include <QApplication>
 #include <QClipboard>
 #include <QMimeData>
 #include <QMenu>
+#include <QMenuBar>
 #include <QComboBox>
+#include <QToolButton>
+#include <QColorDialog>
 #include <QDialog>
+#include <QDoubleSpinBox>
+#include "../preferencesdialog.h"
 #include <QDialogButtonBox>
 #include <QTabWidget>
 #include <QFile>
+#include <QFileInfo>
+#include <QDir>
+#include <QFileDialog>
+#include <QToolBar>
+#include <QScopeGuard>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QMessageBox>
@@ -26,6 +37,7 @@
 #include <QPointer>
 #include <QAction>
 #include <QLineEdit>
+#include <QPlainTextEdit>
 #include <QCheckBox>
 #include <QPushButton>
 #include <QTableWidget>
@@ -39,13 +51,22 @@ class DocumentOpenTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void textNotesPlacementPropertiesClipboard();
+    void recentFilesReopenPersistAndClear();
+    void recentFilesLimitAndSuccessfulSaves();
+    void svgExportActionShortcutAndState();
     void preferencesDialogLifecycle();
+    void propertyJustificationInspector();
+    void noteAppearanceControls();
     void clipboardMenuShortcutsAndUndo();
     void clipboardMenuRespectsTextEditing();
     void propertyBlockDockDefaultAndReset();
     void propertyDockLayoutAndGroundVisibility();
     void propertyInspectorMixedEditsAndCustomProperties();
     void propertyInspectorContextAndKeyboard();
+    void otaLayoutInspectorUndoAndContext();
+    void signalCategoriesAndDefaultLabels();
+    void paletteFollowsCategoryTreeOrder();
     void importPreviewPreservesBlackFill();
     void transformToolbarActionsAreUndoable();
     void groupToolbarActionsAndSelectionRestoration();
@@ -56,6 +77,203 @@ private slots:
     void missingAndIncompatibleChoices();
 };
 
+void DocumentOpenTests::recentFilesReopenPersistAndClear()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    QStandardPaths::setTestModeEnabled(true);
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,directory.path());
+    const auto bytes = Document().toJsonBytes();
+    const auto a = directory.filePath("a.schematic");
+    const auto b = directory.filePath("b.schematic");
+    for (const auto &path : {a,b}) {
+        QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly));
+        QCOMPARE(file.write(bytes), qint64(bytes.size()));
+    }
+    const auto canonicalA = QFileInfo(a).canonicalFilePath();
+    const auto canonicalB = QFileInfo(b).canonicalFilePath();
+    MainWindow window;
+    window.show(); QVERIFY(QTest::qWaitForWindowActive(&window));
+    auto *menu = window.findChild<QMenu *>("recentFilesMenu");
+    auto *clear = window.findChild<QAction *>("clearRecentFilesAction");
+    QVERIFY(menu); QVERIFY(clear);
+    QVERIFY(!menu->menuAction()->isEnabled());
+    QVERIFY(window.openDocumentFrom(a));
+    QVERIFY(window.openDocumentFrom(b));
+    QVERIFY(window.openDocumentFrom(directory.path() + "/./a.schematic"));
+    QCOMPARE(QSettings().value("files/recentFiles").toStringList(), QStringList({canonicalA,canonicalB}));
+    QVERIFY(menu->menuAction()->isEnabled());
+    auto *first = window.findChild<QAction *>("recentFileAction1");
+    auto *second = window.findChild<QAction *>("recentFileAction2");
+    QVERIFY(first); QVERIFY(second);
+    QCOMPARE(first->data().toString(), canonicalA);
+    QCOMPARE(second->data().toString(), canonicalB);
+    QCOMPARE(first->toolTip(), QDir::toNativeSeparators(canonicalA));
+    {
+        MainWindow restored;
+        QCOMPARE(restored.findChild<QAction *>("recentFileAction1")->data().toString(), canonicalA);
+    }
+    QVERIFY(window.m_editController->commit("Unsaved component", [&] {
+        return window.m_document.addComponent(SymbolIds::Resistor, {}) != kInvalidComponentId;
+    }));
+    const auto before = window.m_document.toJsonBytes();
+    const auto originalPath = window.m_currentFilePath;
+    bool prompted = false;
+    QTimer::singleShot(0, &window, [&] {
+        if (auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget())) {
+            prompted = true; box->button(QMessageBox::Cancel)->click();
+        }
+    });
+    second->trigger();
+    QVERIFY(prompted);
+    QCOMPARE(window.m_document.toJsonBytes(), before);
+    QCOMPARE(window.m_currentFilePath, originalPath);
+    QCOMPARE(first->data().toString(), canonicalA);
+    QTimer::singleShot(0, &window, [&] {
+        if (auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget()))
+            box->button(QMessageBox::Discard)->click();
+    });
+    second->trigger();
+    QCOMPARE(window.m_currentFilePath, canonicalB);
+    QCOMPARE(window.m_document.toJsonBytes(), bytes);
+    QCOMPARE(first->data().toString(), canonicalB);
+    QCOMPARE(second->data().toString(), canonicalA);
+    const auto history = window.m_editController->undoStack()->index();
+    clear->trigger();
+    QVERIFY(QSettings().value("files/recentFiles").toStringList().isEmpty());
+    QVERIFY(!menu->menuAction()->isEnabled());
+    QVERIFY(!first->isVisible());
+    QCOMPARE(window.m_currentFilePath, canonicalB);
+    QCOMPARE(window.m_document.toJsonBytes(), bytes);
+    QCOMPARE(window.m_editController->undoStack()->index(), history);
+    QVERIFY(QFile::exists(a)); QVERIFY(QFile::exists(b));
+}
+
+void DocumentOpenTests::recentFilesLimitAndSuccessfulSaves()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    QStandardPaths::setTestModeEnabled(true);
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,directory.path());
+    const bool previous = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+    QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
+    const auto restore = qScopeGuard([previous] { QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, previous); });
+    MainWindow window;
+    window.show(); QVERIFY(QTest::qWaitForWindowActive(&window));
+    const auto bytes = Document().toJsonBytes();
+    QString last;
+    for (int i = 0; i < 12; ++i) {
+        last = directory.filePath(QString("file%1.schematic").arg(i));
+        QFile file(last); QVERIFY(file.open(QIODevice::WriteOnly));
+        QCOMPARE(file.write(bytes), qint64(bytes.size())); file.close();
+        QVERIFY(window.openDocumentFrom(last));
+    }
+    auto paths = QSettings().value("files/recentFiles").toStringList();
+    QCOMPARE(paths.size(), 10);
+    QCOMPARE(paths.first(), QFileInfo(last).canonicalFilePath());
+    QCOMPARE(paths.last(), QFileInfo(directory.filePath("file2.schematic")).canonicalFilePath());
+    // An unavailable recent file uses normal Open feedback and is retained
+    // (for example, a temporarily disconnected drive may return later).
+    QVERIFY(QFile::remove(last));
+    QTimer::singleShot(0, &window, [] {
+        if (auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget())) box->accept();
+    });
+    window.findChild<QAction *>("recentFileAction1")->trigger();
+    QCOMPARE(QSettings().value("files/recentFiles").toStringList(), paths);
+    QCOMPARE(window.m_document.toJsonBytes(), bytes);
+    window.m_currentFilePath = directory.filePath("saved.schematic");
+    QVERIFY(window.onSave());
+    QCOMPARE(QSettings().value("files/recentFiles").toStringList().first(), QFileInfo(window.m_currentFilePath).canonicalFilePath());
+    const auto saveAs = directory.filePath("saved & named.schematic");
+    QTimer::singleShot(0, &window, [&] {
+        if (auto *dialog = qobject_cast<QFileDialog *>(QApplication::activeModalWidget())) {
+            dialog->selectFile(saveAs);
+            QMetaObject::invokeMethod(dialog, "accept", Qt::QueuedConnection);
+        }
+    });
+    QVERIFY(window.onSaveAs());
+    paths = QSettings().value("files/recentFiles").toStringList();
+    QCOMPARE(paths.size(), 10);
+    QCOMPARE(paths.first(), QFileInfo(saveAs).canonicalFilePath());
+    QVERIFY(window.findChild<QAction *>("recentFileAction1")->text().contains("&&"));
+    window.m_currentFilePath = directory.filePath("missing/cannot-save.schematic");
+    QTimer::singleShot(0, &window, [] {
+        if (auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget())) box->accept();
+    });
+    QVERIFY(!window.onSave());
+    QCOMPARE(QSettings().value("files/recentFiles").toStringList(), paths);
+}
+
+void DocumentOpenTests::svgExportActionShortcutAndState()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    QStandardPaths::setTestModeEnabled(true);
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,directory.path());
+    const bool previous = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+    QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
+    const auto restoreDialogs = qScopeGuard([previous] { QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, previous); });
+    MainWindow window;
+    window.show(); QVERIFY(QTest::qWaitForWindowActive(&window));
+    auto *action = window.findChild<QAction *>("svgExportAction");
+    QVERIFY(action);
+    QCOMPARE(action->shortcut(), QKeySequence(Qt::CTRL | Qt::Key_E));
+    QVERIFY(!action->icon().isNull());
+    QVERIFY(!action->isEnabled());
+    auto *toolbar = window.findChild<QToolBar *>("fileToolBar");
+    QVERIFY(toolbar);
+    QVERIFY(toolbar->actions().contains(action));
+    QVERIFY(window.menuBar()->actions().first()->menu()->actions().contains(action));
+    ComponentId id = kInvalidComponentId;
+    QVERIFY(window.m_editController->commit("Place resistor", [&] {
+        id = window.m_document.addComponent(SymbolIds::Resistor, {});
+        return id != kInvalidComponentId;
+    }));
+    window.m_scene->restoreAfterDocumentChange({{id},{}});
+    QVERIFY(action->isEnabled());
+    window.m_currentFilePath = directory.filePath("original.schematic");
+    const auto before = window.m_document.toJsonBytes();
+    const int history = window.m_editController->undoStack()->index();
+    const bool clean = window.m_editController->undoStack()->isClean();
+    const auto selection = window.m_scene->selection();
+    bool cancelled = false;
+    QTimer::singleShot(0, &window, [&] {
+        if (auto *dialog = qobject_cast<QFileDialog *>(QApplication::activeModalWidget())) {
+            cancelled = true; dialog->reject();
+        }
+    });
+    action->trigger();
+    QVERIFY(cancelled);
+    QVERIFY(!QFile::exists(directory.filePath("original.svg")));
+    window.activateWindow();
+    QVERIFY(QTest::qWaitForWindowActive(&window));
+    window.m_view->setFocus();
+    QTRY_VERIFY(window.m_view->hasFocus());
+    bool opened = false;
+    QTimer::singleShot(0, &window, [&] {
+        if (auto *dialog = qobject_cast<QFileDialog *>(QApplication::activeModalWidget())) {
+            opened = true;
+            dialog->selectFile(directory.filePath("exported"));
+            QMetaObject::invokeMethod(dialog, "accept", Qt::QueuedConnection);
+        }
+    });
+    QTest::keyClick(window.m_view, Qt::Key_E, Qt::ControlModifier);
+    QVERIFY(opened);
+    QFile output(directory.filePath("exported.svg"));
+    QVERIFY(output.open(QIODevice::ReadOnly));
+    const auto bytes = output.readAll();
+    QVERIFY(bytes.contains("<svg"));
+    QVERIFY(!bytes.contains("#ff0000"));
+    QCOMPARE(window.m_currentFilePath, directory.filePath("original.schematic"));
+    QCOMPARE(window.m_document.toJsonBytes(), before);
+    QCOMPARE(window.m_editController->undoStack()->index(), history);
+    QCOMPARE(window.m_editController->undoStack()->isClean(), clean);
+    QVERIFY(window.m_scene->selection() == selection);
+}
+
 namespace {
 class SavedClipboard {
     QMimeData *saved = new QMimeData;
@@ -64,6 +282,246 @@ public:
         for(const auto &format:mime->formats()) saved->setData(format,mime->data(format)); }
     ~SavedClipboard() { QApplication::clipboard()->setMimeData(saved); }
 };
+}
+
+void DocumentOpenTests::otaLayoutInspectorUndoAndContext()
+{
+    QTemporaryDir temporary; QStandardPaths::setTestModeEnabled(true);
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,temporary.path());
+    MainWindow window; window.show(); QVERIFY(QTest::qWaitForWindowActive(&window));
+    const auto a = window.m_document.addComponent(SymbolIds::OTAWithSuppliesVerticalBias, {});
+    const auto b = window.m_document.addComponent(SymbolIds::OTANoSuppliesVerticalBias, {200,0});
+    QVERIFY(window.m_document.addWire(makeTerminalEndpoint(a,3), {}, makeTerminalEndpoint(b,3)));
+    window.m_scene->restoreAfterDocumentChange({{a},{}});
+    auto *panel = window.findChild<PropertiesPanel *>(); QVERIFY(panel);
+    QTRY_VERIFY(panel->findChild<QComboBox *>("symbolLayout_bias_position"));
+    auto *combo = panel->findChild<QComboBox *>("symbolLayout_bias_position");
+    QCOMPARE(combo->currentData().toString(), QString("below"));
+    QCOMPARE(combo->count(), 2);
+    const auto below = window.m_document.toJsonBytes();
+    const int history = window.m_editController->undoStack()->count();
+    combo->setCurrentIndex(1);
+    QVERIFY(QMetaObject::invokeMethod(combo,"activated", Q_ARG(int,1)));
+    QCOMPARE(window.m_document.component(a)->symbolId(), SymbolIds::OTAWithSuppliesBiasAbove);
+    QVERIFY(!window.m_symbolActions.contains(SymbolIds::OTAWithSuppliesBiasAbove));
+    QVERIFY(!window.m_symbolActions.contains(SymbolIds::OTANoSuppliesBiasAbove));
+    QVERIFY(window.m_symbolActions.contains(SymbolIds::OTAWithSuppliesVerticalBias));
+    QVERIFY(window.m_symbolActions.contains(SymbolIds::OTANoSuppliesVerticalBias));
+    QCOMPARE(window.m_editController->undoStack()->count(), history+1);
+    QCOMPARE(window.m_scene->selection().components, QVector<ComponentId>{a});
+    for (auto *item : window.m_scene->items())
+        if (auto *label = qgraphicsitem_cast<ComponentLabelItem *>(item))
+            if (label->componentId() == a) QCOMPARE(label->brush().color(), QColor(Qt::red));
+    const auto above = window.m_document.toJsonBytes();
+    window.m_editController->undoStack()->undo(); QCOMPARE(window.m_document.toJsonBytes(), below);
+    window.m_editController->undoStack()->redo(); QCOMPARE(window.m_document.toJsonBytes(), above);
+    QTRY_COMPARE(panel->findChild<QComboBox *>("symbolLayout_bias_position")->currentData().toString(), QString("above"));
+    // No-op selection is not another undo step.
+    combo = panel->findChild<QComboBox *>("symbolLayout_bias_position");
+    const int count = window.m_editController->undoStack()->count();
+    const QPointer<QComboBox> beforeRefresh(combo);
+    QVERIFY(QMetaObject::invokeMethod(combo,"activated", Q_ARG(int,1)));
+    QCOMPARE(window.m_editController->undoStack()->count(), count);
+    QTRY_VERIFY(beforeRefresh.isNull());
+    // Commit pending text first, without losing it during the layout change.
+    auto *value = panel->findChild<QLineEdit *>("propertyValue_value");
+    QVERIFY(value);
+    value->setFocus(); value->selectAll(); QTest::keyClicks(value,"LM13700");
+    combo = panel->findChild<QComboBox *>("symbolLayout_bias_position");
+    combo->setCurrentIndex(0);
+    QVERIFY(QMetaObject::invokeMethod(combo,"activated", Q_ARG(int,0)));
+    QCOMPARE(window.m_document.component(a)->value(), QString("LM13700"));
+    QCOMPARE(window.m_document.component(a)->symbolId(), SymbolIds::OTAWithSuppliesVerticalBias);
+    // A queued activation from the previous selection must not edit a new one.
+    window.m_scene->restoreSelection({{b},{}});
+    QVERIFY(QMetaObject::invokeMethod(combo,"activated", Q_ARG(int,1)));
+    QCOMPARE(window.m_document.component(b)->symbolId(), SymbolIds::OTANoSuppliesVerticalBias);
+    window.m_scene->restoreSelection({{a,b},{}});
+    QTRY_VERIFY(!panel->findChild<QComboBox *>("symbolLayout_bias_position"));
+    window.m_scene->restoreSelection({{a},{}});
+    QTRY_VERIFY(panel->findChild<QComboBox *>("symbolLayout_bias_position"));
+    QApplication::processEvents();
+    combo = panel->findChild<QComboBox *>("symbolLayout_bias_position");
+    QVERIFY(combo->isVisible());
+    QVERIFY(combo->width() > 0);
+    auto *table = panel->findChild<QTableWidget *>("propertiesTable"); QVERIFY(table);
+    QVERIFY(combo->mapTo(panel, QPoint()).y() < table->mapTo(panel, QPoint()).y());
+    QVERIFY(window.grab().save(QCoreApplication::applicationDirPath()+"/ota-bias-inspector.png"));
+    const auto anchor = window.m_document.addComponent(SymbolIds::Resistor, {50,-20});
+    QVERIFY(window.m_document.addWire(makeTerminalEndpoint(a,3), {}, makeTerminalEndpoint(anchor,0)));
+    const QPointer<QComboBox> beforeRebuild(combo);
+    window.m_scene->restoreAfterDocumentChange({{a},{}});
+    QTRY_VERIFY(beforeRebuild.isNull());
+    QTRY_VERIFY(panel->findChild<QComboBox *>("symbolLayout_bias_position"));
+    combo = panel->findChild<QComboBox *>("symbolLayout_bias_position");
+    const auto beforeFailure = window.m_document.toJsonBytes();
+    const auto beforeFailureHistory = window.m_editController->undoStack()->count();
+    combo->setCurrentIndex(1);
+    QVERIFY(QMetaObject::invokeMethod(combo,"activated", Q_ARG(int,1)));
+    QCOMPARE(window.m_document.toJsonBytes(), beforeFailure);
+    QCOMPARE(window.m_editController->undoStack()->count(), beforeFailureHistory);
+    QCOMPARE(combo->currentData().toString(), QString("below"));
+    QVERIFY(!panel->findChild<QLabel *>("propertyError")->text().isEmpty());
+}
+
+void DocumentOpenTests::signalCategoriesAndDefaultLabels()
+{
+    QTemporaryDir temporary; QStandardPaths::setTestModeEnabled(true);
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,temporary.path());
+    MainWindow window; window.show(); QVERIFY(QTest::qWaitForWindowActive(&window));
+    auto *signalsCategory = window.m_categoryItems.value(QStringLiteral("Signals")); QVERIFY(signalsCategory);
+    QCOMPARE(signalsCategory->childCount(),3);
+    QVERIFY(window.m_symbolActions.contains(SymbolIds::RailVCC));
+    QVERIFY(window.m_symbolActions.contains(SymbolIds::GroundSignal));
+    QVERIFY(window.m_symbolActions.contains(SymbolIds::Ground));
+    QVERIFY(window.m_symbolActions.contains(SymbolIds::GroundChassis));
+    const QStringList categories{"Power Rails","Grounds","Ports"};
+    for (int i = 0; i < categories.size(); ++i) {
+        QCOMPARE(signalsCategory->child(i)->text(0),categories[i]);
+        window.populateSymbolGrid("Signals/" + categories[i]);
+        const auto *tiles = window.m_symbolSectionsLayout->itemAt(0)->layout(); QVERIFY(tiles);
+        QCOMPARE(tiles->count(),i == 0 ? 1 : 3);
+        QVERIFY(window.grab().save(QCoreApplication::applicationDirPath()+QString("/signals-palette-%1.png").arg(i)));
+    }
+    const QVector<SymbolId> ids{SymbolIds::RailVCC, SymbolIds::Ground, SymbolIds::GroundChassis, SymbolIds::GroundSignal,
+        SymbolIds::PortInput, SymbolIds::PortOutput,
+        SymbolIds::PortBidirectional};
+    ComponentId analog = kInvalidComponentId;
+    for (int i = 0; i < ids.size(); ++i) {
+        const auto id = window.m_document.addComponent(ids[i], {-200.0 + 100*(i%5), -100.0 + 100*(i/5)});
+        QVERIFY(id);
+        if (ids[i] == SymbolIds::GroundSignal) analog = id;
+    }
+    window.m_scene->restoreAfterDocumentChange({{}, {}});
+    QApplication::processEvents();
+    window.m_view->centerOn(0,0);
+    QVERIFY(window.grab().save(QCoreApplication::applicationDirPath()+"/signals-canvas.png"));
+    window.m_scene->restoreSelection({{analog},{}});
+    auto *panel = window.findChild<PropertiesPanel *>(); QVERIFY(panel);
+    QTRY_VERIFY(panel->findChild<QLineEdit *>("propertyValue_value"));
+    auto *value = panel->findChild<QLineEdit *>("propertyValue_value");
+    QCOMPARE(value->text(),QString());
+    QCOMPARE(panel->findChild<QCheckBox *>("propertyVisible_reference")->checkState(),Qt::Unchecked);
+    const auto nets = window.m_document.computeNets().size();
+    value->setFocus(); value->selectAll(); QTest::keyClicks(value,"Audio Ground");
+    QTest::keyClick(value,Qt::Key_Return);
+    QTRY_COMPARE(window.m_document.component(analog)->value(),QString("Audio Ground"));
+    QCOMPARE(window.m_document.computeNets().size(),nets);
+    window.m_editController->undoStack()->undo();
+    QVERIFY(window.m_document.component(analog)->value().isEmpty());
+}
+
+void DocumentOpenTests::paletteFollowsCategoryTreeOrder()
+{
+    struct Restore { SymbolLibrary saved; ~Restore() { applicationSymbolLibrary() = saved; } } restore{applicationSymbolLibrary()};
+    SymbolLibrary library;
+    library.declareCategories({"PaletteOrderTest/First","PaletteOrderTest/Empty","PaletteOrderTest/Second"});
+    auto symbol = *builtinSymbolLibrary().find(SymbolIds::Resistor);
+    QStringList errors;
+    symbol.id = SymbolId("OrderSecond"); symbol.displayName = "Second symbol"; symbol.category = "PaletteOrderTest/Second";
+    QVERIFY(library.add(symbol,&errors));
+    symbol.id = SymbolId("OrderFirst"); symbol.displayName = "First symbol"; symbol.category = "PaletteOrderTest/First";
+    QVERIFY(library.add(symbol,&errors));
+    symbol.id = SymbolId("OrderParent"); symbol.displayName = "Parent symbol"; symbol.category = "PaletteOrderTest";
+    QVERIFY(library.add(symbol,&errors));
+    applicationSymbolLibrary() = library;
+    QTemporaryDir temporary; QStandardPaths::setTestModeEnabled(true);
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,temporary.path());
+    MainWindow window;
+    auto *parent = window.m_categoryItems.value("PaletteOrderTest"); QVERIFY(parent);
+    QCOMPARE(parent->childCount(),3);
+    QCOMPARE(parent->child(0)->text(0),QString("First"));
+    QCOMPARE(parent->child(1)->text(0),QString("Empty"));
+    QCOMPARE(parent->child(2)->text(0),QString("Second"));
+    window.populateSymbolGrid("PaletteOrderTest");
+    auto *sections = window.m_symbolSectionsLayout;
+    QCOMPARE(sections->itemAt(0)->layout()->itemAt(0)->widget()->accessibleName(),QString("Parent symbol"));
+    QCOMPARE(qobject_cast<QLabel *>(sections->itemAt(1)->widget())->text(),QString("First"));
+    QCOMPARE(sections->itemAt(2)->layout()->itemAt(0)->widget()->accessibleName(),QString("First symbol"));
+    QCOMPARE(qobject_cast<QLabel *>(sections->itemAt(3)->widget())->text(),QString("Second"));
+    QCOMPARE(sections->itemAt(4)->layout()->itemAt(0)->widget()->accessibleName(),QString("Second symbol"));
+    window.populateSymbolGrid("PaletteOrderTest/Empty");
+    QCOMPARE(window.m_symbolSectionsLayout->count(),1);
+    auto moved = *applicationSymbolLibrary().find(SymbolId("OrderSecond"));
+    moved.category = "PaletteOrderTest/First";
+    QVERIFY(applicationSymbolLibrary().replace(moved,&errors));
+    window.rebuildSymbolDockContents(); window.populateSymbolGrid("PaletteOrderTest/First");
+    auto *tiles = window.m_symbolSectionsLayout->itemAt(0)->layout(); QVERIFY(tiles);
+    QCOMPARE(tiles->count(),2);
+    QCOMPARE(tiles->itemAt(0)->widget()->accessibleName(),QString("First symbol"));
+    QCOMPARE(tiles->itemAt(1)->widget()->accessibleName(),QString("Second symbol"));
+}
+
+void DocumentOpenTests::propertyJustificationInspector()
+{
+    QTemporaryDir temporary; QStandardPaths::setTestModeEnabled(true);
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,temporary.path());
+    MainWindow window; window.show(); QVERIFY(QTest::qWaitForWindowActive(&window));
+    const auto a=window.m_document.addComponent(SymbolIds::Resistor,{});
+    const auto b=window.m_document.addComponent(SymbolIds::Ground,{100,0});
+    QVERIFY(window.m_document.setPropertyBlockOffset({a},QPointF(13,17)));
+    window.m_scene->restoreAfterDocumentChange({{a,b},{}});
+    auto *panel=window.findChild<PropertiesPanel *>(); QVERIFY(panel);
+    QTRY_VERIFY(panel->findChild<QToolButton *>("propertyBlockJustificationRight"));
+    auto *button=panel->findChild<QToolButton *>("propertyBlockJustificationRight");
+    for(auto *item : button->parentWidget()->findChildren<QToolButton *>()) QVERIFY(!item->isChecked());
+    const auto before=window.m_document.toJsonBytes();
+    button->click();
+    QCOMPARE(window.m_document.component(a)->propertyBlockJustification(),PropertyJustification::Right);
+    QCOMPARE(window.m_document.component(b)->propertyBlockJustification(),PropertyJustification::Right);
+    QCOMPARE(window.m_document.component(a)->propertyBlockOffset(),std::optional<QPointF>(QPointF(13,17)));
+    QCOMPARE(window.m_editController->undoStack()->count(),1);
+    window.m_editController->undoStack()->undo(); QCOMPARE(window.m_document.toJsonBytes(),before);
+    window.m_editController->undoStack()->redo();
+    QTRY_VERIFY(panel->findChild<QToolButton *>("propertyBlockJustificationRight")->isChecked());
+    QVERIFY(window.m_scene->resetPropertyPositions({a,b}));
+    QCOMPARE(window.m_document.component(a)->propertyBlockJustification(),PropertyJustification::Right);
+}
+
+void DocumentOpenTests::noteAppearanceControls()
+{
+    QTemporaryDir temporary; QStandardPaths::setTestModeEnabled(true);
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,temporary.path());
+    MainWindow window; window.show(); QVERIFY(QTest::qWaitForWindowActive(&window));
+    const auto id=window.m_document.addNote({},"A note",120);
+    window.m_scene->restoreAfterDocumentChange({{}, {}, {id}});
+    auto *panel=window.findChild<PropertiesPanel *>(); QVERIFY(panel);
+    QTRY_VERIFY(panel->findChild<QToolButton *>("noteJustificationRight"));
+    panel->findChild<QToolButton *>("noteJustificationRight")->click();
+    QCOMPARE(window.m_document.note(id)->justification,PropertyJustification::Right);
+    window.m_editController->undoStack()->undo();
+    QCOMPARE(window.m_document.note(id)->justification,PropertyJustification::Left);
+    window.m_editController->undoStack()->redo();
+    QTRY_VERIFY(panel->findChild<QToolButton *>("noteJustificationRight")->isChecked());
+    QApplication::setAttribute(Qt::AA_DontUseNativeDialogs,true);
+    const auto restore=qScopeGuard([] { QApplication::setAttribute(Qt::AA_DontUseNativeDialogs,false); });
+    for(int target=1;target<=2;++target) {
+        bool opened=false;
+        QTimer::singleShot(0,&window,[&] {
+            if(auto *dialog=qobject_cast<QColorDialog *>(QApplication::activeModalWidget())) {
+                opened=true; dialog->setCurrentColor(QColor("#ff80a0c0")); dialog->accept();
+            }
+        });
+        panel->findChild<QToolButton *>(target==1 ? "noteFillColour" : "noteOutlineColour")->click();
+        QVERIFY(opened);
+        QCOMPARE(target==1 ? window.m_document.note(id)->fillColor : window.m_document.note(id)->outlineColor,QString("#ff80a0c0"));
+        QApplication::processEvents();
+    }
+    const auto before=window.m_document.toJsonBytes();
+    QTimer::singleShot(0,&window,[] {
+        if(auto *dialog=qobject_cast<QColorDialog *>(QApplication::activeModalWidget())) dialog->reject();
+    });
+    panel->findChild<QToolButton *>("noteFillColour")->click();
+    QCOMPARE(window.m_document.toJsonBytes(),before);
+    panel->findChild<QAction *>("clearNoteFill")->trigger();
+    QCOMPARE(window.m_document.note(id)->fillColor,QString("none"));
+    window.m_editController->undoStack()->undo();
+    QCOMPARE(window.m_document.toJsonBytes(),before);
 }
 
 void DocumentOpenTests::preferencesDialogLifecycle()
@@ -81,6 +539,9 @@ void DocumentOpenTests::preferencesDialogLifecycle()
     const auto selection=window.m_scene->selection();
     const auto history=window.m_editController->undoStack()->index();
     const bool clean=window.m_editController->undoStack()->isClean();
+    QCOMPARE(window.m_scene->propertyBlockGridSpacing(), 2.0);
+    QVERIFY(window.m_view->cadStyleMouseWheel());
+    QVERIFY(PreferencesDialog::savedCadStyleMouseWheel());
     for(int closeMode=0;closeMode<3;++closeMode) {
         bool opened=false, valid=false, captured=true;
         QTimer::singleShot(0,&window,[&] {
@@ -89,13 +550,21 @@ void DocumentOpenTests::preferencesDialogLifecycle()
             opened=dialog->objectName()=="preferencesDialog";
             auto *tabs=dialog->findChild<QTabWidget *>("preferencesTabs");
             auto *buttons=dialog->findChild<QDialogButtonBox *>();
-            valid=tabs && tabs->count()==1 && tabs->tabText(0)=="General" && tabs->currentIndex()==0
-                && tabs->widget(0)->layout() && tabs->widget(0)->layout()->count()==0
-                && buttons && buttons->standardButtons()==QDialogButtonBox::Close;
+            valid=tabs && tabs->count()==2 && tabs->tabText(1)=="Appearance" && tabs->tabText(0)=="General" && tabs->currentIndex()==0
+                && tabs->widget(0)->layout()
+                && buttons && buttons->standardButtons()==(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+            auto *grid=dialog->findChild<QDoubleSpinBox *>("propertyBlockGridSpacing");
+            valid = valid && grid && grid->value()==2.0;
+            auto *wheel = dialog->findChild<QCheckBox *>("cadStyleMouseWheel");
+            valid = valid && wheel && wheel->isChecked();
+            if(wheel) wheel->setChecked(false);
+            dialog->findChild<QCheckBox *>("keepPlacingSymbols")->setChecked(true);
+            if(grid) grid->setValue(3.5);
             dialog->resize(640,400);
             if(closeMode==0) {
+                tabs->setCurrentIndex(1);
                 captured=dialog->grab().save(QCoreApplication::applicationDirPath()+"/preferences-dialog.png");
-                if(buttons && buttons->button(QDialogButtonBox::Close)) buttons->button(QDialogButtonBox::Close)->click();
+                if(buttons && buttons->button(QDialogButtonBox::Cancel)) buttons->button(QDialogButtonBox::Cancel)->click();
                 else dialog->reject();
             } else if(closeMode==1) QTest::keyClick(dialog,Qt::Key_Escape);
             else dialog->close();
@@ -104,6 +573,10 @@ void DocumentOpenTests::preferencesDialogLifecycle()
         else action->trigger();
         QVERIFY2(opened,qPrintable(QString("Close mode %1").arg(closeMode))); QVERIFY(valid); QVERIFY(captured);
         QVERIFY(!QApplication::activeModalWidget());
+        QCOMPARE(window.m_scene->propertyBlockGridSpacing(), 2.0);
+        QVERIFY(window.m_view->cadStyleMouseWheel());
+        QVERIFY(PreferencesDialog::savedCadStyleMouseWheel());
+        QVERIFY(!PreferencesDialog::savedKeepPlacingSymbols());
         QCOMPARE(window.m_document.toJsonBytes(),before);
         QCOMPARE(window.m_scene->selection().components,selection.components);
         QCOMPARE(window.m_editController->undoStack()->index(),history);
@@ -112,6 +585,34 @@ void DocumentOpenTests::preferencesDialogLifecycle()
         QVERIFY(QTest::qWaitForWindowActive(&window));
         QApplication::processEvents();
     }
+    QTimer::singleShot(0,&window,[&] {
+        auto *dialog=qobject_cast<PreferencesDialog *>(QApplication::activeModalWidget());
+        if(!dialog)return;
+        dialog->findChild<QDoubleSpinBox *>("propertyBlockGridSpacing")->setValue(3.5);
+        dialog->findChild<QCheckBox *>("cadStyleMouseWheel")->setChecked(false);
+        dialog->findChild<QCheckBox *>("keepPlacingSymbols")->setChecked(true);
+        dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+    });
+    action->trigger();
+    QCOMPARE(window.m_scene->propertyBlockGridSpacing(),3.5);
+    QCOMPARE(PreferencesDialog::savedPropertyBlockGridSpacing(),3.5);
+    QVERIFY(!window.m_view->cadStyleMouseWheel());
+    QVERIFY(!PreferencesDialog::savedCadStyleMouseWheel());
+    QVERIFY(PreferencesDialog::savedKeepPlacingSymbols());
+    {
+        PreferencesDialog reopened;
+        QVERIFY(!reopened.cadStyleMouseWheel());
+        QVERIFY(reopened.keepPlacingSymbols());
+        MainWindow restarted;
+        QVERIFY(!restarted.m_view->cadStyleMouseWheel());
+    }
+    QCOMPARE(window.m_document.toJsonBytes(),before);
+    QCOMPARE(window.m_editController->undoStack()->index(),history);
+    for (const QVariant &bad : {QVariant("bad"),QVariant(-1),QVariant(1001),QVariant(qInf())}) {
+        QSettings().setValue("appearance/propertyBlockGridSpacing",bad);
+        QCOMPARE(PreferencesDialog::savedPropertyBlockGridSpacing(),2.0);
+    }
+    QSettings().remove("appearance/propertyBlockGridSpacing");
 }
 
 void DocumentOpenTests::clipboardMenuShortcutsAndUndo()
@@ -137,23 +638,35 @@ void DocumentOpenTests::clipboardMenuShortcutsAndUndo()
     QTest::keyClick(window.m_view,Qt::Key_C,Qt::ControlModifier);
     QTRY_VERIFY(QApplication::clipboard()->mimeData()->hasFormat("application/x-schematic-fragment+json"));
     QCOMPARE(window.m_document.toJsonBytes(),before); QVERIFY(window.m_editController->undoStack()->isClean());
+    QTest::mouseMove(window.m_view->viewport(), window.m_view->mapFromScene(203,117));
+    QApplication::processEvents();
+    const QPointF cursor = window.m_view->pastePosition();
+    const QPointF snapped(qRound(cursor.x()/10)*10, qRound(cursor.y()/10)*10);
     QTest::keyClick(window.m_view,Qt::Key_V,Qt::ControlModifier);
     QTRY_COMPARE(window.m_document.components().size(),4); QCOMPARE(window.m_document.wires().size(),2);
     QCOMPARE(window.m_editController->undoStack()->count(),1);
     const auto first=window.m_scene->selection(); QCOMPARE(first.components.size(),2); QCOMPARE(first.wires.size(),1);
-    QCOMPARE(window.m_document.component(first.components[0])->position(),QPointF(10,10));
+    QCOMPARE(window.m_document.component(first.components[0])->position(),snapped-QPointF(50,0));
     window.m_pasteAction->trigger(); QCOMPARE(window.m_document.components().size(),6);
     const auto second=window.m_scene->selection();
-    QCOMPARE(window.m_document.component(second.components[0])->position(),QPointF(20,20));
+    QCOMPARE(window.m_document.component(second.components[0])->position(),snapped-QPointF(50,0));
     window.m_editController->undoStack()->undo(); QCOMPARE(window.m_scene->selection().components,first.components);
     window.m_editController->undoStack()->undo(); QCOMPARE(window.m_document.toJsonBytes(),before);
     QCOMPARE(window.m_scene->selection().components,selected.components);
     window.m_editController->undoStack()->redo(); QCOMPARE(window.m_scene->selection().components,first.components);
     window.m_editController->undoStack()->undo();
-    // Cut copies only selected objects; existing incident-route deletion still applies.
+    // Cut copies only selected objects; unselected incident wires stay behind.
     window.m_scene->restoreSelection({{a},{}}); window.m_cutAction->trigger();
-    QCOMPARE(window.m_document.components().size(),1); QVERIFY(window.m_document.wires().isEmpty());
+    QCOMPARE(window.m_document.components().size(),1);
+    QCOMPARE(window.m_document.wires().size(),1);
+    QCOMPARE(window.m_document.nodes().size(),1);
+    QVERIFY(isNode(window.m_document.wires().first().start));
+    QCOMPARE(window.m_document.wires().first().id,*wire);
     QCOMPARE(window.m_editController->undoStack()->command(0)->text(),QString("Cut selection"));
+    window.m_editController->undoStack()->undo(); QCOMPARE(window.m_document.toJsonBytes(),before);
+    window.m_editController->undoStack()->redo();
+    QCOMPARE(window.m_document.wires().size(),1);
+    QCOMPARE(window.m_document.nodes().size(),1);
     window.m_editController->undoStack()->undo(); QCOMPARE(window.m_document.toJsonBytes(),before);
     window.m_scene->restoreSelection(selected);
     QTest::keyClick(window.m_view,Qt::Key_R); QTRY_COMPARE(window.m_document.component(a)->rotation(),Rotation::Deg90);
@@ -451,7 +964,7 @@ void DocumentOpenTests::transformToolbarActionsAreUndoable()
         QVERIFY(!action->icon().isNull());
         QVERIFY(!action->isEnabled());
     }
-    QVERIFY(window.m_scene->placeComponentAt(SymbolIds::OpAmp, {100, 100}));
+    QVERIFY(window.m_scene->placeComponentAt(SymbolIds::OpAmpGrid10, {100, 100}));
     const auto id = *window.m_scene->singleSelectedComponent();
     auto *stack = window.m_editController->undoStack();
     window.m_rotateAction->trigger();
@@ -533,12 +1046,13 @@ void DocumentOpenTests::paletteReflowsWithAvailableWidth()
     window.populateSymbolGrid(QStringLiteral("Passives"));
     QVERIFY(window.m_symbolActions.contains(SymbolIds::ElectrolyticCapacitor));
     QVERIFY(window.m_symbolActions.contains(SymbolIds::OpAmpGrid10));
-    QVERIFY(window.m_categoryItems.contains(QStringLiteral("Compatibility/Legacy Symbols")));
+    QVERIFY(!window.m_categoryItems.contains(QStringLiteral("Compatibility")));
+    QVERIFY(!window.m_categoryItems.contains(QStringLiteral("Compatibility/Legacy Symbols")));
     window.resize(1100,750);
     QVERIFY(window.grab().save(QCoreApplication::applicationDirPath() + "/packaged-library-palette.png"));
     auto *flow = window.m_symbolSectionsLayout->itemAt(0)->layout();
     QVERIFY(flow);
-    QCOMPARE(flow->count(), 4);
+    QCOMPARE(flow->count(), 5);
     QVERIFY(flow->hasHeightForWidth());
     QVERIFY(flow->heightForWidth(150) > flow->heightForWidth(320));
     flow->setGeometry(QRect(0, 0, 150, 200));
@@ -550,8 +1064,32 @@ void DocumentOpenTests::paletteReflowsWithAvailableWidth()
     QCOMPARE(flow->itemAt(0)->widget(), firstTile);
     flow->setGeometry(QRect(0, 0, 80, 200));
     QVERIFY(flow->itemAt(1)->geometry().y() > flow->itemAt(0)->geometry().y());
-    window.populateSymbolGrid(QStringLiteral("Semiconductors/ICs"));
+    window.populateSymbolGrid(QStringLiteral("Semiconductors/ICs/Op Amps"));
+    QCOMPARE(window.m_symbolSectionsLayout->itemAt(0)->layout()->count(), 4);
+    QVERIFY(!window.m_categoryItems.contains(QStringLiteral("Semiconductors/ICs/OTAs")));
     QVERIFY(window.grab().save(QCoreApplication::applicationDirPath() + "/packaged-opamp-palette.png"));
+    QVERIFY(window.grab().save(QCoreApplication::applicationDirPath() + "/packaged-ota-palette.png"));
+    window.populateSymbolGrid(QStringLiteral("Semiconductors/ICs/Buffers"));
+    QCOMPARE(window.m_symbolSectionsLayout->itemAt(0)->layout()->count(), 1);
+    QVERIFY(window.grab().save(QCoreApplication::applicationDirPath() + "/packaged-buffer-palette.png"));
+    auto *semiconductors = window.m_categoryItems.value(QStringLiteral("Semiconductors"));
+    QVERIFY(semiconductors);
+    QCOMPARE(semiconductors->childCount(), 3);
+    QCOMPARE(semiconductors->child(0)->text(0), QStringLiteral("Diodes"));
+    QCOMPARE(semiconductors->child(1)->text(0), QStringLiteral("Transistors"));
+    QCOMPARE(semiconductors->child(2)->text(0), QStringLiteral("ICs"));
+    QVERIFY(window.m_categoryItems.contains(QStringLiteral("Semiconductors/ICs/Op Amps")));
+    window.populateSymbolGrid(QStringLiteral("Semiconductors/Transistors"));
+    auto *transistors = window.m_symbolSectionsLayout->itemAt(0)->layout();
+    QVERIFY(transistors);
+    QCOMPARE(transistors->count(), 6);
+    QCOMPARE(window.m_categoryItems.value(QStringLiteral("Semiconductors/Transistors"))->childCount(), 0);
+    QVERIFY(window.grab().save(QCoreApplication::applicationDirPath() + "/packaged-transistors-palette.png"));
+    window.populateSymbolGrid(QStringLiteral("Semiconductors/Diodes"));
+    auto *diodes = window.m_symbolSectionsLayout->itemAt(0)->layout();
+    QVERIFY(diodes);
+    QCOMPARE(diodes->count(), 4);
+    QVERIFY(window.grab().save(QCoreApplication::applicationDirPath() + "/packaged-diodes-palette.png"));
 }
 
 void DocumentOpenTests::categoryCollapseReleasesPaletteObjects()
@@ -785,6 +1323,82 @@ void DocumentOpenTests::missingAndIncompatibleChoices()
     errors = window.m_symbolPackageStore.loadInto(&restarted);
     QVERIFY(errors.isEmpty());
     QVERIFY(restarted.find(custom.id));
+}
+
+void DocumentOpenTests::textNotesPlacementPropertiesClipboard()
+{
+    SavedClipboard clipboard;
+    QTemporaryDir directory; QVERIFY(directory.isValid());
+    QStandardPaths::setTestModeEnabled(true);
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,directory.path());
+    MainWindow window; window.show(); QVERIFY(QTest::qWaitForWindowActive(&window));
+    auto *action = window.findChild<QAction *>("addTextNoteAction"); QVERIFY(action);
+    QVERIFY(window.findChild<QToolBar *>("toolsToolBar")->actions().contains(action));
+    action->trigger(); QCOMPARE(window.m_scene->editMode(),SchematicScene::EditMode::PlaceNote);
+    QTest::mouseClick(window.m_view->viewport(),Qt::LeftButton,Qt::NoModifier,window.m_view->mapFromScene(13,17));
+    QCOMPARE(window.m_document.notes().size(),1);
+    const auto note = window.m_document.notes().first().id;
+    QCOMPARE(window.m_document.note(note)->position,QPointF(10,20));
+    QCOMPARE(window.m_scene->editMode(),SchematicScene::EditMode::Select);
+    QCOMPARE(window.m_scene->selection().notes,QVector<NoteId>{note});
+    auto *editor = window.findChild<QPlainTextEdit *>("noteTextEditor"); QVERIFY(editor);
+    QTRY_VERIFY(editor->hasFocus());
+    QTest::keyClicks(editor,"First paragraph"); QTest::keyClick(editor,Qt::Key_Return);
+    QTest::keyClicks(editor,"Second paragraph");
+    QCOMPARE(window.m_document.note(note)->text,QString("Note")); // still a staged text edit
+    QTest::keyClick(editor,Qt::Key_Return,Qt::ControlModifier);
+    QTRY_COMPARE(window.m_document.note(note)->text,QString("First paragraph\nSecond paragraph"));
+    QCOMPARE(window.m_editController->undoStack()->count(),2);
+    QTRY_VERIFY(editor->toPlainText() == window.m_document.note(note)->text);
+    QApplication::processEvents(); // Finish the deferred inspector rebuild after the commit.
+    editor->selectAll(); QTest::keyClicks(editor,"discard this");
+    QTest::keyClick(editor,Qt::Key_Escape);
+    QCOMPARE(editor->toPlainText(),window.m_document.note(note)->text);
+    QCOMPARE(window.m_editController->undoStack()->count(),2);
+    editor->selectAll();
+    window.m_copyAction->trigger();
+    QCOMPARE(QApplication::clipboard()->text(),window.m_document.note(note)->text);
+    QApplication::clipboard()->setText("Local paste\ninside the note editor");
+    window.m_pasteAction->trigger();
+    QCOMPARE(editor->toPlainText(),QString("Local paste\ninside the note editor"));
+    QCOMPARE(window.m_document.note(note)->text,QString("First paragraph\nSecond paragraph"));
+    window.m_undoAction->trigger();
+    QCOMPARE(editor->toPlainText(),window.m_document.note(note)->text);
+    QCOMPARE(window.m_editController->undoStack()->count(),2);
+    auto *width = window.findChild<QDoubleSpinBox *>("noteWrapWidth"); QVERIFY(width);
+    width->setValue(90);
+    QMetaObject::invokeMethod(width,"editingFinished",Qt::DirectConnection);
+    QTRY_COMPARE(window.m_document.note(note)->width,90.0);
+    window.m_view->setFocus(); QTRY_VERIFY(window.m_view->hasFocus());
+    const auto before = window.m_document.toJsonBytes();
+    window.m_copyAction->trigger();
+    QVERIFY(QApplication::clipboard()->mimeData()->hasFormat("application/x-schematic-fragment+json"));
+    window.m_pasteAction->trigger();
+    QCOMPARE(window.m_document.notes().size(),2);
+    const auto pasted = window.m_scene->selection().notes;
+    QCOMPARE(pasted.size(),1); QVERIFY(pasted.first() != note);
+    QCOMPARE(window.m_document.note(pasted.first())->text,window.m_document.note(note)->text);
+    QCOMPARE(window.m_document.note(pasted.first())->width,90.0);
+    window.m_deleteAction->trigger(); QCOMPARE(window.m_document.notes().size(),1);
+    window.m_editController->undoStack()->undo(); QCOMPARE(window.m_document.notes().size(),2);
+    window.m_editController->undoStack()->undo(); QCOMPARE(window.m_document.toJsonBytes(),before);
+    QVERIFY(window.m_svgExportAction->isEnabled());
+    QVERIFY(window.exportSvgTo(directory.filePath("notes.svg")));
+    QVERIFY(QFile::exists(directory.filePath("notes.svg")));
+    const auto original = *window.m_document.note(note);
+    QVERIFY(window.m_editController->commit("Precise note data", [&] {
+        return window.m_document.setNote(note,original.position,"Original\r\nline endings",90.125);
+    }));
+    QApplication::processEvents();
+    window.m_propertiesPanel->focusNote();
+    QTRY_VERIFY(editor->hasFocus());
+    const auto precise = window.m_document.toJsonBytes();
+    const auto history = window.m_editController->undoStack()->index();
+    window.m_view->setFocus();
+    QApplication::processEvents();
+    QCOMPARE(window.m_document.toJsonBytes(),precise);
+    QCOMPARE(window.m_editController->undoStack()->index(),history);
 }
 
 QTEST_MAIN(DocumentOpenTests)

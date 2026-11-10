@@ -1,0 +1,56 @@
+{
+  "id": "Rail.VCC",
+  "name": "Power Rail",
+  "category": "Signals/Power Rails",
+  "referencePrefix": "PWR",
+  "showsReference": false,
+  "primitives": [
+    {
+      "kind": "Line",
+      "points": [
+        [
+          0,
+          20
+        ],
+        [
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "kind": "Line",
+      "points": [
+        [
+          -10,
+          0
+        ],
+        [
+          10,
+          0
+        ]
+      ]
+    },
+    {
+      "kind": "Circle",
+      "points": [
+        [
+          0,
+          0
+        ]
+      ],
+      "radius": 2,
+      "filled": true,
+      "fillColor": "black"
+    }
+  ],
+  "terminals": [
+    {
+      "name": "connection",
+      "x": 0,
+      "y": 20
+    }
+  ],
+  "defaultValue": "Vcc",
+  "defaultPropertyJustification": "middle"
+}

@@ -1,13 +1,116 @@
 {
-  "symbols": [
-    "resistor.json",
-    "capacitor.json",
-    "electrolytic-capacitor.json",
-    "diode.json",
-    "ground.json",
-    "opamp-grid10.json",
-    "potentiometer.json",
-    "jack.json",
-    "opamp.json"
+  "categories": [
+    {
+      "name": "Passives",
+      "symbols": [
+        "resistor.json",
+        "capacitor.json",
+        "electrolytic-capacitor.json",
+        "potentiometer.json",
+        "preset-resistor.json"
+      ]
+    },
+    {
+      "name": "Semiconductors",
+      "children": [
+        {
+          "name": "Diodes",
+          "symbols": [
+            "diode.json",
+            "schottky-diode.json",
+            "zener-diode.json",
+            "led.json"
+          ]
+        },
+        {
+          "name": "Transistors",
+          "symbols": [
+            "pnp.json",
+            "npn.json",
+            "n-channel-jfet.json",
+            "p-channel-jfet.json",
+            "n-channel-mosfet.json",
+            "p-channel-mosfet.json"
+          ]
+        },
+        {
+          "name": "ICs",
+          "children": [
+            {
+              "name": "Op Amps",
+              "symbols": [
+                "opamp-grid10.json",
+                "opamp-no-supplies.json",
+                "ota-with-supplies.json",
+                "ota-with-supplies-bias-above.json",
+                "ota-no-supplies.json",
+                "ota-no-supplies-bias-above.json"
+              ]
+            },
+            {
+              "name": "Buffers",
+              "symbols": [
+                "darlington-buffer-lm13700.json"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Signals",
+      "children": [
+        {
+          "name": "Power Rails",
+          "symbols": [
+            "rail-vcc.json"
+          ]
+        },
+        {
+          "name": "Grounds",
+          "symbols": [
+            "ground.json",
+            "ground-chassis.json",
+            "ground-signal.json"
+          ]
+        },
+        {
+          "name": "Ports",
+          "symbols": [
+            "port-input.json",
+            "port-output.json",
+            "port-bidirectional.json"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Connectors",
+      "symbols": [
+        "jack.json"
+      ]
+    },
+    {
+      "name": "Block Schematics",
+      "symbols": [
+        "block-buffer.json",
+        "block-summing-node.json"
+      ],
+      "children": [
+        {
+          "name": "Filters",
+          "symbols": [
+            "block-high-pass.json",
+            "block-low-pass.json",
+            "block-band-pass.json",
+            "block-band-stop.json",
+            "block-variable-high-pass.json",
+            "block-variable-low-pass.json",
+            "block-variable-band-pass.json",
+            "block-variable-band-stop.json"
+          ]
+        }
+      ]
+    }
   ]
 }

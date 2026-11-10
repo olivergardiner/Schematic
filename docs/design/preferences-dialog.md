@@ -1,8 +1,14 @@
 # Preferences dialog
 
+Current controls: General contains **CAD-style mouse wheel**, enabled by default (wheel zooms; Ctrl+wheel scrolls vertically). Disabling it restores wheel scrolling and Ctrl+wheel zoom. **Keep placing symbols after placement** defaults to off: a successful canvas click places one symbol and returns to Select with that component selected. Enabling it retains the symbol tool for repeated placement. Failed placements retain the tool, and palette drag-and-drop keeps its existing behavior. The setting uses `general/keepPlacingSymbols` in `QSettings`. Appearance contains the property-block grid spacing. OK saves and applies preferences; Cancel, Escape and window close discard edits. Settings persist across sessions and do not change schematic documents or undo history. The scaffold design and verification record below describe the original empty-dialog stage.
+
 Status: **approved and implemented; verified 7 November 2026.**
 
-## Scope and current behavior
+## Current follow-up
+
+The approved [property-block appearance design](property-block-appearance.md) adds Appearance and staged OK/Cancel settings. General remains the first, empty tab. The scaffold details below describe the original implementation.
+
+## Original scope
 
 Add **Edit > Preferences…** as the entry point for application preferences. The first version provides the dialog and tab structure only, with one empty **General** tab. No actual preference controls or settings changes are included.
 

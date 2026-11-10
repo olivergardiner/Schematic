@@ -1,24 +1,80 @@
 #include "tst_instanceproperties.h"
 #include "document.h"
 #include "documentloadresult.h"
+#include "symbolsvg.h"
 #include <QTest>
 #include <QJsonArray>
 #include <QJsonDocument>
 
 using Kind = PropertyEdit::Kind;
 
+void TstInstanceProperties::cursorPastePreservesLayoutAndConnectivity()
+{
+    Document source;
+    const auto a = source.addComponent(SymbolIds::Resistor, {3.5,7.5});
+    const auto b = source.addComponent(SymbolIds::Resistor, {103.5,47.5});
+    QVERIFY(source.setPropertyBlockOffset({a}, QPointF(25,-32)));
+    const auto wire = source.addWire(makeTerminalEndpoint(a,1), {{63.5,7.5},{63.5,47.5}}, makeTerminalEndpoint(b,0));
+    QVERIFY(wire);
+    const auto bytes = source.copyFragment({a,b}, {*wire});
+    Document destination;
+    QVector<ComponentId> components;
+    QVector<WireId> wires;
+    QVERIFY(destination.pasteFragmentAt(bytes, {200,100}, &components, &wires));
+    const auto first = components;
+    QCOMPARE(destination.component(components[0])->position(), QPointF(150,80));
+    QCOMPARE(destination.component(components[1])->position(), QPointF(250,120));
+    QCOMPARE(destination.component(components[0])->propertyBlockOffset(), std::optional<QPointF>(QPointF(25,-32)));
+    QCOMPARE(destination.wire(wires[0])->vertices, QVector<QPointF>({{170,80},{210,80},{210,120},{230,120}}));
+    QVERIFY(destination.wire(wires[0])->start == makeTerminalEndpoint(components[0],1));
+    QVERIFY(destination.wire(wires[0])->end == makeTerminalEndpoint(components[1],0));
+    // Repeating at the same cursor never introduces an offset or joins nets.
+    QVERIFY(destination.pasteFragmentAt(bytes, {200,100}, &components, &wires));
+    QVERIFY(components[0] != first[0]);
+    QCOMPARE(destination.component(components[0])->position(), QPointF(150,80));
+    QVERIFY(destination.component(components[0])->reference() != destination.component(first[0])->reference());
+    for (const auto &net : destination.computeNets())
+        QVERIFY(!(net.terminals.contains(TerminalRef{first[0],1}) && net.terminals.contains(TerminalRef{components[0],1})));
+    const auto wireOnly = source.copyFragment({}, {*wire});
+    QVERIFY(destination.pasteFragmentAt(wireOnly, {-50,60}, &components, &wires));
+    QVERIFY(components.isEmpty());
+    QCOMPARE(destination.wire(wires[0])->vertices, QVector<QPointF>({{-80,40},{-40,40},{-40,80},{-20,80}}));
+    QVERIFY(destination.pasteFragmentAt(source.copyFragment({a}, {}), {300,200}, &components, &wires));
+    QCOMPARE(destination.component(components[0])->position(), QPointF(300,200));
+    const auto before = destination.toJsonBytes();
+    QVERIFY(!destination.pasteFragmentAt(bytes, {qInf(),0}));
+    QVERIFY(!destination.pasteFragmentAt("bad data", {200,100}));
+    QCOMPARE(destination.toJsonBytes(), before);
+}
+
 void TstInstanceProperties::defaultsAndInstanceVisibility()
 {
     Document document;
     const auto ground = document.addComponent(SymbolIds::Ground, {});
     const auto resistor = document.addComponent(SymbolIds::Resistor, {100,0});
+    QCOMPARE(document.component(ground)->propertyBlockJustification(), PropertyJustification::Middle);
+    QCOMPARE(document.component(resistor)->propertyBlockJustification(), PropertyJustification::Left);
+    QVERIFY(!document.setPropertyBlockJustification({ground,99999}, PropertyJustification::Right));
+    QCOMPARE(document.component(ground)->propertyBlockJustification(), PropertyJustification::Middle);
+    const auto definition=SymbolLibrary::symbolToJson(*document.symbol(SymbolIds::Ground));
+    QStringList errors;
+    auto parsed=SymbolLibrary::parseSymbol(definition,&errors); QVERIFY(parsed);
+    QCOMPARE(parsed->defaultPropertyJustification,PropertyJustification::Middle);
+    const auto exported=SymbolSvgExporter::exportSymbol(*parsed); QVERIFY(exported.errors.isEmpty());
+    const auto imported=SymbolSvgImporter::importSymbol(exported.sidecar,exported.svg,QString());
+    QVERIFY2(imported.symbol,qPrintable(imported.errors.join('\n')));
+    QCOMPARE(imported.symbol->defaultPropertyJustification,PropertyJustification::Middle);
+    for (const QJsonValue bad : {QJsonValue("center"),QJsonValue(false),QJsonValue()}) {
+        auto invalid=definition; invalid["defaultPropertyJustification"]=bad;
+        QVERIFY(!SymbolLibrary::parseSymbol(invalid,&errors));
+    }
     QVERIFY(!document.component(ground)->property("reference")->visible);
     QVERIFY(document.component(resistor)->property("reference")->visible);
     QVERIFY(document.component(resistor)->property("value")->visible);
     QVERIFY(document.component(resistor)->value().isEmpty());
     QVERIFY(document.editProperties({ground}, {{Kind::SetVisible,"reference",{},{},true}}));
     auto library = *document.symbol(SymbolIds::Ground); library.showsReference = false;
-    QStringList errors; QVERIFY(document.useSymbol(library,&errors));
+    QVERIFY(document.useSymbol(library,&errors));
     QVERIFY(document.component(ground)->property("reference")->visible);
     QVERIFY(document.editProperties({resistor}, {{Kind::Add,"tolerance","Tolerance","±5%",false}}));
     QVERIFY(document.editProperties({resistor}, {{Kind::SetValue,"value",{}," 4k7 "}}));
@@ -73,13 +129,13 @@ void TstInstanceProperties::v5ValidationAndLegacyMigration()
     QVERIFY(document.editProperties({id}, {{Kind::SetValue,"value",{},"Ground"},
                                          {Kind::Add,"note","Note","Star point",true}}));
     const auto current = document.toJson();
-    QCOMPARE(current["formatVersion"].toInt(), 6);
+    QCOMPARE(current["formatVersion"].toInt(), 10);
     const auto loaded = Document::fromJson(current); QVERIFY(loaded.document);
     QCOMPARE(loaded.document->toJson(),current);
     for (int version = 1; version <= 4; ++version) {
         auto root = current; root["formatVersion"] = version;
         auto entries = root["components"].toArray(); auto entry = entries[0].toObject();
-        entry.remove("properties"); entry["reference"] = "GND1"; entry["value"] = " Ground ";
+        entry.remove("propertyBlockJustification"); entry.remove("properties"); entry["reference"] = "GND1"; entry["value"] = " Ground ";
         if (version == 1) entry.remove("mirrored");
         entries[0] = entry; root["components"] = entries;
         const auto old = Document::fromJson(root);
@@ -88,7 +144,7 @@ void TstInstanceProperties::v5ValidationAndLegacyMigration()
         QCOMPARE(old.document->component(id)->value(),QString("Ground"));
         QVERIFY(!old.document->component(id)->property("reference")->visible);
         QVERIFY(old.document->component(id)->property("value")->visible);
-        QCOMPARE(old.document->toJson()["formatVersion"].toInt(), 6);
+        QCOMPARE(old.document->toJson()["formatVersion"].toInt(), 10);
     }
     for (int problem = 0; problem < 7; ++problem) {
         auto root = current; auto entries = root["components"].toArray(); auto entry = entries[0].toObject();
@@ -115,6 +171,25 @@ void TstInstanceProperties::propertyBlockPersistenceAndTransforms()
     const QJsonValue wires = d.toJson().value("wires");
     QVERIFY(!d.component(a)->propertyBlockOffset());
     QVERIFY(d.setPropertyBlockOffset({a}, QPointF(23.5,-17.25)));
+    QVERIFY(d.setPropertyBlockJustification({a}, PropertyJustification::Right));
+    auto justified = Document::fromJson(d.toJson()); QVERIFY(justified.document);
+    QCOMPARE(justified.document->component(a)->propertyBlockJustification(), PropertyJustification::Right);
+    Document pasted; QVector<ComponentId> pastedIds;
+    QVERIFY(pasted.pasteFragment(d.copyFragment({a}, {}), {20,20}, &pastedIds));
+    QCOMPARE(pasted.component(pastedIds.first())->propertyBlockJustification(), PropertyJustification::Right);
+    for (int version : {6,7}) {
+        auto old=d.toJson(); old["formatVersion"]=version;
+        auto entries=old["components"].toArray();
+        for(int i=0;i<entries.size();++i) { auto c=entries[i].toObject(); c.remove("propertyBlockJustification"); entries[i]=c; }
+        old["components"]=entries; auto legacy=Document::fromJson(old); QVERIFY(legacy.document);
+        QCOMPARE(legacy.document->component(a)->propertyBlockJustification(), PropertyJustification::Left);
+        QCOMPARE(legacy.document->component(a)->propertyBlockOffset(), d.component(a)->propertyBlockOffset());
+    }
+    for (const QJsonValue bad : {QJsonValue(), QJsonValue("centre"), QJsonValue(3)}) {
+        auto invalid=d.toJson(); auto entries=invalid["components"].toArray(); auto c=entries[0].toObject();
+        c["propertyBlockJustification"]=bad; entries[0]=c; invalid["components"]=entries;
+        QVERIFY(!Document::fromJson(invalid).document);
+    }
     QCOMPARE(d.toJson().value("wires"), wires);
     auto saved = d.toJsonBytes();
     auto loaded = Document::fromJsonBytes(saved); QVERIFY(loaded.document);
@@ -131,7 +206,7 @@ void TstInstanceProperties::propertyBlockPersistenceAndTransforms()
     components[0]=c; root["components"]=components; QVERIFY(!Document::fromJson(root).document);
     root=loaded.document->toJson(); root["formatVersion"]=5; QVERIFY(!Document::fromJson(root).document);
     components=root["components"].toArray(); c=components[0].toObject(); c.remove("propertyBlockOffset");
-    components[0]=c; root["components"]=components; auto legacy=Document::fromJson(root);
+    components[0]=c; for (int i=0;i<components.size();++i) { auto old=components[i].toObject(); old.remove("propertyBlockJustification"); components[i]=old; } root["components"]=components; auto legacy=Document::fromJson(root);
     QVERIFY(legacy.document); QVERIFY(!legacy.document->component(a)->propertyBlockOffset());
     QVERIFY(d.setPropertyBlockOffset({a,b},std::nullopt));
     QVERIFY(!d.setPropertyBlockOffset({a,b},std::nullopt));

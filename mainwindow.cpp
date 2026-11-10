@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "propertiespanel.h"
 #include "preferencesdialog.h"
+#include "schematicsvgexporter.h"
 #include "schematicscene.h"
 #include "schematicview.h"
 
@@ -26,6 +27,8 @@
 #include <QMouseEvent>
 #include <QMessageBox>
 #include <QFileDialog>
+#include <QFileInfo>
+#include <QDir>
 #include <QCloseEvent>
 #include <QAction>
 #include <QActionGroup>
@@ -36,6 +39,9 @@
 #include <QVBoxLayout>
 #include <QFormLayout>
 #include <QLineEdit>
+#include <QPlainTextEdit>
+#include <QTextDocument>
+#include <QTextCursor>
 #include <QDialog>
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -55,6 +61,7 @@
 #include <QtMath>
 
 #include <utility>
+#include <cmath>
 
 namespace {
 // Decimal places shown by the grid-spacing spin box. The document stores
@@ -62,8 +69,59 @@ namespace {
 // control only displays it at this precision, and loading never writes the
 // displayed value back into the document.
 constexpr int kGridSpinDecimals = 4;
+constexpr int kMaxRecentFiles = 10;
+#ifdef Q_OS_WIN
+constexpr auto kPathCaseSensitivity = Qt::CaseInsensitive;
+#else
+constexpr auto kPathCaseSensitivity = Qt::CaseSensitive;
+#endif
+
+QString recentFilePath(const QString &path)
+{
+    const QFileInfo info(path);
+    const QString canonical = info.canonicalFilePath();
+    return QDir::cleanPath(canonical.isEmpty() ? info.absoluteFilePath() : canonical);
+}
+
+QStringList recentFiles()
+{
+    QStringList paths;
+    const auto stored = QSettings().value("files/recentFiles").toStringList();
+    for (const auto &entry : stored) {
+        if (entry.isEmpty()) continue;
+        const auto path = recentFilePath(entry);
+        if (!paths.contains(path, kPathCaseSensitivity)) paths.append(path);
+        if (paths.size() == kMaxRecentFiles) break;
+    }
+    return paths;
+}
 
 enum class TransformIcon { RotateLeft, RotateRight, FlipHorizontal, FlipVertical };
+
+QIcon svgExportIcon()
+{
+    QPixmap pixmap(32,32);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setPen(QPen(QColor(35,45,55), 2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    painter.setBrush(Qt::white);
+    painter.drawRoundedRect(QRectF(5,3,17,25), 1.5, 1.5);
+    painter.setPen(QPen(QColor(35,110,160), 2.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    painter.drawLine(QPointF(14,16), QPointF(29,16));
+    painter.drawLine(QPointF(24,11), QPointF(29,16));
+    painter.drawLine(QPointF(29,16), QPointF(24,21));
+    return QIcon(pixmap);
+}
+
+QIcon textNoteIcon()
+{
+    QPixmap pixmap(32,32); pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap); painter.setRenderHint(QPainter::TextAntialiasing,true);
+    QFont font; font.setPixelSize(25); font.setBold(true); painter.setFont(font);
+    painter.setPen(QColor(35,45,55)); painter.drawText(pixmap.rect(),Qt::AlignCenter,QStringLiteral("T"));
+    return QIcon(pixmap);
+}
 
 QIcon transformIcon(TransformIcon kind)
 {
@@ -306,6 +364,9 @@ MainWindow::MainWindow(QWidget *parent)
     , m_view(new SchematicView(this))
 {
     m_editController = new DocumentEditController(&m_document, this);
+    m_scene->setPropertyBlockGridSpacing(PreferencesDialog::savedPropertyBlockGridSpacing());
+    m_view->setCadStyleMouseWheel(PreferencesDialog::savedCadStyleMouseWheel());
+    m_scene->setKeepPlacingSymbols(PreferencesDialog::savedKeepPlacingSymbols());
     const QStringList symbolLoadWarnings = m_symbolPackageStore.loadInto(&applicationSymbolLibrary());
     m_view->setScene(m_scene);
     setCentralWidget(m_view);
@@ -327,6 +388,9 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_scene, &SchematicScene::statusMessage, this, &MainWindow::onSceneStatusMessage);
     connect(m_scene, &SchematicScene::componentDoubleClicked,
             this, &MainWindow::onEditComponentLabels);
+    connect(m_scene, &SchematicScene::noteEditRequested, this, [this](NoteId) {
+        m_propertiesDock->show(); m_propertiesDock->raise(); m_propertiesPanel->focusNote();
+    });
     connect(m_scene, &SchematicScene::selectionChanged,
             this, &MainWindow::updateRenameActionEnabled);
     connect(m_scene, &SchematicScene::moveStateChanged,
@@ -337,6 +401,8 @@ MainWindow::MainWindow(QWidget *parent)
                     m_selectAction->setChecked(true);
                 else if (mode == SchematicScene::EditMode::DrawWire && m_drawWireAction)
                     m_drawWireAction->setChecked(true);
+                else if (mode == SchematicScene::EditMode::PlaceNote && m_noteAction)
+                    m_noteAction->setChecked(true);
                 updateRenameActionEnabled();
             });
     connect(m_view, &SchematicView::symbolDropped, this,
@@ -368,19 +434,22 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_editController->undoStack(), &QUndoStack::cleanChanged,
             this, &MainWindow::updateWindowTitle);
     connect(QApplication::clipboard(), &QClipboard::dataChanged, this, [this] {
-        const auto *mime = QApplication::clipboard()->mimeData();
-        if (!mime || mime->data("application/x-schematic-fragment+json") != m_lastPastePayload) {
-            m_lastPastePayload.clear(); m_pasteCount = 0;
-        }
         updateEditActions();
     });
     connect(qApp, &QApplication::focusChanged, this, [this](QWidget *, QWidget *now) {
         if (!qobject_cast<QMenu *>(now) && !QApplication::activePopupWidget()) {
             m_editTextTarget = now && isAncestorOf(now) ? qobject_cast<QLineEdit *>(now) : nullptr;
+            m_editNoteTextTarget = now && isAncestorOf(now) ? qobject_cast<QPlainTextEdit *>(now) : nullptr;
         }
         if (m_editTextTarget) {
             connect(m_editTextTarget, &QLineEdit::textChanged, this, &MainWindow::updateEditActions, Qt::UniqueConnection);
             connect(m_editTextTarget, &QLineEdit::selectionChanged, this, &MainWindow::updateEditActions, Qt::UniqueConnection);
+        }
+        if (m_editNoteTextTarget) {
+            connect(m_editNoteTextTarget, &QPlainTextEdit::textChanged, this, &MainWindow::updateEditActions, Qt::UniqueConnection);
+            connect(m_editNoteTextTarget, &QPlainTextEdit::selectionChanged, this, &MainWindow::updateEditActions, Qt::UniqueConnection);
+            connect(m_editNoteTextTarget, &QPlainTextEdit::undoAvailable, this, &MainWindow::updateEditActions, Qt::UniqueConnection);
+            connect(m_editNoteTextTarget, &QPlainTextEdit::redoAvailable, this, &MainWindow::updateEditActions, Qt::UniqueConnection);
         }
         updateRenameActionEnabled();
     });
@@ -391,6 +460,10 @@ MainWindow::~MainWindow()
 {
     disconnect(qApp, nullptr, this, nullptr);
     disconnect(QApplication::clipboard(), nullptr, this, nullptr);
+    // QUndoStack emits cleanChanged when its commands are destroyed by
+    // QObject child cleanup, after this window's members are gone. Do not
+    // dispatch updateWindowTitle() into the partially destroyed window.
+    disconnect(m_editController->undoStack(), nullptr, this, nullptr);
     // Stop deferred editor callbacks and detach the scene while the model
     // and controls are still alive, before QObject deletes child widgets.
     delete m_propertiesDock;
@@ -430,6 +503,25 @@ void MainWindow::createMenus()
 
     auto *openAction = fileMenu->addAction(tr("&Open..."), this, &MainWindow::onOpen);
     openAction->setShortcut(QKeySequence::Open);
+    m_recentFilesMenu = fileMenu->addMenu(tr("Open &Recent"));
+    m_recentFilesMenu->setObjectName("recentFilesMenu");
+    for (int i = 0; i < kMaxRecentFiles; ++i) {
+        auto *action = m_recentFilesMenu->addAction(QString());
+        action->setObjectName(QStringLiteral("recentFileAction%1").arg(i + 1));
+        action->setVisible(false);
+        connect(action, &QAction::triggered, this, [this, action] {
+            openDocumentFrom(action->data().toString());
+        });
+        m_recentFileActions.append(action);
+    }
+    m_recentFilesMenu->addSeparator();
+    auto *clearRecent = m_recentFilesMenu->addAction(tr("Clear Recent Files"), this, [this] {
+        QSettings().remove("files/recentFiles");
+        updateRecentFilesMenu();
+    });
+    clearRecent->setObjectName("clearRecentFilesAction");
+    connect(fileMenu, &QMenu::aboutToShow, this, &MainWindow::updateRecentFilesMenu);
+    updateRecentFilesMenu();
 
     fileMenu->addAction(tr("Import Symbol..."), this, &MainWindow::onImportSymbol);
 
@@ -441,6 +533,13 @@ void MainWindow::createMenus()
     auto *saveAsAction = fileMenu->addAction(tr("Save &As..."), this, &MainWindow::onSaveAs);
     saveAsAction->setShortcut(QKeySequence::SaveAs);
 
+    fileMenu->addSeparator();
+    m_svgExportAction = fileMenu->addAction(svgExportIcon(), tr("SVG &Export..."), this, &MainWindow::onSvgExport);
+    m_svgExportAction->setObjectName("svgExportAction");
+    m_svgExportAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_E));
+    m_svgExportAction->setToolTip(tr("Export schematic as SVG (Ctrl+E)"));
+    m_svgExportAction->setStatusTip(tr("Export the complete schematic as a vector image"));
+    m_svgExportAction->setEnabled(false);
     fileMenu->addSeparator();
 
     auto *exitAction = fileMenu->addAction(tr("E&xit"), this, &QWidget::close);
@@ -464,11 +563,13 @@ void MainWindow::createMenus()
     disconnect(m_undoAction, nullptr, m_editController->undoStack(), nullptr);
     disconnect(m_redoAction, nullptr, m_editController->undoStack(), nullptr);
     connect(m_undoAction, &QAction::triggered, this, [this] {
-        if (m_editTextTarget) m_editTextTarget->undo(); else m_editController->undoStack()->undo();
+        if (m_editNoteTextTarget) m_editNoteTextTarget->undo();
+        else if (m_editTextTarget) m_editTextTarget->undo(); else m_editController->undoStack()->undo();
         updateEditActions();
     });
     connect(m_redoAction, &QAction::triggered, this, [this] {
-        if (m_editTextTarget) m_editTextTarget->redo(); else m_editController->undoStack()->redo();
+        if (m_editNoteTextTarget) m_editNoteTextTarget->redo();
+        else if (m_editTextTarget) m_editTextTarget->redo(); else m_editController->undoStack()->redo();
         updateEditActions();
     });
 
@@ -481,6 +582,11 @@ void MainWindow::createMenus()
     m_copyAction = clipboardAction(tr("&Copy"), "copy", QKeySequence::Copy);
     m_pasteAction = clipboardAction(tr("&Paste"), "paste", QKeySequence::Paste);
     m_deleteAction = clipboardAction(tr("&Delete"), "delete", QKeySequence::Delete);
+    m_noteAction = editMenu->addAction(textNoteIcon(),tr("Add Text Note"),this,[this] {
+        m_scene->setEditMode(SchematicScene::EditMode::PlaceNote);
+    });
+    m_noteAction->setObjectName("addTextNoteAction"); m_noteAction->setCheckable(true);
+    m_noteAction->setToolTip(tr("Add a wrapped text note"));
     editMenu->addSeparator();
     m_renameAction = editMenu->addAction(tr("&Rename..."), this,
                                          &MainWindow::onRenameSelectedComponent);
@@ -516,6 +622,41 @@ void MainWindow::createMenus()
     helpMenu->addAction(tr("About &Qt"), qApp, &QApplication::aboutQt);
 }
 
+void MainWindow::rememberRecentFile(const QString &path)
+{
+    const QString absolute = recentFilePath(path);
+    auto paths = recentFiles();
+    for (auto it = paths.begin(); it != paths.end();) {
+        if (it->compare(absolute, kPathCaseSensitivity) == 0) it = paths.erase(it);
+        else ++it;
+    }
+    paths.prepend(absolute);
+    while (paths.size() > kMaxRecentFiles) paths.removeLast();
+    QSettings().setValue("files/recentFiles", paths);
+    updateRecentFilesMenu();
+}
+
+void MainWindow::updateRecentFilesMenu()
+{
+    if (!m_recentFilesMenu) return;
+    const auto paths = recentFiles();
+    for (int i = 0; i < m_recentFileActions.size(); ++i) {
+        auto *action = m_recentFileActions[i];
+        const bool visible = i < paths.size();
+        action->setVisible(visible);
+        if (!visible) { action->setData(QVariant()); continue; }
+        const QFileInfo info(paths[i]);
+        const QString label = (info.fileName() + QStringLiteral(" — ")
+            + QDir::toNativeSeparators(info.absolutePath())).replace(QLatin1Char('&'), QStringLiteral("&&"));
+        const QString prefix = i < 9 ? QStringLiteral("&%1 ").arg(i + 1) : QStringLiteral("%1 ").arg(i + 1);
+        action->setText(prefix + label);
+        action->setData(paths[i]);
+        action->setToolTip(QDir::toNativeSeparators(paths[i]));
+        action->setStatusTip(action->toolTip());
+    }
+    m_recentFilesMenu->menuAction()->setEnabled(!paths.isEmpty());
+}
+
 void MainWindow::createToolBar()
 {
     auto *fileToolBar = addToolBar(tr("File"));
@@ -533,6 +674,8 @@ void MainWindow::createToolBar()
                                                  tr("Save"), this, &MainWindow::onSave);
     saveAction->setObjectName("saveAction");
     saveAction->setToolTip(tr("Save schematic"));
+    fileToolBar->addSeparator();
+    fileToolBar->addAction(m_svgExportAction);
 
     // m_modeGroup also gathers the per-symbol placement actions added in
     // createSymbolDock(), so Select/DrawWire/each-symbol-button are all
@@ -557,6 +700,8 @@ void MainWindow::createToolBar()
     m_drawWireAction->setToolTip(tr("Draw orthogonal wires between terminals"));
     m_drawWireAction->setCheckable(true);
     m_modeGroup->addAction(m_drawWireAction);
+    toolToolBar->addAction(m_noteAction);
+    m_modeGroup->addAction(m_noteAction);
     connect(m_drawWireAction, &QAction::triggered, this, &MainWindow::onDrawWireModeTriggered);
 
     auto *editToolBar = addToolBar(tr("Edit"));
@@ -721,7 +866,22 @@ void MainWindow::rebuildSymbolDockContents()
     root->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
     m_categoryItems.insert(QString(), root);
 
+    std::function<void(const QVector<SymbolCategory> &, QTreeWidgetItem *, const QString &)> populate;
+    populate = [&](const QVector<SymbolCategory> &nodes, QTreeWidgetItem *parent, const QString &parentPath) {
+        for (const auto &node : nodes) {
+            const auto path = parentPath.isEmpty() ? node.name : parentPath + '/' + node.name;
+            auto *category = new QTreeWidgetItem(parent);
+            category->setText(0, node.name);
+            category->setData(0, Qt::UserRole, path);
+            category->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+            m_categoryItems.insert(path, category);
+            populate(node.children, category, path);
+        }
+    };
+    populate(applicationSymbolLibrary().categoryTree(), root, {});
+
     for (const LibrarySymbol &symbol : applicationSymbolLibrary().symbols()) {
+        if (!symbol.paletteVisible) continue;
         auto *action = new QAction(symbol.displayName, this);
         action->setCheckable(true);
         m_modeGroup->addAction(action);
@@ -729,21 +889,6 @@ void MainWindow::rebuildSymbolDockContents()
             onPlaceComponentKindChanged(id);
         });
         m_symbolActions.insert(symbol.id, action);
-
-        QString path;
-        QTreeWidgetItem *parent = root;
-        for (const QString &segment : libraryCategoryPath(symbol.category)) {
-            path = path.isEmpty() ? segment : path + QLatin1Char('/') + segment;
-            QTreeWidgetItem *category = m_categoryItems.value(path, nullptr);
-            if (!category) {
-                category = new QTreeWidgetItem(parent);
-                category->setText(0, segment);
-                category->setData(0, Qt::UserRole, path);
-                category->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
-                m_categoryItems.insert(path, category);
-            }
-            parent = category;
-        }
     }
 
     m_categoryTree->expandAll();
@@ -779,7 +924,8 @@ void MainWindow::populateSymbolGrid(const QString &categoryPath)
                                                            : libraryCategoryPath(categoryPath);
     const QString descendantPrefix = categoryPath + QLatin1Char('/');
 
-    for (const LibrarySymbol &symbol : applicationSymbolLibrary().symbols()) {
+    for (const auto *definition : applicationSymbolLibrary().paletteSymbols()) {
+        const auto &symbol = *definition;
         if (!categoryPath.isEmpty() && symbol.category != categoryPath
             && !symbol.category.startsWith(descendantPrefix))
             continue;
@@ -905,7 +1051,6 @@ void MainWindow::onNew()
     if (!maybeSave())
         return;
 
-    m_lastPastePayload.clear(); m_pasteCount = 0;
     m_document = Document();
     m_scene->bindDocument(&m_document);
     m_editController->resetHistory();
@@ -979,7 +1124,6 @@ bool MainWindow::openDocumentFrom(const QString &path)
         if (!updates.isEmpty()) rebuildSymbolDockContents();
     }
     if (result.conflicts.isEmpty() && !maybeSave()) return false;
-    m_lastPastePayload.clear(); m_pasteCount = 0;
     m_document = *result.document;
     m_scene->bindDocument(&m_document);
     m_editController->resetHistory();
@@ -989,6 +1133,7 @@ bool MainWindow::openDocumentFrom(const QString &path)
 
     if (!result.warnings.isEmpty())
         statusBar()->showMessage(result.warnings.join(QStringLiteral("; ")), 5000);
+    rememberRecentFile(path);
     return true;
 }
 
@@ -1040,6 +1185,7 @@ bool MainWindow::onSave()
 
     if (!writeDocumentTo(m_currentFilePath))
         return false;
+    rememberRecentFile(m_currentFilePath);
     m_editController->setClean();
     updateWindowTitle();
     return true;
@@ -1057,10 +1203,36 @@ bool MainWindow::onSaveAs()
     // target.
     if (!writeDocumentTo(path))
         return false;
+    rememberRecentFile(path);
     m_currentFilePath = path;
     m_editController->setClean();
     updateWindowTitle();
     return true;
+}
+
+bool MainWindow::exportSvgTo(const QString &path)
+{
+    QString error;
+    if (!SchematicSvgExporter::write(m_document, path, &error)) {
+        QMessageBox::warning(this, tr("SVG Export"), tr("Could not export \"%1\": %2").arg(path, error));
+        return false;
+    }
+    statusBar()->showMessage(tr("Exported SVG to %1").arg(path), 5000);
+    return true;
+}
+
+void MainWindow::onSvgExport()
+{
+    const QString suggested = m_currentFilePath.isEmpty() ? tr("schematic.svg")
+        : QFileInfo(m_currentFilePath).absolutePath() + QLatin1Char('/')
+          + QFileInfo(m_currentFilePath).completeBaseName() + QStringLiteral(".svg");
+    QFileDialog dialog(this, tr("SVG Export"));
+    dialog.setAcceptMode(QFileDialog::AcceptSave);
+    dialog.setNameFilter(tr("SVG Images (*.svg)"));
+    dialog.setDefaultSuffix(QStringLiteral("svg"));
+    dialog.selectFile(suggested);
+    if (dialog.exec() == QDialog::Accepted && !dialog.selectedFiles().isEmpty())
+        exportSvgTo(dialog.selectedFiles().first());
 }
 
 void MainWindow::onAbout()
@@ -1151,7 +1323,7 @@ void MainWindow::onRenameSelectedComponent()
 void MainWindow::updateRenameActionEnabled()
 {
     const bool oneComponentSelected = m_scene->singleSelectedComponent().has_value();
-    const bool canTransform = !m_editTextTarget && !m_scene->selection().isEmpty()
+    const bool canTransform = !m_editTextTarget && !m_editNoteTextTarget && !m_scene->selection().isEmpty()
         && m_scene->editMode() == SchematicScene::EditMode::Select && !m_scene->moveInProgress();
     if (m_renameAction)
         m_renameAction->setEnabled(oneComponentSelected);
@@ -1170,8 +1342,20 @@ constexpr auto schematicClipboardMime = "application/x-schematic-fragment+json";
 
 void MainWindow::updateEditActions()
 {
+    if (m_svgExportAction)
+        m_svgExportAction->setEnabled(!m_document.components().isEmpty() || !m_document.wires().isEmpty() || !m_document.notes().isEmpty());
     if (!m_cutAction) return;
     const auto *mime = QApplication::clipboard()->mimeData();
+    if (m_editNoteTextTarget) {
+        const auto cursor = m_editNoteTextTarget->textCursor();
+        const bool editable = !m_editNoteTextTarget->isReadOnly();
+        m_undoAction->setEnabled(m_editNoteTextTarget->document()->isUndoAvailable());
+        m_redoAction->setEnabled(m_editNoteTextTarget->document()->isRedoAvailable());
+        m_copyAction->setEnabled(cursor.hasSelection()); m_cutAction->setEnabled(editable && cursor.hasSelection());
+        m_pasteAction->setEnabled(editable && mime && mime->hasText());
+        m_deleteAction->setEnabled(editable && (cursor.hasSelection() || !cursor.atEnd()));
+        return;
+    }
     m_undoAction->setEnabled(m_editTextTarget ? m_editTextTarget->isUndoAvailable() : m_editController->undoStack()->canUndo());
     m_redoAction->setEnabled(m_editTextTarget ? m_editTextTarget->isRedoAvailable() : m_editController->undoStack()->canRedo());
     if (m_editTextTarget) {
@@ -1192,6 +1376,15 @@ void MainWindow::updateEditActions()
 
 void MainWindow::clipboardEdit(const QString &operation)
 {
+    if (m_editNoteTextTarget) {
+        if (operation == "copy") m_editNoteTextTarget->copy();
+        else if (operation == "cut") m_editNoteTextTarget->cut();
+        else if (operation == "paste") m_editNoteTextTarget->paste();
+        else if (operation == "delete" && !m_editNoteTextTarget->isReadOnly()) {
+            auto cursor = m_editNoteTextTarget->textCursor(); cursor.deleteChar(); m_editNoteTextTarget->setTextCursor(cursor);
+        }
+        updateEditActions(); return;
+    }
     if (m_editTextTarget) {
         if (operation == "copy") m_editTextTarget->copy();
         else if (operation == "cut") m_editTextTarget->cut();
@@ -1206,31 +1399,26 @@ void MainWindow::clipboardEdit(const QString &operation)
     const auto selection = m_scene->selection();
     QStringList errors;
     if (operation == "copy" || operation == "cut") {
-        const auto bytes = m_document.copyFragment(selection.components, selection.wires, &errors);
+        const auto bytes = m_document.copyFragment(selection.components, selection.wires, &errors, selection.notes);
         if (bytes.isEmpty()) { onSceneStatusMessage(errors.join('\n')); return; }
         auto *mime = new QMimeData; mime->setData(schematicClipboardMime, bytes); clipboard->setMimeData(mime);
         if (!clipboard->mimeData() || clipboard->mimeData()->data(schematicClipboardMime) != bytes) {
             onSceneStatusMessage(tr("Could not publish the schematic selection to the clipboard.")); return;
         }
-        m_lastPastePayload.clear(); m_pasteCount = 0;
         if (operation == "cut") m_editController->commit(tr("Cut selection"), [this,selection] {
-            bool changed = false;
-            for (auto id : selection.wires) changed |= m_document.removeWire(id);
-            for (auto id : selection.components) changed |= m_document.removeComponent(id);
-            return changed;
+            return m_document.removeSelection(selection.components, selection.wires, selection.notes);
         }, [] { return DocumentSelection{}; });
     } else if (operation == "paste") {
         const auto *mime = clipboard->mimeData();
         if (!mime || !mime->hasFormat(schematicClipboardMime)) return;
         const auto bytes = mime->data(schematicClipboardMime);
-        const int count = bytes == m_lastPastePayload ? m_pasteCount + 1 : 1;
-        const qreal distance = count * m_document.gridSpacing();
+        const QPointF cursor = m_view->pastePosition();
+        const qreal grid = m_document.gridSpacing();
+        const QPointF target(std::round(cursor.x() / grid) * grid, std::round(cursor.y() / grid) * grid);
         DocumentSelection added;
-        if (m_editController->commit(tr("Paste selection"), [this,&added,&errors,bytes,distance] {
-            return m_document.pasteFragment(bytes, {distance,distance}, &added.components, &added.wires, &errors);
-        }, [&added] { return added; })) {
-            m_lastPastePayload = bytes; m_pasteCount = count;
-        } else onSceneStatusMessage(errors.join('\n'));
+        if (!m_editController->commit(tr("Paste selection"), [this,&added,&errors,bytes,target] {
+            return m_document.pasteFragmentAt(bytes, target, &added.components, &added.wires, &errors, &added.notes);
+        }, [&added] { return added; })) onSceneStatusMessage(errors.join('\n'));
     }
     updateEditActions();
 }
@@ -1238,5 +1426,9 @@ void MainWindow::clipboardEdit(const QString &operation)
 void MainWindow::onPreferences()
 {
     PreferencesDialog dialog(this);
-    dialog.exec();
+    if (dialog.exec() == QDialog::Accepted) {
+        m_scene->setPropertyBlockGridSpacing(dialog.propertyBlockGridSpacing());
+        m_view->setCadStyleMouseWheel(dialog.cadStyleMouseWheel());
+        m_scene->setKeepPlacingSymbols(dialog.keepPlacingSymbols());
+    }
 }

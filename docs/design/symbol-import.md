@@ -6,7 +6,7 @@ The approved and implemented [black-fill follow-up](black-symbol-fills.md) prese
 
 ## 1. Purpose and scope
 
-The packaged symbol library has nine entries, including the [reviewed template refresh](builtin-template-refresh.md). The library grows through a standard authoring path: draw the glyph in an external SVG editor, import it, add the required metadata and connection points, then save it as a validated library entry. All symbols use the same definition format, validation, lookup, and document rules; where an entry is distributed or stored does not give it a different kind.
+The packaged symbol library has forty entries, including the [reviewed template refresh](builtin-template-refresh.md). The library grows through a standard authoring path: draw the glyph in an external SVG editor, import it, add the required metadata and connection points, then save it as a validated library entry. All symbols use the same definition format, validation, lookup, and document rules; where an entry is distributed or stored does not give it a different kind.
 
 In scope for chunk J:
 
@@ -131,7 +131,7 @@ These stop the import: not well-formed XML; unreadable or invalid sidecar; no dr
 
 ### 8.1 Embedding (format v3)
 
-- Format v3 introduced a `symbols` array holding the full converted entry of every used symbol. Format v4 adds black/white fill capability within those definitions. The instance-properties follow-up adds v5 with per-instance values and visibility. The movable-block follow-up adds v6 instance layout offsets. The loader accepts v1–v6; writers emit v6 (an empty `symbols` array when none are used). Saving an earlier document upgrades it. Versions 1/2 have no embedded symbol definitions and use the current library entries; v3 snapshots preserve their legacy white defaults.
+- Format v3 introduced a `symbols` array holding the full converted entry of every used symbol. Format v4 adds black/white fill capability within those definitions. The instance-properties follow-up adds v5 with per-instance values and visibility. The movable-block follow-up adds v6 instance layout offsets. The layout-variant follow-up adds v7 with layout metadata and reachable alternative definitions. The property-block appearance follow-up adds v8 instance justification and optional native/sidecar `defaultPropertyJustification` creation defaults. The loader accepts v1–v8; writers emit v8 (an empty `symbols` array when none are used). Saving an earlier document upgrades it. Versions 1/2 have no embedded symbol definitions and use the current library entries; v3 snapshots preserve their legacy white defaults.
 - Embedded entries are validated like library entries; an invalid embedded entry rejects the document with an error naming the ID. A document may not contain duplicate symbol IDs.
 
 ### 8.2 Per-document symbol set

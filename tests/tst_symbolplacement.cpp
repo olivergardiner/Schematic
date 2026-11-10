@@ -36,11 +36,141 @@ class SymbolPlacementTests : public QObject
     Q_OBJECT
 
 private slots:
+    void clickPlacementModePreference();
+    void placementOnWireConnectsAndUndoRedoes_data();
+    void placementOnWireConnectsAndUndoRedoes();
+    void ambiguousPlacementReportsUnconnectedContact();
     void newPackagedSymbolsPlaceWireAndUndo();
     void dropPlacementSnapsSelectsAndUndoRedoes();
     void unknownSymbolIsRejectedWithoutHistory();
     void escapeCancelsDraftAndReturnsToSelect();
 };
+
+void SymbolPlacementTests::clickPlacementModePreference()
+{
+    for (bool repeat : {false, true}) {
+        Document document;
+        DocumentEditController edits(&document);
+        TestSchematicScene scene;
+        scene.bindDocument(&document);
+        scene.setEditCommitter([&edits](const QString &description, const std::function<bool()> &operation,
+                                       std::function<DocumentSelection()> after) {
+            return edits.commit(description, operation, std::move(after));
+        });
+        edits.setSelectionCallbacks([&scene] { return scene.selection(); },
+            [&scene](const DocumentSelection &selection) { scene.restoreAfterDocumentChange(selection); });
+        // First iteration exercises the scene's default (single placement).
+        if (repeat) scene.setKeepPlacingSymbols(true);
+        scene.setEditMode(SchematicScene::EditMode::PlaceComponent);
+        scene.setPlaceComponentKind(SymbolIds::Resistor);
+        scene.pressAt({100, 100});
+        QCOMPARE(document.components().size(), 1);
+        QCOMPARE(scene.selectedComponentIds(), QVector<ComponentId>{document.components().first().id()});
+        QCOMPARE(scene.editMode(), repeat ? SchematicScene::EditMode::PlaceComponent
+                                          : SchematicScene::EditMode::Select);
+        scene.pressAt({200, 100});
+        QCOMPARE(document.components().size(), repeat ? 2 : 1);
+        if (repeat)
+            QCOMPARE(scene.selectedComponentIds(), QVector<ComponentId>{document.components().last().id()});
+    }
+
+    TestSchematicScene scene;
+    scene.setEditMode(SchematicScene::EditMode::PlaceComponent);
+    scene.pressAt({100, 100}); // Unbound scene: failed placement must retain the tool.
+    QCOMPARE(scene.editMode(), SchematicScene::EditMode::PlaceComponent);
+}
+
+void SymbolPlacementTests::placementOnWireConnectsAndUndoRedoes_data()
+{
+    QTest::addColumn<bool>("clickPlacement");
+    QTest::newRow("canvas-click") << true;
+    QTest::newRow("palette-placement-path") << false;
+}
+
+void SymbolPlacementTests::placementOnWireConnectsAndUndoRedoes()
+{
+    QFETCH(bool, clickPlacement);
+    Document document;
+    const auto a = document.addComponent(SymbolIds::Resistor, {});
+    const auto b = document.addComponent(SymbolIds::Resistor, {100,0});
+    const auto wire = document.addWire(makeTerminalEndpoint(a,1), {}, makeTerminalEndpoint(b,0));
+    QVERIFY(wire);
+    DocumentEditController edits(&document);
+    TestSchematicScene scene;
+    scene.bindDocument(&document);
+    scene.setEditCommitter([&edits](const QString &description, const std::function<bool()> &operation,
+                                    std::function<DocumentSelection()> after) {
+        return edits.commit(description, operation, std::move(after));
+    });
+    edits.setSelectionCallbacks([&scene] { return scene.selection(); },
+        [&scene](const DocumentSelection &selection) { scene.restoreAfterDocumentChange(selection); });
+    scene.setEditMode(SchematicScene::EditMode::PlaceComponent);
+    scene.setPlaceComponentKind(SymbolIds::RailVCC);
+    scene.restoreSelection({{a},{}});
+    const auto before = document.toJsonBytes();
+    // The final snapped origin (50,-20) puts the terminal at (50,0).
+    if (clickPlacement) scene.pressAt({48,-18});
+    else QVERIFY(scene.placeComponentAt(SymbolIds::RailVCC, {48,-18}));
+    QCOMPARE(document.components().size(), 3);
+    const auto rail = document.components().last().id();
+    QCOMPARE(document.component(rail)->position(), QPointF(50,-20));
+    QCOMPARE(document.wires().size(), 2);
+    QCOMPARE(document.junctionPoints(), QVector<QPointF>({{50,0}}));
+    QCOMPARE(scene.selectedComponentIds(), QVector<ComponentId>{rail});
+    bool dotFound = false;
+    for (auto *item : scene.items()) {
+        if (auto *ellipse = qgraphicsitem_cast<QGraphicsEllipseItem *>(item))
+            if (ellipse->brush().color() == Qt::black && ellipse->sceneBoundingRect().center() == QPointF(50,0))
+                dotFound = true;
+    }
+    QVERIFY(dotFound);
+    QCOMPARE(edits.undoStack()->count(), 1);
+    const auto after = document.toJsonBytes();
+    edits.undoStack()->undo();
+    QCOMPARE(document.toJsonBytes(), before);
+    QCOMPARE(scene.selectedComponentIds(), QVector<ComponentId>{a});
+    edits.undoStack()->redo();
+    QCOMPARE(document.toJsonBytes(), after);
+    QCOMPARE(scene.selectedComponentIds(), QVector<ComponentId>{rail});
+    scene.deleteSelection();
+    QCOMPARE(document.wires().size(), 2);
+    QCOMPARE(document.nodes().size(), 1);
+    QVERIFY(document.wires()[0].end == document.wires()[1].start);
+    QVERIFY(document.junctionPoints().isEmpty());
+    QCOMPARE(edits.undoStack()->count(), 2);
+    edits.undoStack()->undo();
+    QCOMPARE(document.toJsonBytes(), after);
+    edits.undoStack()->redo();
+    QCOMPARE(document.wires().size(), 2);
+    QCOMPARE(document.nodes().size(), 1);
+}
+
+void SymbolPlacementTests::ambiguousPlacementReportsUnconnectedContact()
+{
+    Document document;
+    const auto a = document.addComponent(SymbolIds::Resistor, {});
+    const auto b = document.addComponent(SymbolIds::Resistor, {100,0});
+    const auto c = document.addComponent(SymbolIds::Resistor, {50,-50}, Rotation::Deg90);
+    const auto d = document.addComponent(SymbolIds::Resistor, {50,50}, Rotation::Deg90);
+    QVERIFY(document.addWire(makeTerminalEndpoint(a,1), {}, makeTerminalEndpoint(b,0)));
+    QVERIFY(document.addWire(makeTerminalEndpoint(c,1), {}, makeTerminalEndpoint(d,0)));
+    DocumentEditController edits(&document);
+    SchematicScene scene;
+    scene.bindDocument(&document);
+    scene.setEditCommitter([&edits](const QString &description, const std::function<bool()> &operation,
+                                    std::function<DocumentSelection()> after) {
+        return edits.commit(description, operation, std::move(after));
+    });
+    edits.setSelectionCallbacks([&scene] { return scene.selection(); },
+        [&scene](const DocumentSelection &selection) { scene.restoreAfterDocumentChange(selection); });
+    QSignalSpy messages(&scene, &SchematicScene::statusMessage);
+    QVERIFY(scene.placeComponentAt(SymbolIds::RailVCC, {50,-20}));
+    QCOMPARE(messages.size(), 1);
+    QVERIFY(messages.first().first().toString().contains("left unconnected"));
+    QCOMPARE(document.wires().size(), 2);
+    QVERIFY(document.junctionPoints().isEmpty());
+    QCOMPARE(edits.undoStack()->count(), 1);
+}
 
 void SymbolPlacementTests::dropPlacementSnapsSelectsAndUndoRedoes()
 {
@@ -145,7 +275,25 @@ void SymbolPlacementTests::escapeCancelsDraftAndReturnsToSelect()
 
 void SymbolPlacementTests::newPackagedSymbolsPlaceWireAndUndo()
 {
-    for (const auto &symbol : {SymbolIds::ElectrolyticCapacitor, SymbolIds::OpAmpGrid10}) {
+    for (const auto &symbol : {SymbolIds::ElectrolyticCapacitor, SymbolIds::OpAmpGrid10,
+                               SymbolIds::Potentiometer, SymbolIds::PresetResistor,
+                               SymbolIds::SchottkyDiode, SymbolIds::ZenerDiode, SymbolIds::LED,
+                               SymbolIds::PNPCompact30,
+                               SymbolIds::NPNCompact30,
+                               SymbolIds::NChannelJFETCompact30,
+                               SymbolIds::PChannelJFETCompact30,
+                               SymbolIds::NChannelMOSFETCompact30,
+                               SymbolIds::PChannelMOSFETCompact30,
+                               SymbolIds::OpAmpNoSupplies,
+                               SymbolIds::OTAWithSuppliesVerticalBias,
+                               SymbolIds::OTANoSuppliesVerticalBias,
+                               SymbolIds::DarlingtonBufferLM13700,
+                               SymbolIds::RailVCC,
+                               SymbolIds::GroundChassis,
+                               SymbolIds::GroundSignal,
+                               SymbolIds::PortInput,
+                               SymbolIds::PortOutput,
+                               SymbolIds::PortBidirectional}) {
         Document document;
         DocumentEditController edits(&document);
         SchematicScene scene;
@@ -172,6 +320,7 @@ void SymbolPlacementTests::newPackagedSymbolsPlaceWireAndUndo()
         QCOMPARE(document.components().size(), 2);
         QCOMPARE(document.wires().size(), 1);
         QCOMPARE(document.component(a)->symbolId(), symbol);
+        QCOMPARE(document.component(a)->value(), document.symbol(symbol)->defaultValue);
     }
 }
 

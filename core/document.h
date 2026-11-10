@@ -6,6 +6,7 @@
 #include "pendingwireendpoint.h"
 #include "routegeometry.h"
 #include "wireroute.h"
+#include "textnote.h"
 
 #include <QHash>
 #include <QByteArray>
@@ -51,6 +52,9 @@ public:
     QPointF terminalPosition(const Component &item, TerminalId terminal) const;
     // Replace presentation only; a used ID can never acquire different terminals.
     bool useSymbol(const LibrarySymbol &definition, QStringList *errors);
+    bool setSymbolLayout(ComponentId id, const QString &controlKey, const QString &choiceKey,
+                         QStringList *errors = nullptr);
+    bool canSetSymbolLayout(ComponentId id, const QString &controlKey, const QString &choiceKey) const;
     qreal gridSpacing() const { return m_gridSpacing; }
     bool setGridSpacing(qreal spacing);
 
@@ -60,13 +64,34 @@ public:
 
     const Component *component(ComponentId id) const;
     const WireRoute *wire(WireId id) const;
+    const QVector<TextNote> &notes() const { return m_notes; }
+    const TextNote *note(NoteId id) const;
+    NoteId addNote(QPointF position, const QString &text = QStringLiteral("Note"), qreal width = 160.0);
+    bool setNote(NoteId id, QPointF position, const QString &text, qreal width);
+    bool setNoteAppearance(NoteId id, PropertyJustification justification,
+                           const QString &fillColor, const QString &outlineColor);
+    bool removeNote(NoteId id);
 
     // Returns kInvalidComponentId (document unchanged, no id consumed) if
     // symbolId is absent from both the document and active library.
     ComponentId addComponent(const SymbolId &symbolId, QPointF position,
                              Rotation rotation = Rotation::Deg0);
+    // User placement: atomically add a component and connect terminals that
+    // touch an unambiguous wire interior or bare junction. No proximity
+    // snapping here; the caller supplies the final scene position. Ambiguous
+    // contacts stay unconnected and are reported in warnings. Failures leave
+    // the document (including identity allocation) unchanged.
+    ComponentId placeComponent(const SymbolId &symbolId, QPointF position,
+                               Rotation rotation = Rotation::Deg0,
+                               QStringList *warnings = nullptr);
     bool moveComponent(ComponentId id, QPointF position);
+    // Preserve incident routes, replacing each used terminal by one bare
+    // node at that terminal's position. Different terminals stay separate.
     bool removeComponent(ComponentId id);
+    // Atomic Delete/Cut: remove explicitly selected wires, then detach the
+    // selected components. A failed detachment leaves everything unchanged.
+    bool removeSelection(const QVector<ComponentId> &components, const QVector<WireId> &wires,
+                         const QVector<NoteId> &notes = {});
     // Transactional: rejects (returns false, document unchanged) if id is
     // unknown or any attached route would become invalid.
     bool rotateComponent(ComponentId id, Rotation rotation);
@@ -78,7 +103,7 @@ public:
     // same original state and only final route geometry is validated.
     bool transformSelection(const QVector<ComponentId> &components,
                             const QVector<WireId> &wires,
-                            const SelectionTransform &transform);
+                            const SelectionTransform &transform, const QVector<NoteId> &notes = {});
 
 
     // Renames/re-values an already-placed component. Both reference and
@@ -92,6 +117,7 @@ public:
     // may be empty after trimming - see DECISIONS.md "Symbols and labels".
     bool setComponentLabels(ComponentId id, const QString &reference, const QString &value);
     bool setPropertyBlockOffset(const QVector<ComponentId> &ids, std::optional<QPointF> offset);
+    bool setPropertyBlockJustification(const QVector<ComponentId> &ids, PropertyJustification value);
 
     bool editProperties(const QVector<ComponentId> &ids, const QVector<PropertyEdit> &edits,
                         QStringList *errors = nullptr);
@@ -100,6 +126,11 @@ public:
                                   const QVector<QPointF> &interiorVertices,
                                   const WireEndpoint &end);
     bool removeWire(WireId id);
+    // Move one segment perpendicular to its axis to an absolute scene
+    // coordinate (collinear neighbours form one straight run).
+    // Endpoints (including shared nodes) stay fixed; end
+    // segments acquire connecting bends. Invalid/no-op edits return false.
+    bool moveWireSegment(WireId id, int segment, qreal coordinate);
     std::optional<NodeId> branchWireAt(WireId id, QPointF point);
 
     // Atomic wire completion: resolves each endpoint (materializing any
@@ -114,30 +145,43 @@ public:
     std::optional<WireId> addWireBranching(const PendingWireEndpoint &start,
                                            const QVector<QPointF> &interiorVertices,
                                            const PendingWireEndpoint &end);
+    // Atomic free-end completion. The new bare node (and any branch at
+    // start) is materialized only if the whole route is valid.
+    std::optional<WireId> addWireToPoint(const PendingWireEndpoint &start,
+                                       const QVector<QPointF> &interiorVertices, QPointF end);
 
     QByteArray copyFragment(const QVector<ComponentId> &components, const QVector<WireId> &wires,
-                            QStringList *errors = nullptr) const;
+                            QStringList *errors = nullptr, const QVector<NoteId> &notes = {}) const;
     bool pasteFragment(const QByteArray &bytes, QPointF displacement,
                        QVector<ComponentId> *components = nullptr, QVector<WireId> *wires = nullptr,
-                       QStringList *errors = nullptr);
+                       QStringList *errors = nullptr, QVector<NoteId> *notes = nullptr);
+    // Centre component origins and wire vertices at target with one shared
+    // translation, preserving all relative coordinates and connectivity.
+    bool pasteFragmentAt(const QByteArray &bytes, QPointF target,
+                         QVector<ComponentId> *components = nullptr, QVector<WireId> *wires = nullptr,
+                         QStringList *errors = nullptr, QVector<NoteId> *notes = nullptr);
 
     QVector<Net> computeNets() const;
     QVector<QPointF> junctionPoints() const;
 
-    // Version-6 JSON stores property-block placement and embeds symbol definitions (including black/white fill),
-    // grid, components, nodes, and identity-linked route points. Versions
-    // 1-5 remain readable. Nets and junctions are derived, never serialized.
+    // Version-9 JSON adds plain text notes to embedded symbols, components,
+    // nodes and wire routes. Versions 1-8 remain readable. Nets, junctions
+    // and note layout heights are derived, never serialized.
     QJsonObject toJson() const;
     QByteArray toJsonBytes() const;
     static DocumentLoadResult fromJson(const QJsonObject &root);
     static DocumentLoadResult fromJsonBytes(const QByteArray &data);
 
 private:
+    bool pasteFragmentImpl(const QByteArray &bytes, QPointF position, bool atTarget,
+                           QVector<ComponentId> *components, QVector<WireId> *wires, QStringList *errors,
+                           QVector<NoteId> *notes);
     bool endpointPosition(const WireEndpoint &endpoint, QPointF *position) const;
     bool endpointExists(const WireEndpoint &endpoint) const;
     void removeOrphanNodes();
     WireId allocateWireId();
     bool commitComponentChange(ComponentId id, const Component &changed);
+    bool ensureLayoutClosure(const SymbolId &id, QStringList *errors);
 
     // Pure (non-mutating) computation of a branch split: finds the segment
     // of wire id containing point and returns the two resulting vertex
@@ -167,6 +211,8 @@ private:
     ComponentId m_nextComponentId = 1;
     WireId m_nextWireId = 1;
     NodeId m_nextNodeId = 1;
+    NoteId m_nextNoteId = 1;
+    QVector<TextNote> m_notes;
     QVector<Component> m_components;
     QVector<WireRoute> m_wires;
     QHash<NodeId, QPointF> m_nodes;

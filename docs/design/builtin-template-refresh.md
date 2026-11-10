@@ -2,6 +2,10 @@
 
 Status: **approved by the user on 2026-11-06; implemented and verified.** The user also confirmed that no existing documents would be compromised; the approved mapping still retains the original op-amp interface.
 
+## Subsequent approved removal (2026-11-07)
+
+The user confirmed there are no dependent saved schematics and approved removing the original `OpAmp` entry, its ID and resource registration, and the empty Compatibility category. `OpAmp.Grid10` remains unchanged; no alias or migration is introduced. Tests now use its terminal geometry. The original refresh plan and verification record below describe the historical implementation; their legacy-retention requirements are superseded by this removal.
+
 ## Requested result
 
 Ship the four current [Grid 10 templates](../../symbol-templates/grid10/README.md) as the standard built-in resistor, capacitor, electrolytic capacitor, and op-amp. Use the reviewed black capacitor plates and short op-amp supply leads. Users should not need to import these files to obtain the new artwork.

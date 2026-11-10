@@ -5,6 +5,7 @@
 #include "schematicscene.h"
 
 #include <QGraphicsView>
+#include <optional>
 
 // SchematicView renders the SchematicScene and provides the interactive
 // behaviour expected of a drawing canvas: a visible grid, mouse-wheel zoom,
@@ -16,8 +17,13 @@ class SchematicView : public QGraphicsView
 public:
     explicit SchematicView(QWidget *parent = nullptr);
     void setScene(QGraphicsScene *scene);
+    // Preserve the last canvas pointer position for menu Paste, mapped
+    // through the current transform so pan/zoom do not stale the target.
+    QPointF pastePosition() const;
 
     qreal zoomFactor() const { return m_zoomFactor; }
+    bool cadStyleMouseWheel() const { return m_cadStyleMouseWheel; }
+    void setCadStyleMouseWheel(bool enabled) { m_cadStyleMouseWheel = enabled; }
 
 public slots:
     void zoomIn();
@@ -69,11 +75,13 @@ private:
     static constexpr int kMajorGridRatio = 10;
 
     qreal m_zoomFactor = 1.0;
+    bool m_cadStyleMouseWheel = true;
+    std::optional<QPoint> m_pastePointerPosition;
     qreal m_gridSpacingMinor = 10.0;
 
     // Middle-button panning temporarily swaps to ScrollHandDrag (which
     // requires a fake left-button press) without disturbing custom box
-    // selection or the existing Ctrl+wheel zoom.
+    // selection or the configured wheel behaviour.
     bool m_middleButtonPanning = false;
     bool m_panningWasInteractive = true;
 };

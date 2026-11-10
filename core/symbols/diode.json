@@ -5,13 +5,73 @@
   "referencePrefix": "D",
   "showsReference": true,
   "primitives": [
-    { "kind": "Line", "points": [[-20, 0], [-8, 0]] },
-    { "kind": "Line", "points": [[8, 0], [20, 0]] },
-    { "kind": "Polygon", "points": [[-8, -8], [-8, 8], [8, 0]] },
-    { "kind": "Line", "points": [[8, -8], [8, 8]] }
+    {
+      "kind": "Line",
+      "points": [
+        [
+          -20,
+          0
+        ],
+        [
+          -5,
+          0
+        ]
+      ]
+    },
+    {
+      "kind": "Line",
+      "points": [
+        [
+          5,
+          0
+        ],
+        [
+          20,
+          0
+        ]
+      ]
+    },
+    {
+      "kind": "Polygon",
+      "points": [
+        [
+          -5,
+          -5
+        ],
+        [
+          -5,
+          5
+        ],
+        [
+          5,
+          0
+        ]
+      ]
+    },
+    {
+      "kind": "Line",
+      "points": [
+        [
+          5,
+          -5
+        ],
+        [
+          5,
+          5
+        ]
+      ]
+    }
   ],
   "terminals": [
-    { "name": "anode", "x": -20, "y": 0 },
-    { "name": "cathode", "x": 20, "y": 0 }
+    {
+      "name": "anode",
+      "x": -20,
+      "y": 0
+    },
+    {
+      "name": "cathode",
+      "x": 20,
+      "y": 0
+    }
   ]
 }

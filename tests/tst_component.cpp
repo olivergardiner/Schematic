@@ -47,9 +47,9 @@ void TstComponent::rotateOffsetIsConsistentAcrossQuadrants()
 
 void TstComponent::terminalPositionCombinesRotationAndTranslation()
 {
-    // Op-amp terminal offsets (see core/symbols/opamp.json):
-    // 0 "in+" (-28,-8), 1 "in-" (-28,8), 2 "out" (28,0),
-    // 3 "v+" (0,-16), 4 "v-" (0,16).
+    // Op-amp terminal offsets (see core/symbols/opamp-grid10.json):
+    // 0 "in+" (-30,-10), 1 "in-" (-30,10), 2 "out" (30,0),
+    // 3 "v+" (0,-20), 4 "v-" (0,20).
     // Expected positions below are hand-computed by applying the documented
     // rotation formula ((x,y)->(-y,x) for 90 degrees, etc. - see
     // rotateOffset() in component.cpp) and then translating by position,
@@ -61,44 +61,44 @@ void TstComponent::terminalPositionCombinesRotationAndTranslation()
     // implementation's own control flow.
     const QPointF position(40, -30);
 
-    Component opAmp0(1, SymbolIds::OpAmp, position);
+    Component opAmp0(1, SymbolIds::OpAmpGrid10, position);
     opAmp0.setRotation(Rotation::Deg0);
-    QCOMPARE(opAmp0.terminalPosition(0, *builtinSymbolLibrary().find(opAmp0.symbolId())), QPointF(12, -38));
-    QCOMPARE(opAmp0.terminalPosition(1, *builtinSymbolLibrary().find(opAmp0.symbolId())), QPointF(12, -22));
-    QCOMPARE(opAmp0.terminalPosition(2, *builtinSymbolLibrary().find(opAmp0.symbolId())), QPointF(68, -30));
-    QCOMPARE(opAmp0.terminalPosition(3, *builtinSymbolLibrary().find(opAmp0.symbolId())), QPointF(40, -46));
-    QCOMPARE(opAmp0.terminalPosition(4, *builtinSymbolLibrary().find(opAmp0.symbolId())), QPointF(40, -14));
+    QCOMPARE(opAmp0.terminalPosition(0, *builtinSymbolLibrary().find(opAmp0.symbolId())), QPointF(10, -40));
+    QCOMPARE(opAmp0.terminalPosition(1, *builtinSymbolLibrary().find(opAmp0.symbolId())), QPointF(10, -20));
+    QCOMPARE(opAmp0.terminalPosition(2, *builtinSymbolLibrary().find(opAmp0.symbolId())), QPointF(70, -30));
+    QCOMPARE(opAmp0.terminalPosition(3, *builtinSymbolLibrary().find(opAmp0.symbolId())), QPointF(40, -50));
+    QCOMPARE(opAmp0.terminalPosition(4, *builtinSymbolLibrary().find(opAmp0.symbolId())), QPointF(40, -10));
 
-    Component opAmp90(1, SymbolIds::OpAmp, position);
+    Component opAmp90(1, SymbolIds::OpAmpGrid10, position);
     opAmp90.setRotation(Rotation::Deg90);
-    QCOMPARE(opAmp90.terminalPosition(0, *builtinSymbolLibrary().find(opAmp90.symbolId())), QPointF(48, -58));
-    QCOMPARE(opAmp90.terminalPosition(1, *builtinSymbolLibrary().find(opAmp90.symbolId())), QPointF(32, -58));
-    QCOMPARE(opAmp90.terminalPosition(2, *builtinSymbolLibrary().find(opAmp90.symbolId())), QPointF(40, -2));
-    QCOMPARE(opAmp90.terminalPosition(3, *builtinSymbolLibrary().find(opAmp90.symbolId())), QPointF(56, -30));
-    QCOMPARE(opAmp90.terminalPosition(4, *builtinSymbolLibrary().find(opAmp90.symbolId())), QPointF(24, -30));
+    QCOMPARE(opAmp90.terminalPosition(0, *builtinSymbolLibrary().find(opAmp90.symbolId())), QPointF(50, -60));
+    QCOMPARE(opAmp90.terminalPosition(1, *builtinSymbolLibrary().find(opAmp90.symbolId())), QPointF(30, -60));
+    QCOMPARE(opAmp90.terminalPosition(2, *builtinSymbolLibrary().find(opAmp90.symbolId())), QPointF(40, 0));
+    QCOMPARE(opAmp90.terminalPosition(3, *builtinSymbolLibrary().find(opAmp90.symbolId())), QPointF(60, -30));
+    QCOMPARE(opAmp90.terminalPosition(4, *builtinSymbolLibrary().find(opAmp90.symbolId())), QPointF(20, -30));
 
-    Component opAmp180(1, SymbolIds::OpAmp, position);
+    Component opAmp180(1, SymbolIds::OpAmpGrid10, position);
     opAmp180.setRotation(Rotation::Deg180);
-    QCOMPARE(opAmp180.terminalPosition(0, *builtinSymbolLibrary().find(opAmp180.symbolId())), QPointF(68, -22));
-    QCOMPARE(opAmp180.terminalPosition(1, *builtinSymbolLibrary().find(opAmp180.symbolId())), QPointF(68, -38));
-    QCOMPARE(opAmp180.terminalPosition(2, *builtinSymbolLibrary().find(opAmp180.symbolId())), QPointF(12, -30));
-    QCOMPARE(opAmp180.terminalPosition(3, *builtinSymbolLibrary().find(opAmp180.symbolId())), QPointF(40, -14));
-    QCOMPARE(opAmp180.terminalPosition(4, *builtinSymbolLibrary().find(opAmp180.symbolId())), QPointF(40, -46));
+    QCOMPARE(opAmp180.terminalPosition(0, *builtinSymbolLibrary().find(opAmp180.symbolId())), QPointF(70, -20));
+    QCOMPARE(opAmp180.terminalPosition(1, *builtinSymbolLibrary().find(opAmp180.symbolId())), QPointF(70, -40));
+    QCOMPARE(opAmp180.terminalPosition(2, *builtinSymbolLibrary().find(opAmp180.symbolId())), QPointF(10, -30));
+    QCOMPARE(opAmp180.terminalPosition(3, *builtinSymbolLibrary().find(opAmp180.symbolId())), QPointF(40, -10));
+    QCOMPARE(opAmp180.terminalPosition(4, *builtinSymbolLibrary().find(opAmp180.symbolId())), QPointF(40, -50));
 
-    Component opAmp270(1, SymbolIds::OpAmp, position);
+    Component opAmp270(1, SymbolIds::OpAmpGrid10, position);
     opAmp270.setRotation(Rotation::Deg270);
-    QCOMPARE(opAmp270.terminalPosition(0, *builtinSymbolLibrary().find(opAmp270.symbolId())), QPointF(32, -2));
-    QCOMPARE(opAmp270.terminalPosition(1, *builtinSymbolLibrary().find(opAmp270.symbolId())), QPointF(48, -2));
-    QCOMPARE(opAmp270.terminalPosition(2, *builtinSymbolLibrary().find(opAmp270.symbolId())), QPointF(40, -58));
-    QCOMPARE(opAmp270.terminalPosition(3, *builtinSymbolLibrary().find(opAmp270.symbolId())), QPointF(24, -30));
-    QCOMPARE(opAmp270.terminalPosition(4, *builtinSymbolLibrary().find(opAmp270.symbolId())), QPointF(56, -30));
+    QCOMPARE(opAmp270.terminalPosition(0, *builtinSymbolLibrary().find(opAmp270.symbolId())), QPointF(30, 0));
+    QCOMPARE(opAmp270.terminalPosition(1, *builtinSymbolLibrary().find(opAmp270.symbolId())), QPointF(50, 0));
+    QCOMPARE(opAmp270.terminalPosition(2, *builtinSymbolLibrary().find(opAmp270.symbolId())), QPointF(40, -60));
+    QCOMPARE(opAmp270.terminalPosition(3, *builtinSymbolLibrary().find(opAmp270.symbolId())), QPointF(20, -30));
+    QCOMPARE(opAmp270.terminalPosition(4, *builtinSymbolLibrary().find(opAmp270.symbolId())), QPointF(60, -30));
 }
 
 void TstComponent::terminalCountMatchesSymbolDefinition()
 {
     const QVector<SymbolId> kinds = {
         SymbolIds::Resistor,  SymbolIds::Capacitor, SymbolIds::Diode,
-        SymbolIds::Ground,    SymbolIds::OpAmp,      SymbolIds::Potentiometer,
+        SymbolIds::Ground,    SymbolIds::OpAmpGrid10,      SymbolIds::Potentiometer,
         SymbolIds::Jack,
     };
 
@@ -111,20 +111,20 @@ void TstComponent::terminalCountMatchesSymbolDefinition()
 void TstComponent::mirroredTerminalPositions()
 {
     // Mirror negates local x before rotation. Terminal indices are unchanged.
-    Component m0(1, SymbolIds::OpAmp, QPointF(40, -30));
+    Component m0(1, SymbolIds::OpAmpGrid10, QPointF(40, -30));
     m0.setMirrored(true);
-    QCOMPARE(m0.terminalPosition(0, *builtinSymbolLibrary().find(m0.symbolId())), QPointF(68, -38));
-    QCOMPARE(m0.terminalPosition(1, *builtinSymbolLibrary().find(m0.symbolId())), QPointF(68, -22));
-    QCOMPARE(m0.terminalPosition(2, *builtinSymbolLibrary().find(m0.symbolId())), QPointF(12, -30));
-    QCOMPARE(m0.terminalPosition(3, *builtinSymbolLibrary().find(m0.symbolId())), QPointF(40, -46));
-    QCOMPARE(m0.terminalPosition(4, *builtinSymbolLibrary().find(m0.symbolId())), QPointF(40, -14));
+    QCOMPARE(m0.terminalPosition(0, *builtinSymbolLibrary().find(m0.symbolId())), QPointF(70, -40));
+    QCOMPARE(m0.terminalPosition(1, *builtinSymbolLibrary().find(m0.symbolId())), QPointF(70, -20));
+    QCOMPARE(m0.terminalPosition(2, *builtinSymbolLibrary().find(m0.symbolId())), QPointF(10, -30));
+    QCOMPARE(m0.terminalPosition(3, *builtinSymbolLibrary().find(m0.symbolId())), QPointF(40, -50));
+    QCOMPARE(m0.terminalPosition(4, *builtinSymbolLibrary().find(m0.symbolId())), QPointF(40, -10));
 
-    Component m90(1, SymbolIds::OpAmp, QPointF(40, -30));
+    Component m90(1, SymbolIds::OpAmpGrid10, QPointF(40, -30));
     m90.setMirrored(true);
     m90.setRotation(Rotation::Deg90);
-    QCOMPARE(m90.terminalPosition(0, *builtinSymbolLibrary().find(m90.symbolId())), QPointF(48, -2));
-    QCOMPARE(m90.terminalPosition(1, *builtinSymbolLibrary().find(m90.symbolId())), QPointF(32, -2));
-    QCOMPARE(m90.terminalPosition(2, *builtinSymbolLibrary().find(m90.symbolId())), QPointF(40, -58));
-    QCOMPARE(m90.terminalPosition(3, *builtinSymbolLibrary().find(m90.symbolId())), QPointF(56, -30));
-    QCOMPARE(m90.terminalPosition(4, *builtinSymbolLibrary().find(m90.symbolId())), QPointF(24, -30));
+    QCOMPARE(m90.terminalPosition(0, *builtinSymbolLibrary().find(m90.symbolId())), QPointF(50, 0));
+    QCOMPARE(m90.terminalPosition(1, *builtinSymbolLibrary().find(m90.symbolId())), QPointF(30, 0));
+    QCOMPARE(m90.terminalPosition(2, *builtinSymbolLibrary().find(m90.symbolId())), QPointF(40, -60));
+    QCOMPARE(m90.terminalPosition(3, *builtinSymbolLibrary().find(m90.symbolId())), QPointF(60, -30));
+    QCOMPARE(m90.terminalPosition(4, *builtinSymbolLibrary().find(m90.symbolId())), QPointF(20, -30));
 }

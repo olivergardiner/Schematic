@@ -5,6 +5,7 @@ class TstInstanceProperties : public QObject
 {
     Q_OBJECT
 private slots:
+    void cursorPastePreservesLayoutAndConnectivity();
     void propertyBlockPersistenceAndTransforms();
     void clipboardConnectivityAndAtomicPaste();
     void clipboardCoincidentEndpointsStaySeparate();

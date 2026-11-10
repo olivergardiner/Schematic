@@ -1,0 +1,87 @@
+{
+  "id": "Block.Buffer",
+  "name": "Buffer",
+  "category": "Block Schematics",
+  "referencePrefix": "B",
+  "showsReference": true,
+  "primitives": [
+    {
+      "kind": "Polygon",
+      "points": [
+        [
+          -20,
+          -20
+        ],
+        [
+          20,
+          -20
+        ],
+        [
+          20,
+          20
+        ],
+        [
+          -20,
+          20
+        ]
+      ],
+      "filled": true
+    },
+    {
+      "kind": "Line",
+      "points": [
+        [
+          -30,
+          0
+        ],
+        [
+          -20,
+          0
+        ]
+      ]
+    },
+    {
+      "kind": "Line",
+      "points": [
+        [
+          20,
+          0
+        ],
+        [
+          30,
+          0
+        ]
+      ]
+    },
+    {
+      "kind": "Polygon",
+      "points": [
+        [
+          -10,
+          -12
+        ],
+        [
+          -10,
+          12
+        ],
+        [
+          12,
+          0
+        ]
+      ],
+      "filled": false
+    }
+  ],
+  "terminals": [
+    {
+      "name": "in",
+      "x": -30,
+      "y": 0
+    },
+    {
+      "name": "out",
+      "x": 30,
+      "y": 0
+    }
+  ]
+}

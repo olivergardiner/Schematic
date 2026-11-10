@@ -1,0 +1,110 @@
+{
+  "id": "PresetResistor",
+  "name": "Preset Resistor",
+  "category": "Passives",
+  "referencePrefix": "VR",
+  "showsReference": true,
+  "primitives": [
+    {
+      "kind": "Line",
+      "points": [
+        [
+          -20,
+          0
+        ],
+        [
+          -10,
+          0
+        ]
+      ]
+    },
+    {
+      "kind": "Line",
+      "points": [
+        [
+          10,
+          0
+        ],
+        [
+          20,
+          0
+        ]
+      ]
+    },
+    {
+      "kind": "Polygon",
+      "points": [
+        [
+          -10,
+          -5
+        ],
+        [
+          10,
+          -5
+        ],
+        [
+          10,
+          5
+        ],
+        [
+          -10,
+          5
+        ]
+      ],
+      "filled": true
+    },
+    {
+      "kind": "Line",
+      "points": [
+        [
+          0,
+          -20
+        ],
+        [
+          0,
+          -9
+        ]
+      ]
+    },
+    {
+      "kind": "Line",
+      "points": [
+        [
+          -4,
+          -9
+        ],
+        [
+          4,
+          -9
+        ]
+      ]
+    },
+    {
+      "kind": "Line",
+      "points": [[-6, 0], [5, 0]]
+    },
+    {
+      "kind": "Polygon",
+      "points": [[2, -2], [6, 0], [2, 2]],
+      "filled": true,
+      "fillColor": "black"
+    }
+  ],
+  "terminals": [
+    {
+      "name": "1",
+      "x": -20,
+      "y": 0
+    },
+    {
+      "name": "2",
+      "x": 20,
+      "y": 0
+    },
+    {
+      "name": "wiper",
+      "x": 0,
+      "y": -20
+    }
+  ]
+}

@@ -34,6 +34,11 @@ SchematicView::SchematicView(QWidget *parent)
     viewport()->setAcceptDrops(true);
 }
 
+QPointF SchematicView::pastePosition() const
+{
+    return mapToScene(m_pastePointerPosition.value_or(viewport()->rect().center()));
+}
+
 void SchematicView::setScene(QGraphicsScene *newScene)
 {
     cancelSelectionBox();
@@ -183,7 +188,9 @@ void SchematicView::zoomToFit()
 
 void SchematicView::wheelEvent(QWheelEvent *event)
 {
-    if (event->modifiers() & Qt::ControlModifier) {
+    m_pastePointerPosition = event->position().toPoint();
+    const bool control = event->modifiers().testFlag(Qt::ControlModifier);
+    if (m_cadStyleMouseWheel != control) {
         if (event->angleDelta().y() > 0)
             zoomIn();
         else if (event->angleDelta().y() < 0)
@@ -192,11 +199,17 @@ void SchematicView::wheelEvent(QWheelEvent *event)
         return;
     }
 
+    // Remove Ctrl so scrolling uses the ordinary vertical scroll increment
+    // rather than the scrollbar's Ctrl+wheel page-step acceleration.
+    const auto modifiers = event->modifiers();
+    event->setModifiers(modifiers & ~Qt::ControlModifier);
     QGraphicsView::wheelEvent(event);
+    event->setModifiers(modifiers);
 }
 
 void SchematicView::mouseMoveEvent(QMouseEvent *event)
 {
+    m_pastePointerPosition = event->pos();
     emit mouseScenePositionChanged(mapToScene(event->pos()));
     if (m_boxPending) {
         updateSelectionBox(event->pos());
@@ -208,6 +221,7 @@ void SchematicView::mouseMoveEvent(QMouseEvent *event)
 
 void SchematicView::mousePressEvent(QMouseEvent *event)
 {
+    m_pastePointerPosition = event->pos();
     if (event->button() == Qt::MiddleButton) {
         cancelSelectionBox();
         if (auto *schematic = qobject_cast<SchematicScene *>(scene())) schematic->cancelMove();

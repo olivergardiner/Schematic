@@ -1,5 +1,6 @@
 #include "symbolpackagestore.h"
 #include "core/symbolsvg.h"
+#include "core/symbolmanifest.h"
 
 #include <QDir>
 #include <QFile>
@@ -15,57 +16,39 @@
 
 namespace {
 
-bool safeEntryName(const QString &name)
-{
-    static const QRegularExpression pattern(QStringLiteral("^[A-Za-z0-9][A-Za-z0-9._-]*\\.json$"));
-    return pattern.match(name).hasMatch();
-}
-
-bool readManifest(const QString &directory, QJsonArray *entries, QStringList *errors, QJsonArray *overrides = nullptr)
+bool readManifest(const QString &directory, SymbolManifest *manifest, QStringList *errors)
 {
     QFile file(QDir(directory).filePath(QStringLiteral("manifest.json")));
-    if (!file.exists()) {
-        *entries = {};
-        return true;
-    }
+    if (!file.exists()) { *manifest = {}; return true; }
     if (!file.open(QIODevice::ReadOnly)) {
-        errors->append(QStringLiteral("%1: %2").arg(file.fileName(), file.errorString()));
-        return false;
+        errors->append(QStringLiteral("%1: %2").arg(file.fileName(), file.errorString())); return false;
     }
     QJsonParseError parseError;
-    const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &parseError);
-    if (parseError.error != QJsonParseError::NoError || !document.isObject()
-        || !document.object().value(QStringLiteral("symbols")).isArray()) {
-        errors->append(QStringLiteral("%1: invalid symbol manifest (%2)")
-                           .arg(file.fileName(), parseError.errorString()));
-        return false;
+    const auto json = QJsonDocument::fromJson(file.readAll(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !json.isObject()) {
+        errors->append(QStringLiteral("%1: invalid symbol manifest (%2)").arg(file.fileName(), parseError.errorString())); return false;
     }
-    *entries = document.object().value(QStringLiteral("symbols")).toArray();
-    QSet<QString> names;
-    for (const QJsonValue &entry : *entries) {
-        if (!entry.isString() || !safeEntryName(entry.toString()) || names.contains(entry.toString())) {
-            errors->append(QStringLiteral("%1: manifest contains an unsafe symbol filename")
-                               .arg(file.fileName()));
-            return false;
+    const auto parsed = SymbolManifest::fromJson(json.object(), errors);
+    if (!parsed) return false;
+    *manifest = *parsed; return true;
+}
+
+bool normaliseLegacyManifest(const QString &directory, SymbolManifest *manifest, QStringList *errors)
+{
+    if (!manifest->legacy) return true;
+    for (const auto &entry : manifest->legacyEntries) {
+        QFile file(QDir(directory).filePath(entry.file));
+        if (!file.open(QIODevice::ReadOnly)) { errors->append("Could not read symbol for manifest upgrade: " + file.fileName()); return false; }
+        QJsonParseError parseError;
+        const auto json = QJsonDocument::fromJson(file.readAll(), &parseError);
+        if (parseError.error != QJsonParseError::NoError || !json.isObject()) {
+            errors->append("Invalid symbol for manifest upgrade: " + file.fileName()); return false;
         }
-        names.insert(entry.toString());
+        const auto symbol = SymbolLibrary::parseSymbol(json.object(), errors);
+        if (!symbol) return false;
+        manifest->placeSymbol(entry.file, symbol->category);
     }
-    const auto overrideValue = document.object().value(QStringLiteral("overrides"));
-    if (!overrideValue.isUndefined() && !overrideValue.isArray()) {
-        errors->append(QStringLiteral("manifest overrides must be an array"));
-        return false;
-    }
-    QSet<QString> overrideIds;
-    for (const auto &value : overrideValue.toArray()) {
-        if (!value.isString() || overrideIds.contains(value.toString())
-            || !names.contains(value.toString() + QStringLiteral(".json"))) {
-            errors->append(QStringLiteral("Invalid or duplicate manifest override"));
-            return false;
-        }
-        overrideIds.insert(value.toString());
-    }
-    if (overrides) *overrides = overrideValue.toArray();
-    return true;
+    manifest->legacy = false; manifest->legacyEntries.clear(); return true;
 }
 
 bool writeFile(const QString &path, const QByteArray &bytes, QStringList *errors)
@@ -95,47 +78,31 @@ QStringList SymbolPackageStore::loadInto(SymbolLibrary *library) const
         return {QStringLiteral("symbol library destination is null")};
     if (!QFileInfo::exists(QDir(m_directory).filePath(QStringLiteral("manifest.json"))))
         return errors;
-    QJsonArray entries, overrides;
-    if (!readManifest(m_directory, &entries, &errors, &overrides))
-        return errors;
-    for (const QJsonValue &value : entries) {
-        const QString path = QDir(m_directory).filePath(value.toString());
-        QFile file(path);
-        if (!file.open(QIODevice::ReadOnly)) {
-            errors << QStringLiteral("%1: could not open (%2)").arg(path, file.errorString());
-            continue;
-        }
-        QJsonParseError parseError;
-        const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &parseError);
-        if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
-            errors << QStringLiteral("%1: invalid symbol JSON (%2)").arg(path, parseError.errorString());
-            continue;
-        }
-        QStringList entryErrors;
-        auto symbol = SymbolLibrary::parseSymbol(document.object(), &entryErrors);
-        if (symbol) {
-            if (overrides.contains(symbol->id.value())) {
-                const auto *existing = library->find(symbol->id);
-                if (!existing || !sameTerminalSignature(*existing, *symbol))
-                    entryErrors << QStringLiteral("Invalid override for %1").arg(symbol->id.value());
-                else library->replace(*symbol, &entryErrors);
-            } else library->add(*symbol, &entryErrors);
-        }
-        errors.append(entryErrors);
+    SymbolManifest manifest;
+    if (!readManifest(m_directory, &manifest, &errors)) return errors;
+    const auto collection = SymbolLibrary::loadFromDirectory(m_directory, &errors);
+    if (!errors.isEmpty()) return errors;
+    SymbolLibrary candidate = *library;
+    candidate.declareCategories(collection.categories());
+    for (const auto &symbol : collection.symbols()) {
+        if (manifest.overrides.contains(symbol.id.value())) {
+            const auto *existing = candidate.find(symbol.id);
+            if (!existing || !sameTerminalSignature(*existing, symbol))
+                errors << QStringLiteral("Invalid override for %1").arg(symbol.id.value());
+            else candidate.replace(symbol, &errors);
+        } else candidate.add(symbol, &errors);
     }
+    if (errors.isEmpty()) *library = std::move(candidate);
     return errors;
 }
 
 bool SymbolPackageStore::contains(const SymbolId &id) const
 {
-    QJsonArray entries;
+    SymbolManifest manifest;
     QStringList errors;
-    if (!readManifest(m_directory, &entries, &errors))
-        return false;
-    const QString filename = id.value() + QStringLiteral(".json");
-    for (const QJsonValue &entry : entries)
-        if (entry.toString() == filename)
-            return true;
+    if (!readManifest(m_directory, &manifest, &errors)) return false;
+    const auto filename = id.value() + QStringLiteral(".json");
+    for (const auto &entry : manifest.entries()) if (entry.file == filename) return true;
     return false;
 }
 
@@ -191,17 +158,17 @@ bool SymbolPackageStore::saveBatch(const QVector<Package> &packages, bool allowO
         if (errors) errors->append(localErrors);
         return false;
     }
-    QJsonArray entries, overrides;
-    if (!readManifest(m_directory, &entries, &localErrors, &overrides)) {
-        if (errors) errors->append(localErrors);
-        return false;
+    SymbolManifest collection;
+    if (!readManifest(m_directory, &collection, &localErrors)
+        || !normaliseLegacyManifest(m_directory, &collection, &localErrors)) {
+        if (errors) errors->append(localErrors); return false;
     }
     for (const auto &package : packages) {
-        const QString filename = package.symbol.id.value() + QStringLiteral(".json");
-        if (!entries.contains(filename)) entries.append(filename);
+        collection.placeSymbol(package.symbol.id.value() + QStringLiteral(".json"), package.symbol.category);
         if (allowOverrides && builtinSymbolLibrary().find(package.symbol.id)
-            && !overrides.contains(package.symbol.id.value())) overrides.append(package.symbol.id.value());
+            && !collection.overrides.contains(package.symbol.id.value())) collection.overrides.append(package.symbol.id.value());
     }
+    candidate.declareCategories(collection.categoryPaths());
 
     const QString token = QUuid::createUuid().toString(QUuid::WithoutBraces);
     const QString stagePath = base.filePath(QStringLiteral(".stage-%1").arg(token));
@@ -225,8 +192,7 @@ bool SymbolPackageStore::saveBatch(const QVector<Package> &packages, bool allowO
         }
         relativeFiles << filename << svg << sidecar;
     }
-    const QByteArray manifest = QJsonDocument(QJsonObject{{QStringLiteral("symbols"), entries},
-        {QStringLiteral("overrides"), overrides}}).toJson();
+    const QByteArray manifest = QJsonDocument(collection.toJson()).toJson();
     if (!writeFile(QDir(stagePath).filePath(QStringLiteral("manifest.json")), manifest, &localErrors)) {
         QDir(stagePath).removeRecursively();
         if (errors) errors->append(localErrors);

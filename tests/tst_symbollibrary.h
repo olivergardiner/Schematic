@@ -10,11 +10,12 @@ class TstSymbolLibrary : public QObject
 private slots:
     void monochromeFillJsonAndLegacyDefaults();
     void svgMonochromeFillsAndInheritance();
-    // The built-in library holds exactly the nine packaged symbols, in
+    // The built-in library holds the packaged symbols, in
     // palette order, with their hand-written display name, category,
     // reference prefix and reference visibility.
     void builtinLibraryHasExpectedMetadata();
     void packagedArtworkMatchesTemplates();
+    void blockSymbolsGeometryAndConnectedPersistence();
 
     // Released terminal order, names and positions are frozen: saved wires
     // refer to terminals by index and derive endpoint coordinates from
@@ -24,6 +25,18 @@ private slots:
     // Primitive kinds per symbol (and the jack's circle) match the artwork
     // the app has always drawn.
     void builtinPrimitiveShapes();
+    void amplifierVariantsAndBufferConnections();
+    void layoutMetadataValidationAndRoundTrip();
+    void paletteVisibilityIsPresentationMetadata();
+    void symbolDefaultValuesAreCreationOnly();
+    void signalConnectionsGeometryAndTopology();
+    void layoutSwitchingPreservesWiresAndRollsBack();
+    void layoutPersistenceAndClipboardAreSelfContained();
+    void diodeVariantsAndConnections();
+    void transistorsShareTerminalLayoutAndConnections();
+    void manifestCategoriesValidateAndKeepEmptyPaths();
+    void nestedManifestValidatesHierarchyAndOrder();
+    void adjustableResistorsArtworkAndConnections();
 
     // A category is a '/'-separated path; libraryCategoryPath() splits it.
     void categoryPathSplitsIntoSegments();

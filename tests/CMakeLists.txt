@@ -123,8 +123,9 @@ qt_add_executable(schematicopen_tests
     ../symbolpackagestore.cpp ../symbolpackagestore.h
     ../symbolimportdialog.cpp ../symbolimportdialog.h
     ../symbolpreviewwidget.cpp ../symbolpreviewwidget.h
+    ../schematicsvgexporter.cpp ../schematicsvgexporter.h
 )
-target_link_libraries(schematicopen_tests PRIVATE Qt6::Widgets Qt6::Test schematiccore)
+target_link_libraries(schematicopen_tests PRIVATE Qt6::Widgets Qt6::Svg Qt6::Test schematiccore)
 add_test(NAME schematicopen_tests COMMAND schematicopen_tests)
 set_tests_properties(schematicopen_tests PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
@@ -144,3 +145,13 @@ set_tests_properties(schematicselection_tests PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     TIMEOUT 30
 )
+
+qt_add_executable(schematicexport_tests
+    tst_schematicexport.cpp
+    ../schematicsvgexporter.cpp ../schematicsvgexporter.h
+    ../schematicscene.cpp ../schematicscene.h
+    ../symbolrenderer.cpp ../symbolrenderer.h
+)
+target_link_libraries(schematicexport_tests PRIVATE Qt6::Widgets Qt6::Svg Qt6::Test schematiccore)
+add_test(NAME schematicexport_tests COMMAND schematicexport_tests)
+set_tests_properties(schematicexport_tests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

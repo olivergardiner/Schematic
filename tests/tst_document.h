@@ -8,6 +8,19 @@ class TstDocument : public QObject
     Q_OBJECT
 
 private slots:
+    void notesV9RoundTripAndLegacy();
+    void notesClipboardAndTransforms();
+    void notesRejectInvalidEditsAtomically();
+    void deletionPreservesSharedAndSeparateTerminalIdentities();
+    void deletionFailureIsAtomic();
+    void freeEndCompletionIsAtomicAndRoundTrips();
+    void placementConnectsWireInteriorsAndPreservesNets();
+    void placementConnectsCornersAndMultipleTerminals();
+    void placementReusesJunctionIdentity();
+    void placementLeavesAmbiguousAndOccupiedSitesUnconnected();
+    void placementFailureIsAtomic();
+    void segmentMovementPreservesEndpointsAndTopology();
+    void segmentMovementRejectsInvalidCandidates();
     void canvasFlipsPreserveAxesAndCommitAtomically();
     // Explicit endpoint identity must join terminals while coordinate
     // crossings without shared identities remain electrically separate.
@@ -25,9 +38,8 @@ private slots:
     // corner, while leaving a valid route to the next distinct point.
     void movementCollapsesRedundantCorner();
 
-    // Removing a component removes its attached route legs and recomputes
-    // junction display from the remaining identity references.
-    void componentDeletionCascadesAcrossBranches();
+    // Removing a component preserves route legs and their branch identity.
+    void componentDeletionPreservesBranches();
 
     // Branching must split a route at an existing corner or segment point
     // and explicitly share one newly allocated node identity.

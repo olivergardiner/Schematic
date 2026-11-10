@@ -1,0 +1,105 @@
+{
+  "id": "PChannelJFET.Compact30",
+  "name": "P Channel JFET",
+  "category": "Semiconductors/Transistors",
+  "referencePrefix": "Q",
+  "showsReference": true,
+  "primitives": [
+    {
+      "kind": "Line",
+      "points": [
+        [
+          -20,
+          0
+        ],
+        [
+          -5,
+          0
+        ]
+      ]
+    },
+    {
+      "kind": "Line",
+      "points": [
+        [
+          -5,
+          10
+        ],
+        [
+          -5,
+          -10
+        ]
+      ]
+    },
+    {
+      "kind": "Polyline",
+      "points": [
+        [
+          -5,
+          8
+        ],
+        [
+          10,
+          8
+        ],
+        [
+          10,
+          20
+        ]
+      ]
+    },
+    {
+      "kind": "Polyline",
+      "points": [
+        [
+          -5,
+          -8
+        ],
+        [
+          10,
+          -8
+        ],
+        [
+          10,
+          -20
+        ]
+      ]
+    },
+    {
+      "kind": "Polygon",
+      "points": [
+        [
+          -13,
+          0
+        ],
+        [
+          -7,
+          2.5
+        ],
+        [
+          -7,
+          -2.5
+        ]
+      ],
+      "filled": true,
+      "fillColor": "black"
+    }
+  ],
+  "terminals": [
+    {
+      "name": "gate",
+      "x": -20,
+      "y": 0
+    },
+    {
+      "name": "drain",
+      "x": 10,
+      "y": 20
+    },
+    {
+      "name": "source",
+      "x": 10,
+      "y": -20
+    }
+  ]
+}

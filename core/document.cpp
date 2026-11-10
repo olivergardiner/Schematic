@@ -80,8 +80,89 @@ bool Document::useSymbol(const LibrarySymbol &definition, QStringList *errors)
         if (errors) errors->append(QStringLiteral("Document symbol terminal signature cannot change"));
         return false;
     }
-    return m_symbols.find(definition.id) ? m_symbols.replace(definition, errors)
-                                         : m_symbols.add(definition, errors);
+    Document candidate = *this;
+    const bool stored = candidate.m_symbols.find(definition.id)
+        ? candidate.m_symbols.replace(definition, errors) : candidate.m_symbols.add(definition, errors);
+    if (!stored || !candidate.ensureLayoutClosure(definition.id, errors)) return false;
+    for (const auto &item : candidate.m_components)
+        if (!candidate.ensureLayoutClosure(item.symbolId(), errors)) return false;
+    m_symbols = std::move(candidate.m_symbols);
+    return true;
+}
+
+bool Document::ensureLayoutClosure(const SymbolId &id, QStringList *errors)
+{
+    QStringList pending{id.value()};
+    QSet<QString> visited;
+    while (!pending.isEmpty()) {
+        const auto key = pending.takeLast();
+        if (visited.contains(key)) continue;
+        visited.insert(key);
+        if (!m_symbols.find(SymbolId(key))) {
+            const auto *installed = applicationSymbolLibrary().find(SymbolId(key));
+            if (!installed || !m_symbols.add(*installed, errors)) {
+                if (errors && !installed) errors->append("Install the missing layout alternative: " + key);
+                return false;
+            }
+        }
+        const auto controls = m_symbols.find(SymbolId(key))->layoutControls;
+        for (const auto &control : controls) for (const auto &choice : control.choices)
+            pending.append(choice.symbolId.value());
+    }
+    QStringList problems;
+    m_symbols.layoutClosure({id.value()}, &problems);
+    if (errors) errors->append(problems);
+    return problems.isEmpty();
+}
+
+bool Document::canSetSymbolLayout(ComponentId id, const QString &controlKey, const QString &choiceKey) const
+{
+    const auto *item = component(id);
+    const auto *source = item ? symbol(item->symbolId()) : nullptr;
+    const auto *control = source ? symbolLayoutControl(*source, controlKey) : nullptr;
+    if (!control) return false;
+    for (const auto &choice : control->choices) if (choice.key == choiceKey) {
+        const auto *target = symbol(choice.symbolId);
+        if (!target) target = applicationSymbolLibrary().find(choice.symbolId);
+        if (!target) return false;
+        QStringList errors;
+        layoutTerminalMapping(*source, *control, choice, *target, &errors);
+        return errors.isEmpty();
+    }
+    return false;
+}
+
+bool Document::setSymbolLayout(ComponentId id, const QString &controlKey, const QString &choiceKey, QStringList *errors)
+{
+    const auto fail = [&](const QString &message) { if (errors) errors->append(message); return false; };
+    const auto *item = component(id);
+    const auto *source = item ? symbol(item->symbolId()) : nullptr;
+    const auto *control = source ? symbolLayoutControl(*source, controlKey) : nullptr;
+    if (!control) return fail("This component has no such layout control.");
+    const SymbolLayoutChoice *choice = nullptr;
+    for (const auto &option : control->choices) if (option.key == choiceKey) choice = &option;
+    if (!choice) return fail("Unknown layout choice.");
+    if (control->current == choiceKey) return true;
+    Document candidate = *this;
+    if (!candidate.ensureLayoutClosure(source->id, errors)) return false;
+    const auto *target = candidate.symbol(choice->symbolId);
+    if (!target) return fail("The layout alternative is not available.");
+    const auto mapping = layoutTerminalMapping(*source, *control, *choice, *target, errors);
+    if (mapping.isEmpty()) return false;
+    Component changed = *item;
+    changed.m_symbolId = target->id;
+    for (auto &route : candidate.m_wires) {
+        for (auto *endpoint : {&route.start, &route.end}) {
+            if (isTerminal(*endpoint)) {
+                auto &ref = std::get<TerminalRef>(*endpoint);
+                if (ref.component == id) ref.terminal = mapping[ref.terminal];
+            }
+        }
+    }
+    if (!candidate.commitComponentChange(id, changed))
+        return fail("The connected wire route could not be repaired. Adjust the wire and try again.");
+    *this = std::move(candidate);
+    return true;
 }
 
 bool Document::setGridSpacing(qreal spacing)
@@ -112,13 +193,11 @@ const WireRoute *Document::wire(WireId id) const
 
 ComponentId Document::addComponent(const SymbolId &symbolId, QPointF position, Rotation rotation)
 {
-    const LibrarySymbol *symbol = m_symbols.find(symbolId);
-    if (!symbol && m_nextComponentId != kInvalidComponentId) {
-        symbol = applicationSymbolLibrary().find(symbolId);
-        if (symbol) { QStringList errors; m_symbols.add(*symbol, &errors); symbol = m_symbols.find(symbolId); }
-    }
-    if (!symbol || m_nextComponentId == kInvalidComponentId)
-        return kInvalidComponentId;
+    if (m_nextComponentId == kInvalidComponentId) return kInvalidComponentId;
+    const auto before = m_symbols;
+    QStringList errors;
+    if (!ensureLayoutClosure(symbolId, &errors)) { m_symbols = before; return kInvalidComponentId; }
+    const auto *symbol = m_symbols.find(symbolId);
     const ComponentId id = m_nextComponentId++;
     Component item(id, symbolId, position);
     item.setRotation(rotation);
@@ -128,8 +207,85 @@ ComponentId Document::addComponent(const SymbolId &symbolId, QPointF position, R
     item.setReference(firstUnusedReference(symbol->referencePrefix, used));
     auto properties = item.properties();
     properties[0].visible = symbol->showsReference;
+    properties[1].value = symbol->defaultValue;
     item.setProperties(properties);
+    item.setPropertyBlockJustification(symbol->defaultPropertyJustification);
     m_components.append(item);
+    return id;
+}
+
+ComponentId Document::placeComponent(const SymbolId &symbolId, QPointF position,
+                                      Rotation rotation, QStringList *warnings)
+{
+    if (!std::isfinite(position.x()) || !std::isfinite(position.y()))
+        return kInvalidComponentId;
+    Document candidate = *this;
+    const ComponentId id = candidate.addComponent(symbolId, position, rotation);
+    if (id == kInvalidComponentId) return id;
+    const Component placed = *candidate.component(id);
+    QStringList skipped;
+    for (TerminalId t = 0; t < candidate.terminalCount(placed); ++t) {
+        const QPointF point = candidate.terminalPosition(placed, t);
+        const WireEndpoint terminal = makeTerminalEndpoint(id, t);
+        QVector<WireId> hits;
+        std::optional<WireEndpoint> shared;
+        bool ambiguous = false;
+        for (const auto &route : candidate.m_wires) {
+            bool touches = false;
+            for (int i = 0; i + 1 < route.vertices.size(); ++i) {
+                if (pointOnSegment(point, route.vertices[i], route.vertices[i + 1])) {
+                    touches = true;
+                    break;
+                }
+            }
+            if (!touches) continue;
+            std::optional<WireEndpoint> endpoint;
+            if (samePoint(point, route.vertices.first())) endpoint = route.start;
+            else if (samePoint(point, route.vertices.last())) endpoint = route.end;
+            // Several legs are one site only when they already share the
+            // same endpoint identity. Coordinate crossings remain separate.
+            if (hits.isEmpty()) shared = endpoint;
+            else if (!shared || !endpoint || *shared != *endpoint) ambiguous = true;
+            hits.append(route.id);
+        }
+        if (hits.isEmpty()) continue;
+        if (ambiguous || (shared && isTerminal(*shared))) {
+            skipped.append(QStringLiteral("Terminal %1 was left unconnected: %2.")
+                .arg(candidate.symbol(symbolId)->terminals[t].name,
+                     ambiguous ? QStringLiteral("more than one wire connection touches it")
+                               : QStringLiteral("the point is occupied by another component terminal")));
+            continue;
+        }
+        if (shared) {
+            // Replace the bare node with the placed terminal identity. All
+            // its legs retain their routes, IDs and electrical connectivity.
+            const NodeId node = std::get<NodeId>(*shared);
+            for (auto &route : candidate.m_wires) {
+                if (route.start == *shared) { route.start = terminal; route.vertices.first() = point; }
+                if (route.end == *shared) { route.end = terminal; route.vertices.last() = point; }
+            }
+            candidate.m_nodes.remove(node);
+        } else {
+            QVector<QPointF> left, right;
+            WireEndpoint start, end;
+            if (!candidate.computeBranchSplit(hits.first(), point, &left, &right, &start, &end)
+                || !idsAvailable(candidate.m_nextWireId, 2))
+                return kInvalidComponentId;
+            const WireId leftId = candidate.allocateWireId();
+            const WireId rightId = candidate.allocateWireId();
+            const auto it = std::find_if(candidate.m_wires.begin(), candidate.m_wires.end(),
+                [&](const WireRoute &route) { return route.id == hits.first(); });
+            const int index = static_cast<int>(std::distance(candidate.m_wires.begin(), it));
+            candidate.m_wires.removeAt(index);
+            candidate.m_wires.insert(index, WireRoute{rightId, right, terminal, end});
+            candidate.m_wires.insert(index, WireRoute{leftId, left, start, terminal});
+        }
+    }
+    for (const auto &route : candidate.m_wires)
+        if (validateRouteGeometry(route.vertices) != RouteGeometryError::None)
+            return kInvalidComponentId;
+    *this = std::move(candidate);
+    if (warnings) warnings->append(skipped);
     return id;
 }
 
@@ -203,10 +359,10 @@ bool Document::commitComponentChange(ComponentId id, const Component &changed)
 
 bool Document::transformSelection(const QVector<ComponentId> &componentIds,
                                   const QVector<WireId> &wireIds,
-                                  const SelectionTransform &transform)
+                                  const SelectionTransform &transform, const QVector<NoteId> &noteIds)
 {
     const auto finite = [](QPointF p) { return std::isfinite(p.x()) && std::isfinite(p.y()); };
-    if ((componentIds.isEmpty() && wireIds.isEmpty())
+    if ((componentIds.isEmpty() && wireIds.isEmpty() && noteIds.isEmpty())
         || !finite(transform.displacement) || !finite(transform.pivot))
         return false;
     const int turns = (transform.quarterTurns % 4 + 4) % 4;
@@ -247,6 +403,12 @@ bool Document::transformSelection(const QVector<ComponentId> &componentIds,
     }
 
     Document candidate = *this;
+    for (NoteId id : noteIds) if (!note(id)) return false;
+    for (auto &item : candidate.m_notes) {
+        if (!noteIds.contains(item.id)) continue;
+        item.position = map(item.position);
+        if (!finite(item.position) || !std::isfinite(item.position.x() + item.width)) return false;
+    }
     for (Component &item : candidate.m_components) {
         if (!selectedComponents.contains(item.id())) continue;
         item.setPosition(map(item.position()));
@@ -304,6 +466,7 @@ bool Document::transformSelection(const QVector<ComponentId> &componentIds,
         if (validateRouteGeometry(points) != RouteGeometryError::None) return false;
     }
     m_components = std::move(candidate.m_components);
+    m_notes = std::move(candidate.m_notes);
     m_nodes = std::move(candidate.m_nodes);
     m_wires = std::move(candidate.m_wires);
     return true;
@@ -380,12 +543,48 @@ bool Document::removeComponent(ComponentId id)
                                           [id](const Component &item) { return item.id() == id; });
     if (componentIt == m_components.end())
         return false;
-    m_wires.erase(std::remove_if(m_wires.begin(), m_wires.end(), [id](const WireRoute &route) {
-        return (isTerminal(route.start) && std::get<TerminalRef>(route.start).component == id)
-            || (isTerminal(route.end) && std::get<TerminalRef>(route.end).component == id);
-    }), m_wires.end());
+    QSet<TerminalId> used;
+    for (const auto &route : m_wires)
+        for (const auto &endpoint : {route.start, route.end})
+            if (isTerminal(endpoint) && std::get<TerminalRef>(endpoint).component == id)
+                used.insert(std::get<TerminalRef>(endpoint).terminal);
+    if (!idsAvailable(m_nextNodeId, used.size())) return false;
+    QHash<TerminalId, NodeId> detached;
+    // Allocate in terminal order, independently of route traversal order.
+    for (TerminalId t = 0; t < terminalCount(*componentIt); ++t) {
+        if (!used.contains(t)) continue;
+        const NodeId node = m_nextNodeId++;
+        detached.insert(t, node);
+        m_nodes.insert(node, terminalPosition(*componentIt, t));
+    }
+    for (auto &route : m_wires) {
+        for (auto *endpoint : {&route.start, &route.end})
+            if (isTerminal(*endpoint) && std::get<TerminalRef>(*endpoint).component == id)
+                *endpoint = makeNodeEndpoint(detached.value(std::get<TerminalRef>(*endpoint).terminal));
+    }
     m_components.erase(componentIt);
     removeOrphanNodes();
+    return true;
+}
+
+bool Document::removeSelection(const QVector<ComponentId> &components, const QVector<WireId> &wires,
+                                const QVector<NoteId> &notes)
+{
+    if (components.isEmpty() && wires.isEmpty() && notes.isEmpty()) return false;
+    Document candidate = *this;
+    for (WireId id : wires) {
+        if (!wire(id)) return false;
+        if (candidate.wire(id) && !candidate.removeWire(id)) return false;
+    }
+    for (ComponentId id : components) {
+        if (!component(id)) return false;
+        if (candidate.component(id) && !candidate.removeComponent(id)) return false;
+    }
+    for (NoteId id : notes) {
+        if (!note(id)) return false;
+        if (candidate.note(id) && !candidate.removeNote(id)) return false;
+    }
+    *this = std::move(candidate);
     return true;
 }
 
@@ -411,6 +610,63 @@ std::optional<WireId> Document::addWire(const WireEndpoint &start,
         return std::nullopt;
     m_wires.append(WireRoute{id, vertices, start, end});
     return id;
+}
+
+bool Document::moveWireSegment(WireId id, int segment, qreal coordinate)
+{
+    auto it = std::find_if(m_wires.begin(), m_wires.end(),
+                          [id](const WireRoute &route) { return route.id == id; });
+    if (it == m_wires.end() || segment < 0 || segment >= it->vertices.size() - 1
+        || !std::isfinite(coordinate))
+        return false;
+
+    const auto &original = it->vertices;
+    const bool horizontal = near(original[segment].y(), original[segment + 1].y());
+    if (near(coordinate, horizontal ? original[segment].y() : original[segment].x()))
+        return false;
+    // Saved routes may contain redundant vertices along one straight run.
+    // Treat that run as one segment rather than creating diagonal neighbours.
+    int first = segment, last = segment + 1;
+    const auto onAxis = [horizontal](QPointF a, QPointF b) {
+        return horizontal ? near(a.y(), b.y()) : near(a.x(), b.x());
+    };
+    while (first > 0 && onAxis(original[first - 1], original[first])) --first;
+    while (last + 1 < original.size() && onAxis(original[last], original[last + 1])) ++last;
+    QPointF a = original[first], b = original[last];
+    if (horizontal) { a.setY(coordinate); b.setY(coordinate); }
+    else { a.setX(coordinate); b.setX(coordinate); }
+
+    // Interior corners move with the segment. Only fixed route endpoints
+    // need an extra perpendicular connector at the start/end.
+    QVector<QPointF> points;
+    for (int i = 0; i < first; ++i) points.append(original[i]);
+    if (first == 0) points.append(original.first());
+    points.append(a);
+    points.append(b);
+    if (last == original.size() - 1) points.append(original.last());
+    for (int i = last + 1; i < original.size(); ++i) points.append(original[i]);
+
+    // Collapse vanishing neighbours and same-direction collinear corners.
+    // Never normalize a reversal into a different path: reject it instead.
+    QVector<QPointF> cleaned;
+    for (const QPointF &point : points) {
+        if (!cleaned.isEmpty() && samePoint(cleaned.last(), point)) continue;
+        while (cleaned.size() >= 2) {
+            const QPointF u = cleaned.last() - cleaned[cleaned.size() - 2];
+            const QPointF v = point - cleaned.last();
+            const bool collinear = (near(u.x(), 0) && near(v.x(), 0))
+                                || (near(u.y(), 0) && near(v.y(), 0));
+            if (!collinear || QPointF::dotProduct(u, v) <= 0) break;
+            cleaned.removeLast();
+        }
+        cleaned.append(point);
+    }
+    if (validateRouteGeometry(cleaned) != RouteGeometryError::None
+        || !samePoint(cleaned.first(), original.first())
+        || !samePoint(cleaned.last(), original.last()))
+        return false;
+    it->vertices = std::move(cleaned);
+    return true;
 }
 
 bool Document::removeWire(WireId id)
@@ -619,6 +875,20 @@ std::optional<WireId> Document::addWireBranching(const PendingWireEndpoint &star
     return id;
 }
 
+std::optional<WireId> Document::addWireToPoint(const PendingWireEndpoint &start,
+                                              const QVector<QPointF> &interiorVertices, QPointF end)
+{
+    if (!std::isfinite(end.x()) || !std::isfinite(end.y()) || !idsAvailable(m_nextNodeId, 1))
+        return std::nullopt;
+    Document candidate = *this;
+    const NodeId node = candidate.m_nextNodeId++;
+    candidate.m_nodes.insert(node, end);
+    const auto result = candidate.addWireBranching(start, interiorVertices, makeNodeEndpoint(node));
+    if (!result) return std::nullopt;
+    *this = std::move(candidate);
+    return result;
+}
+
 QVector<Net> Document::computeNets() const
 {
     QVector<WireEndpoint> identities;
@@ -690,7 +960,9 @@ QVector<QPointF> Document::junctionPoints() const
     }
     QVector<QPointF> points;
     for (int i = 0; i < endpoints.size(); ++i) {
-        if (counts[i] < 3)
+        // A component terminal contributes its own symbol lead as well as
+        // the incident route ends. Bare nodes need three wire legs.
+        if (counts[i] + (isTerminal(endpoints[i]) ? 1 : 0) < 3)
             continue;
         QPointF position;
         if (endpointPosition(endpoints[i], &position))
@@ -745,6 +1017,17 @@ WireId Document::allocateWireId()
 }
 
 // Presentation-only edit: validate all targets before changing any instance.
+bool Document::setPropertyBlockJustification(const QVector<ComponentId> &ids, PropertyJustification value)
+{
+    if (ids.isEmpty() || propertyJustificationName(value).isEmpty()) return false;
+    for (auto id : ids) if (!component(id)) return false;
+    bool changed = false;
+    for (auto &item : m_components) if (ids.contains(item.id()) && item.propertyBlockJustification() != value) {
+        item.setPropertyBlockJustification(value); changed = true;
+    }
+    return changed;
+}
+
 bool Document::setPropertyBlockOffset(const QVector<ComponentId> &ids, std::optional<QPointF> offset)
 {
     if (ids.isEmpty() || (offset && (!std::isfinite(offset->x()) || !std::isfinite(offset->y())))) return false;

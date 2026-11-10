@@ -9,6 +9,7 @@
 #include <QWheelEvent>
 #include <QFocusEvent>
 #include <QPainter>
+#include <cmath>
 
 class SelectionView : public SchematicView
 {
@@ -40,9 +41,22 @@ class GroupSelectionTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void noteResizeMoveCancelAndUndo();
+    void pastePositionTracksViewportThroughTransforms();
+    void doubleClickFinishesAtFreePoint_data();
+    void doubleClickFinishesAtFreePoint();
+    void doubleClickOnTargetDoesNotStartAnotherWire();
+    void doubleClickTerminalStartsWire();
+    void doubleClickJunctionStartsWireAndEscapeCancels();
+    void wireCompletionAfterSnappingOntoTerminal();
+    void branchPreviewAndCommitSnapToTargetWire();
+    void wireSegmentDragPreviewUndoAndCancel();
+    void wireSegmentDragRejectsInvalidRelease();
     void propertyBlockDragResetAndCancel();
+    void propertyJustificationAnchors();
     void propertyLabelsFollowVisibilityAndTransforms();
     void canvasFillLayeringAndTransforms();
+    void selectedComponentsRenderRedWithoutRectangles();
     void componentLabelsAndTransforms();
     void routeShapesAndIdentity();
     void directionalGesture_data();
@@ -55,6 +69,74 @@ private slots:
     void wireOnlyTransformsAndModifierClicks();
 };
 
+void GroupSelectionTests::pastePositionTracksViewportThroughTransforms()
+{
+    SchematicScene scene;
+    SelectionView view;
+    view.setScene(&scene);
+    view.resize(800,600); view.show();
+    QVERIFY(QTest::qWaitForWindowActive(&view));
+    QCOMPARE(view.pastePosition(), view.mapToScene(view.viewport()->rect().center()));
+    const QPoint pointer(230,180);
+    view.move(pointer, Qt::NoButton);
+    QCOMPARE(view.pastePosition(), view.mapToScene(pointer));
+    view.centerOn(200,100);
+    view.zoomIn();
+    QCOMPARE(view.pastePosition(), view.mapToScene(pointer));
+    view.press({300,200}); view.release({300,200});
+    QCOMPARE(view.pastePosition(), view.mapToScene(QPoint(300,200)));
+}
+
+void GroupSelectionTests::selectedComponentsRenderRedWithoutRectangles()
+{
+    Document document;
+    const auto resistor = document.addComponent(SymbolIds::Resistor, {});
+    const auto capacitor = document.addComponent(SymbolIds::Capacitor, {80,0});
+    const auto wire = document.addWire(makeTerminalEndpoint(resistor,1), {}, makeTerminalEndpoint(capacitor,0));
+    QVERIFY(wire);
+    const auto saved = document.toJsonBytes();
+    SchematicScene scene;
+    scene.bindDocument(&document);
+    const QRectF source(-30,-30,140,80);
+    const auto render = [&]() {
+        QImage image(560,320,QImage::Format_ARGB32_Premultiplied);
+        image.fill(Qt::white);
+        QPainter painter(&image);
+        scene.render(&painter, QRectF(0,0,560,320), source);
+        return image;
+    };
+    const auto pixel = [&](const QImage &image, QPointF point) {
+        return image.pixelColor(qRound((point.x() - source.left()) * 4),
+                                qRound((point.y() - source.top()) * 4));
+    };
+    const auto normal = render();
+    scene.restoreSelection({{}, {*wire}});
+    const auto selectedWire = render();
+    QCOMPARE(pixel(selectedWire, {40,0}), QColor(Qt::red));
+    QCOMPARE(pixel(selectedWire, {40,-3}), QColor(Qt::white)); // no selection rectangle
+    scene.restoreSelection({{resistor,capacitor},{}});
+    const auto selected = render();
+    QCOMPARE(pixel(selected, {-15,0}), QColor(Qt::red)); // lead
+    QCOMPARE(pixel(selected, {0,-5}), QColor(Qt::red)); // body outline
+    QCOMPARE(pixel(selected, {0,0}), QColor(Qt::white)); // white interior
+    QCOMPARE(pixel(selected, {76.5,0}), QColor(Qt::red)); // solid capacitor plate
+    QCOMPARE(pixel(selected, {-15,-5}), QColor(Qt::white)); // no selection rectangle
+    QCOMPARE(pixel(selected, {40,0}), QColor(Qt::black)); // attached wire unchanged
+    for (auto *item : scene.items())
+        if (auto *label = qgraphicsitem_cast<ComponentLabelItem *>(item))
+            QCOMPARE(label->brush().color(), QColor(Qt::red));
+    QVERIFY(selected.save(QCoreApplication::applicationDirPath() + "/red-component-selection.png"));
+    scene.clearSelection();
+    QCOMPARE(render(), normal);
+    scene.restoreSelection({{resistor},{}});
+    for (auto *item : scene.items())
+        if (auto *label = qgraphicsitem_cast<ComponentLabelItem *>(item))
+            QCOMPARE(label->brush().color(), QColor(label->componentId() == resistor ? Qt::red : Qt::black));
+    scene.restoreAfterDocumentChange({{resistor,capacitor},{}});
+    QCOMPARE(render(), selected); // restored selection after scene rebuild
+    QCOMPARE(document.toJsonBytes(), saved);
+}
+
 static void connectEdits(SchematicScene &scene, DocumentEditController &edits)
 {
     scene.setEditCommitter([&edits](const QString &description, const std::function<bool()> &operation,
@@ -63,6 +145,394 @@ static void connectEdits(SchematicScene &scene, DocumentEditController &edits)
     });
     edits.setSelectionCallbacks([&scene]() { return scene.selection(); },
         [&scene](const DocumentSelection &selection) { scene.restoreAfterDocumentChange(selection); });
+}
+
+void GroupSelectionTests::noteResizeMoveCancelAndUndo()
+{
+    Document document;
+    const auto note = document.addNote({}, "A fairly long note with several words to wrap across multiple lines.\nA second paragraph.", 160);
+    QVERIFY(note);
+    SchematicScene scene; scene.bindDocument(&document);
+    DocumentEditController edits(&document); connectEdits(scene,edits);
+    SelectionView view; view.setScene(&scene); view.resize(800,600); view.show();
+    QVERIFY(QTest::qWaitForWindowActive(&view)); view.centerOn(70,30);
+    scene.restoreSelection({{},{},{note}});
+    const auto item = [&]() -> NoteItem * {
+        for (auto *entry : scene.items()) if (auto *noteItem = qgraphicsitem_cast<NoteItem *>(entry)) return noteItem;
+        return nullptr;
+    };
+    QVERIFY(item());
+    const qreal initialHeight = item()->boundingRect().height();
+    QPoint start = view.mapFromScene(item()->mapToScene({158,item()->boundingRect().center().y()}));
+    view.press(start); view.move(start-QPoint(50,0));
+    QCOMPARE(document.note(note)->width,160.0); // Preview never mutates the document.
+    QCOMPARE(item()->textWidth(),110.0);
+    view.release(start-QPoint(50,0));
+    QCOMPARE(document.note(note)->width,110.0);
+    QVERIFY(item()->boundingRect().height() > initialHeight);
+    QCOMPARE(edits.undoStack()->count(),1);
+    start = view.mapFromScene(item()->mapToScene({108,item()->boundingRect().center().y()}));
+    view.press(start); view.move(start+QPoint(50,0));
+    QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier); view.keyPressEvent(&escape);
+    view.release(start+QPoint(50,0));
+    QCOMPARE(document.note(note)->width,110.0);
+    QCOMPARE(edits.undoStack()->count(),1);
+    start = view.mapFromScene(item()->mapToScene({1,item()->boundingRect().center().y()}));
+    view.press(start); view.move(start+QPoint(20,0)); view.release(start+QPoint(20,0));
+    QCOMPARE(document.note(note)->width,90.0);
+    QCOMPARE(document.note(note)->position,QPointF(20,0)); // Opposite edge stays at x=110.
+    start = view.mapFromScene(item()->mapToScene({40,3}));
+    view.press(start); view.move(start+QPoint(20,30)); view.release(start+QPoint(20,30));
+    QCOMPARE(document.note(note)->position,QPointF(40,30));
+    edits.undoStack()->undo(); QCOMPARE(document.note(note)->position,QPointF(20,0));
+    edits.undoStack()->undo(); QCOMPARE(document.note(note)->width,110.0);
+    edits.undoStack()->undo(); QCOMPARE(document.note(note)->width,160.0);
+    scene.selectInBox(item()->sceneBoundingRect().adjusted(-1,-1,1,1),false,{});
+    QCOMPARE(scene.selection().notes,QVector<NoteId>{note});
+    const auto component = document.addComponent(SymbolIds::Resistor,{-100,0});
+    scene.restoreAfterDocumentChange({{component},{},{note}});
+    start = view.mapFromScene(80,3);
+    view.press(start); view.move(start+QPoint(20,20)); view.release(start+QPoint(20,20));
+    QCOMPARE(document.note(note)->position,QPointF(20,20));
+    QCOMPARE(document.component(component)->position(),QPointF(-80,20));
+    QCOMPARE(item()->rotation(),0.0);
+}
+
+void GroupSelectionTests::doubleClickFinishesAtFreePoint_data()
+{
+    QTest::addColumn<bool>("firstClick");
+    QTest::newRow("full-double-click-sequence") << true;
+    QTest::newRow("direct-double-click-event") << false;
+}
+
+void GroupSelectionTests::doubleClickFinishesAtFreePoint()
+{
+    QFETCH(bool, firstClick);
+    Document document;
+    const auto a = document.addComponent(SymbolIds::Resistor, {});
+    SchematicScene scene;
+    scene.bindDocument(&document);
+    DocumentEditController edits(&document);
+    connectEdits(scene, edits);
+    SelectionView view;
+    view.setScene(&scene);
+    view.resize(800,600); view.show();
+    QVERIFY(QTest::qWaitForWindowActive(&view));
+    view.centerOn(50,20);
+    scene.setEditMode(SchematicScene::EditMode::DrawWire);
+    const auto before = document.toJsonBytes();
+    QTest::mouseClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, view.mapFromScene(20,0));
+    const QPoint end = view.mapFromScene(62,43);
+    if (firstClick) QTest::mouseClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, end);
+    QTest::mouseDClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, end);
+    QCOMPARE(scene.editMode(), SchematicScene::EditMode::DrawWire);
+    QCOMPARE(document.wires().size(), 1);
+    QCOMPARE(document.nodes().size(), 1);
+    QVERIFY(document.wires().first().start == makeTerminalEndpoint(a,1));
+    QVERIFY(isNode(document.wires().first().end));
+    QCOMPARE(document.wires().first().vertices, QVector<QPointF>({{20,0},{60,0},{60,40}}));
+    QCOMPARE(document.nodes().cbegin().value(), QPointF(60,40));
+    QVERIFY(document.junctionPoints().isEmpty());
+    QCOMPARE(edits.undoStack()->count(), 1);
+    const auto after = document.toJsonBytes();
+    edits.undoStack()->undo();
+    QCOMPARE(document.toJsonBytes(), before);
+    edits.undoStack()->redo();
+    QCOMPARE(document.toJsonBytes(), after);
+    // Drawing from the free endpoint reuses that node and its topology.
+    QTest::mouseClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, view.mapFromScene(60,40));
+    QTest::mouseClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, view.mapFromScene(100,40));
+    QTest::mouseDClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, view.mapFromScene(100,40));
+    QCOMPARE(document.wires().size(), 2);
+    QVERIFY(document.wires()[1].start == document.wires()[0].end);
+    QCOMPARE(edits.undoStack()->count(), 2);
+}
+
+void GroupSelectionTests::doubleClickOnTargetDoesNotStartAnotherWire()
+{
+    Document document;
+    const auto a = document.addComponent(SymbolIds::Resistor, {});
+    const auto b = document.addComponent(SymbolIds::Resistor, {100,0});
+    Q_UNUSED(a); Q_UNUSED(b);
+    SchematicScene scene;
+    scene.bindDocument(&document);
+    DocumentEditController edits(&document);
+    connectEdits(scene, edits);
+    SelectionView view;
+    view.setScene(&scene);
+    view.resize(800,600); view.show();
+    QVERIFY(QTest::qWaitForWindowActive(&view));
+    view.centerOn(50,0);
+    scene.setEditMode(SchematicScene::EditMode::DrawWire);
+    const auto click = [&](QPointF p) { QTest::mouseClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, view.mapFromScene(p)); };
+    click({20,0});
+    click({80,0}); // The first click already completes on the terminal.
+    QTest::mouseDClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, view.mapFromScene(80,0));
+    click({20,0}); // Starts a fresh draft; must not complete a second wire.
+    QCOMPARE(document.wires().size(), 1);
+    QCOMPARE(edits.undoStack()->count(), 1);
+    QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+    view.keyPressEvent(&escape);
+    QCOMPARE(scene.editMode(), SchematicScene::EditMode::Select);
+}
+
+void GroupSelectionTests::doubleClickTerminalStartsWire()
+{
+    Document document;
+    const auto a = document.addComponent(SymbolIds::Resistor, {});
+    const auto b = document.addComponent(SymbolIds::Resistor, {100,0});
+    SchematicScene scene;
+    scene.bindDocument(&document);
+    DocumentEditController edits(&document);
+    connectEdits(scene, edits);
+    SelectionView view;
+    view.setScene(&scene);
+    view.resize(800,600); view.show();
+    QVERIFY(QTest::qWaitForWindowActive(&view));
+    view.centerOn(50,0);
+    QSignalSpy componentEdits(&scene, &SchematicScene::componentDoubleClicked);
+    QSignalSpy modes(&scene, &SchematicScene::editModeChanged);
+    const auto before = document.toJsonBytes();
+    const QPoint terminal = view.mapFromScene(20,0);
+    QTest::mouseClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, terminal);
+    QTest::mouseDClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, terminal);
+    QCOMPARE(scene.editMode(), SchematicScene::EditMode::DrawWire);
+    QCOMPARE(modes.size(), 1);
+    QVERIFY(componentEdits.isEmpty());
+    QCOMPARE(document.toJsonBytes(), before);
+    QVERIFY(!edits.undoStack()->canUndo());
+    QTest::mouseClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, view.mapFromScene(80,0));
+    QCOMPARE(document.wires().size(), 1);
+    QVERIFY(document.wires().first().start == makeTerminalEndpoint(a,1));
+    QVERIFY(document.wires().first().end == makeTerminalEndpoint(b,0));
+    QCOMPARE(edits.undoStack()->count(), 1);
+    edits.undoStack()->undo();
+    QCOMPARE(document.toJsonBytes(), before);
+    scene.setEditMode(SchematicScene::EditMode::Select);
+    QTest::mouseDClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, view.mapFromScene(0,0));
+    QCOMPARE(componentEdits.size(), 1);
+    QCOMPARE(componentEdits.first().first().value<ComponentId>(), a);
+    QCOMPARE(scene.editMode(), SchematicScene::EditMode::Select);
+}
+
+void GroupSelectionTests::doubleClickJunctionStartsWireAndEscapeCancels()
+{
+    Document document;
+    const auto a = document.addComponent(SymbolIds::Resistor, {});
+    const auto b = document.addComponent(SymbolIds::Resistor, {100,0});
+    const auto ground = document.addComponent(SymbolIds::Ground, {50,60});
+    const auto wire = document.addWire(makeTerminalEndpoint(a,1), {}, makeTerminalEndpoint(b,0));
+    QVERIFY(wire);
+    const auto node = document.branchWireAt(*wire, {50,0});
+    QVERIFY(node);
+    const auto before = document.toJsonBytes();
+    SchematicScene scene;
+    scene.bindDocument(&document);
+    DocumentEditController edits(&document);
+    connectEdits(scene, edits);
+    SelectionView view;
+    view.setScene(&scene);
+    view.resize(800,600); view.show();
+    QVERIFY(QTest::qWaitForWindowActive(&view));
+    view.centerOn(50,20);
+    const QPoint junction = view.mapFromScene(50,0);
+    QTest::mouseClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, junction);
+    QTest::mouseDClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, junction);
+    QCOMPARE(scene.editMode(), SchematicScene::EditMode::DrawWire);
+    QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+    view.keyPressEvent(&escape);
+    QCOMPARE(scene.editMode(), SchematicScene::EditMode::Select);
+    QCOMPARE(document.toJsonBytes(), before);
+    QVERIFY(!edits.undoStack()->canUndo());
+    QTest::mouseDClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, junction);
+    QTest::mouseClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, view.mapFromScene(50,40));
+    QCOMPARE(document.wires().size(), 3);
+    QVERIFY(document.wires().last().start == makeNodeEndpoint(*node));
+    QVERIFY(document.wires().last().end == makeTerminalEndpoint(ground,0));
+    QCOMPARE(document.junctionPoints(), QVector<QPointF>({{50,0}}));
+    QCOMPARE(edits.undoStack()->count(), 1);
+    scene.setEditMode(SchematicScene::EditMode::Select);
+    QTest::mouseDClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, view.mapFromScene(35,0));
+    QCOMPARE(scene.editMode(), SchematicScene::EditMode::Select); // plain segment is not a connection point
+}
+
+void GroupSelectionTests::wireCompletionAfterSnappingOntoTerminal()
+{
+    Document document;
+    const auto a = document.addComponent(SymbolIds::Resistor, {});
+    const auto b = document.addComponent(SymbolIds::Resistor, {100,0});
+    SchematicScene scene;
+    scene.bindDocument(&document);
+    DocumentEditController edits(&document);
+    connectEdits(scene, edits);
+    SelectionView view;
+    view.setScene(&scene);
+    view.resize(800,600); view.show();
+    QVERIFY(QTest::qWaitForWindowActive(&view));
+    view.scale(3,3);
+    view.centerOn(50,0);
+    scene.setEditMode(SchematicScene::EditMode::DrawWire);
+    const auto click = [&](QPointF p) { const QPoint screen = view.mapFromScene(p); view.press(screen); view.release(screen); };
+    click({20,0});
+    click({84,4}); // outside the 8-pixel cue; snaps to terminal at (80,0)
+    QVERIFY(document.wires().isEmpty());
+    click({80,0});
+    QCOMPARE(document.wires().size(), 1);
+    QCOMPARE(document.wires().first().vertices, QVector<QPointF>({{20,0},{80,0}}));
+    QVERIFY(document.wires().first().start == makeTerminalEndpoint(a,1));
+    QVERIFY(document.wires().first().end == makeTerminalEndpoint(b,0));
+    QCOMPARE(edits.undoStack()->count(), 1);
+    edits.undoStack()->undo();
+    QVERIFY(document.wires().isEmpty());
+}
+
+void GroupSelectionTests::branchPreviewAndCommitSnapToTargetWire()
+{
+    for (bool vertical : {false,true}) {
+        Document document;
+        // An off-grid target axis must remain exact; snap only along it.
+        const auto a = document.addComponent(SymbolIds::Resistor, vertical ? QPointF(3,0) : QPointF(0,3),
+                                             vertical ? Rotation::Deg90 : Rotation::Deg0);
+        const auto b = document.addComponent(SymbolIds::Resistor, vertical ? QPointF(3,100) : QPointF(100,3),
+                                             vertical ? Rotation::Deg90 : Rotation::Deg0);
+        const auto c = document.addComponent(SymbolIds::Resistor, vertical ? QPointF(100,50) : QPointF(50,100),
+                                             vertical ? Rotation::Deg0 : Rotation::Deg90);
+        QVERIFY(document.addWire(makeTerminalEndpoint(a,1), {}, makeTerminalEndpoint(b,0)));
+        SchematicScene scene;
+        scene.bindDocument(&document);
+        DocumentEditController edits(&document);
+        connectEdits(scene, edits);
+        SelectionView view;
+        view.setScene(&scene);
+        view.resize(800,600); view.show();
+        QVERIFY(QTest::qWaitForWindowActive(&view));
+        view.centerOn(50,50);
+        scene.setEditMode(SchematicScene::EditMode::DrawWire);
+        const QPoint start = view.mapFromScene(vertical ? QPointF(80,50) : QPointF(50,80));
+        view.press(start); view.release(start);
+        const QPoint target = view.mapFromScene(vertical ? QPointF(5,52) : QPointF(52,5));
+        view.move(target, Qt::NoButton);
+        const QPointF expected = vertical ? QPointF(3,50) : QPointF(50,3);
+        bool previewFound = false;
+        for (auto *item : scene.items()) {
+            if (auto *path = qgraphicsitem_cast<QGraphicsPathItem *>(item)) {
+                if (path->pen().color() == Qt::blue && path->pen().style() == Qt::DashLine) {
+                    QCOMPARE(path->path().currentPosition(), expected);
+                    previewFound = true;
+                }
+            }
+        }
+        QVERIFY(previewFound);
+        view.press(target); view.release(target);
+        QCOMPARE(document.nodes().size(), 1);
+        QCOMPARE(document.nodes().cbegin().value(), expected);
+        QCOMPARE(document.junctionPoints(), QVector<QPointF>{expected});
+        QCOMPARE(document.wires().size(), 3);
+        QCOMPARE(edits.undoStack()->count(), 1);
+        const auto node = document.nodes().cbegin().key();
+        // Just outside the node cue, snapping along the route still lands
+        // on that node. Reuse it instead of rejecting an endpoint split.
+        const auto d = document.addComponent(SymbolIds::Resistor, vertical ? QPointF(100,70) : QPointF(70,100),
+                                             vertical ? Rotation::Deg0 : Rotation::Deg90);
+        scene.restoreAfterDocumentChange({});
+        scene.setEditMode(SchematicScene::EditMode::DrawWire);
+        const QPoint secondStart = view.mapFromScene(vertical ? QPointF(80,70) : QPointF(70,80));
+        view.press(secondStart); view.release(secondStart);
+        const QPoint nearNode = view.mapFromScene(vertical ? QPointF(-5,54) : QPointF(54,-5));
+        view.press(nearNode); view.release(nearNode);
+        QCOMPARE(document.nodes().size(), 1);
+        QCOMPARE(document.nodes().value(node), expected);
+        QCOMPARE(document.wires().size(), 4);
+        QVERIFY(document.wires().last().start == makeTerminalEndpoint(d,0));
+        QVERIFY(document.wires().last().end == makeNodeEndpoint(node));
+        QVERIFY(document.wires()[2].start == makeTerminalEndpoint(c,0));
+    }
+}
+
+void GroupSelectionTests::wireSegmentDragPreviewUndoAndCancel()
+{
+    Document document;
+    const auto a = document.addComponent(SymbolIds::Resistor, {});
+    const auto b = document.addComponent(SymbolIds::Resistor, {100,100});
+    const auto id = document.addWire(makeTerminalEndpoint(a,1), {{50,0},{50,100}}, makeTerminalEndpoint(b,0));
+    QVERIFY(id);
+    SchematicScene scene;
+    scene.bindDocument(&document);
+    DocumentEditController edits(&document);
+    connectEdits(scene, edits);
+    SelectionView view;
+    view.setScene(&scene);
+    view.resize(800,600); view.show();
+    QVERIFY(QTest::qWaitForWindowActive(&view));
+    view.centerOn(50,50);
+    const auto before = document.toJsonBytes();
+    // Pick several pixels away from the stroke, without starting a box.
+    const QPoint start = view.mapFromScene(50,50) + QPoint(4,0);
+    view.press(start); view.release(start);
+    QCOMPARE(scene.selection().wires, QVector<WireId>{*id});
+    QVERIFY(!edits.undoStack()->canUndo());
+    const auto wireItem = [&]() -> WireItem * {
+        for (auto *item : scene.items())
+            if (auto *wire = qgraphicsitem_cast<WireItem *>(item))
+                if (wire->wireId() == *id) return wire;
+        return nullptr;
+    };
+    QVERIFY(wireItem());
+    QVERIFY(wireItem()->isSelected());
+    view.press(start);
+    view.move(start + QPoint(17,27)); // x snaps to 70; y is ignored
+    QCOMPARE(document.toJsonBytes(), before); // preview is detached
+    QVERIFY(wireItem());
+    QCOMPARE(wireItem()->path().elementAt(1).x, 70.0);
+    view.release(start + QPoint(17,27));
+    QCOMPARE(document.wire(*id)->vertices, QVector<QPointF>({{20,0},{70,0},{70,100},{80,100}}));
+    QCOMPARE(edits.undoStack()->count(), 1);
+    const auto moved = document.toJsonBytes();
+    edits.undoStack()->undo();
+    QCOMPARE(document.toJsonBytes(), before);
+    QCOMPARE(scene.selection().wires, QVector<WireId>{*id});
+    edits.undoStack()->redo();
+    QCOMPARE(document.toJsonBytes(), moved);
+
+    // First horizontal segment gains an endpoint bend; Escape cancels it.
+    const QPoint horizontal = view.mapFromScene(40,0);
+    view.press(horizontal); view.move(horizontal + QPoint(13,-23));
+    QCOMPARE(document.toJsonBytes(), moved);
+    QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+    view.keyPressEvent(&escape);
+    view.release(horizontal + QPoint(13,-23));
+    QCOMPARE(document.toJsonBytes(), moved);
+    QCOMPARE(edits.undoStack()->count(), 1);
+    view.press(horizontal); view.move(horizontal + QPoint(13,-23));
+    view.release(horizontal + QPoint(13,-23));
+    QCOMPARE(document.wire(*id)->vertices, QVector<QPointF>({{20,0},{20,-20},{70,-20},{70,100},{80,100}}));
+    QCOMPARE(edits.undoStack()->count(), 2);
+}
+
+void GroupSelectionTests::wireSegmentDragRejectsInvalidRelease()
+{
+    Document document;
+    const auto a = document.addComponent(SymbolIds::Resistor, {});
+    const auto b = document.addComponent(SymbolIds::Resistor, {100,0});
+    const auto id = document.addWire(makeTerminalEndpoint(a,1), {{40,0},{40,40},{80,40}}, makeTerminalEndpoint(b,0));
+    QVERIFY(id);
+    SchematicScene scene;
+    scene.bindDocument(&document);
+    DocumentEditController edits(&document);
+    connectEdits(scene, edits);
+    SelectionView view;
+    view.setScene(&scene);
+    view.resize(800,600); view.show();
+    QVERIFY(QTest::qWaitForWindowActive(&view));
+    view.centerOn(50,20);
+    const auto before = document.toJsonBytes();
+    const QPoint start = view.mapFromScene(40,20);
+    view.press(start); view.move(view.mapFromScene(60,20)); // valid preview
+    view.move(view.mapFromScene(80,20)); // reversal after neighbour collapses
+    view.release(view.mapFromScene(80,20));
+    QCOMPARE(document.toJsonBytes(), before);
+    QVERIFY(!edits.undoStack()->canUndo());
+    QCOMPARE(scene.selection().wires, QVector<WireId>{*id});
 }
 
 void GroupSelectionTests::componentLabelsAndTransforms()
@@ -325,9 +795,24 @@ void GroupSelectionTests::viewportEventsPanAndZoom()
     QCOMPARE(view.dragMode(), QGraphicsView::NoDrag);
     const qreal previousZoom = view.zoomFactor();
     QWheelEvent wheel(QPointF(200, 200), QPointF(200, 200), {}, QPoint(0, 120),
-                       Qt::NoButton, Qt::ControlModifier, Qt::NoScrollPhase, false);
+                       Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
     view.wheelEvent(&wheel);
     QVERIFY(view.zoomFactor() > previousZoom);
+    const qreal cadZoom = view.zoomFactor();
+    const int scrollBefore = view.verticalScrollBar()->value();
+    QWheelEvent controlWheel(QPointF(200, 200), QPointF(200, 200), {}, QPoint(0, 120),
+                              Qt::NoButton, Qt::ControlModifier, Qt::NoScrollPhase, false);
+    view.wheelEvent(&controlWheel);
+    QCOMPARE(view.zoomFactor(), cadZoom);
+    QVERIFY(view.verticalScrollBar()->value() < scrollBefore);
+    view.setCadStyleMouseWheel(false);
+    view.centerOn(0,0);
+    const int traditionalScroll = view.verticalScrollBar()->value();
+    view.wheelEvent(&wheel);
+    QCOMPARE(view.zoomFactor(), cadZoom);
+    QVERIFY(view.verticalScrollBar()->value() < traditionalScroll);
+    view.wheelEvent(&controlWheel);
+    QVERIFY(view.zoomFactor() > cadZoom);
     QCOMPARE(document.toJsonBytes(), before);
 }
 
@@ -502,11 +987,17 @@ void GroupSelectionTests::wireOnlyTransformsAndModifierClicks()
     QVERIFY(!scene.moveInProgress());
     QTest::mouseClick(view.viewport(), Qt::LeftButton, Qt::ControlModifier, view.mapFromScene(0, 0));
     QVERIFY(scene.selection().components.isEmpty());
-    // Drag a selected wire: endpoints anchor, interior follows snapped delta.
+    // A single vertical segment ignores parallel movement.
     view.press(view.mapFromScene(50, 50));
     view.move(view.mapFromScene(50, 40));
     view.release(view.mapFromScene(50, 40));
+    QCOMPARE(document.toJsonBytes(), before);
+    // Perpendicular movement reshapes the route with fixed endpoints.
+    view.press(view.mapFromScene(50, 50));
+    view.move(view.mapFromScene(40, 40));
+    view.release(view.mapFromScene(40, 40));
     QVERIFY(document.toJsonBytes() != before);
+    QCOMPARE(document.wire(*wire)->vertices, QVector<QPointF>({{20,0},{40,0},{40,100},{80,100}}));
     QCOMPARE(document.component(left)->position(), QPointF(0, 0));
     QCOMPARE(scene.selection().wires, QVector<WireId>{*wire});
     edits.undoStack()->undo();
@@ -603,7 +1094,8 @@ void GroupSelectionTests::propertyBlockDragResetAndCancel()
     view.press(start); view.move(end); QCOMPARE(document.toJsonBytes(),before);
     view.release(end); QVERIFY(document.component(a)->propertyBlockOffset());
     const auto offset=*document.component(a)->propertyBlockOffset();
-    QCOMPARE(offset,anchor+QPointF(23.5,-41.5));
+    const auto desired=anchor+QPointF(23.5,-41.5);
+    QCOMPARE(offset,QPointF(std::round(desired.x()/2)*2,std::round(desired.y()/2)*2));
     QCOMPARE(document.component(a)->position(),QPointF());
     QCOMPARE(document.component(b)->position(),QPointF(100,0));
     QCOMPARE(document.toJson().value("wires"),wires);
@@ -626,7 +1118,44 @@ void GroupSelectionTests::propertyBlockDragResetAndCancel()
     view.press(start); view.move(start+QPoint(30,20));
     QKeyEvent escape(QEvent::KeyPress,Qt::Key_Escape,Qt::NoModifier); view.keyPressEvent(&escape);
     view.release(start+QPoint(30,20)); QCOMPARE(*document.component(a)->propertyBlockOffset(),offset);
+    scene.setPropertyBlockGridSpacing(3.5);
+    const auto original=block()->scenePos();
+    start=view.mapFromScene(original+QPointF(2,2)); end=start+QPoint(-41,29);
+    const auto delta=view.mapToScene(end)-view.mapToScene(start);
+    view.press(start); view.move(end); view.release(end);
+    const auto desiredCustom=original+delta;
+    QCOMPARE(block()->scenePos(),QPointF(std::round(desiredCustom.x()/3.5)*3.5,std::round(desiredCustom.y()/3.5)*3.5));
+    QCOMPARE(document.toJson().value("wires"),wires);
     QVERIFY(view.grab().save(QCoreApplication::applicationDirPath()+"/property-block-placement.png"));
+}
+
+void GroupSelectionTests::propertyJustificationAnchors()
+{
+    Document document; const auto id=document.addComponent(SymbolIds::Resistor,{3.5,-7.25},Rotation::Deg90);
+    QVERIFY(document.setComponentLabels(id,"R1","Longer value"));
+    SchematicScene scene; scene.bindDocument(&document);
+    for(auto mode : {PropertyJustification::Left,PropertyJustification::Middle,PropertyJustification::Right}) {
+        document.setPropertyBlockJustification({id},mode);
+        document.setPropertyBlockOffset({id},std::nullopt);
+        scene.restoreAfterDocumentChange({{id},{}});
+        QRectF body; PropertyBlockItem *block=nullptr;
+        for(auto *item:scene.items()) {
+            if(auto *p=qgraphicsitem_cast<ComponentItem *>(item)) body=p->sceneBoundingRect();
+            if(auto *p=qgraphicsitem_cast<PropertyBlockItem *>(item)) block=p;
+        }
+        QVERIFY(block);
+        const auto x=mode==PropertyJustification::Left ? body.left() : mode==PropertyJustification::Middle ? body.center().x() : body.right();
+        QVERIFY(qAbs(block->scenePos().x()-x)<0.001);
+        QVERIFY(document.setPropertyBlockOffset({id},QPointF(-21.5,19.25)));
+        scene.restoreAfterDocumentChange({{id},{}});
+        int rows=0;
+        for(auto *item:scene.items()) if(auto *label=qgraphicsitem_cast<ComponentLabelItem *>(item)) {
+            const auto rect=label->sceneBoundingRect();
+            const auto edge=mode==PropertyJustification::Left ? rect.left() : mode==PropertyJustification::Middle ? rect.center().x() : rect.right();
+            QVERIFY(qAbs(edge-(3.5-21.5))<0.001); QCOMPARE(label->rotation(),0.0); ++rows;
+        }
+        QCOMPARE(rows,2);
+    }
 }
 
 QTEST_MAIN(GroupSelectionTests)

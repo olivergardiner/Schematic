@@ -14,16 +14,19 @@ using ComponentId = quint32;
 using TerminalId = int;
 
 // Document-scoped identity for a bare wire-to-wire connection point (a
-// branch) that is not itself a component terminal. Allocated only by an
-// explicit branch operation - never inferred from coincident coordinates.
+// branch or free endpoint) that is not itself a component terminal. Created
+// by explicit edits (branching, free-end completion, detachment or paste),
+// never inferred from coincident coordinates.
 using NodeId = quint32;
 
 // Document-scoped identity for a persisted wire route.
 using WireId = quint32;
+using NoteId = quint32;
 
 constexpr ComponentId kInvalidComponentId = 0;
 constexpr TerminalId   kInvalidTerminalId  = -1;
 constexpr NodeId       kInvalidNodeId      = 0;
 constexpr WireId       kInvalidWireId      = 0;
+constexpr NoteId       kInvalidNoteId      = 0;
 
 #endif // IDENTIFIERS_H

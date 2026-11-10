@@ -13,6 +13,7 @@
 
 class QLabel;
 class QLineEdit;
+class QPlainTextEdit;
 class QComboBox;
 class QDoubleSpinBox;
 class QToolButton;
@@ -48,6 +49,7 @@ private slots:
     void onImportSymbol();
     bool onSave();
     bool onSaveAs();
+    void onSvgExport();
     void onAbout();
     void onPreferences();
     void onZoomFactorChanged(qreal factor);
@@ -81,6 +83,8 @@ private:
     void flipSelectedComponent(FlipAxis axis);
     void createActions();
     void createMenus();
+    void rememberRecentFile(const QString &path);
+    void updateRecentFilesMenu();
     void updateEditActions();
     void clipboardEdit(const QString &operation);
     void createToolBar();
@@ -107,6 +111,7 @@ private:
     // m_currentFilePath or the undo stack clean index; callers (onSave()/
     // onSaveAs()) update them only on success.
     bool writeDocumentTo(const QString &path);
+    bool exportSvgTo(const QString &path);
 
     SchematicScene *m_scene = nullptr;
     SchematicView  *m_view  = nullptr;
@@ -118,6 +123,8 @@ private:
     QDoubleSpinBox *m_gridSpacingSpin  = nullptr;
     QAction        *m_selectAction     = nullptr;
     QAction        *m_drawWireAction   = nullptr;
+    QAction        *m_noteAction = nullptr;
+    QAction        *m_svgExportAction  = nullptr;
     QAction        *m_undoAction       = nullptr;
     QAction        *m_redoAction       = nullptr;
     QAction        *m_rotateLeftAction = nullptr;
@@ -125,13 +132,14 @@ private:
     QAction        *m_rotateAction     = nullptr;
     QAction        *m_mirrorAction     = nullptr;
     QMenu *m_editMenu = nullptr;
+    QMenu *m_recentFilesMenu = nullptr;
+    QVector<QAction *> m_recentFileActions;
     QAction *m_cutAction = nullptr;
     QAction *m_copyAction = nullptr;
     QAction *m_pasteAction = nullptr;
     QAction *m_deleteAction = nullptr;
     QPointer<QLineEdit> m_editTextTarget;
-    QByteArray m_lastPastePayload;
-    int m_pasteCount = 0;
+    QPointer<QPlainTextEdit> m_editNoteTextTarget;
     QMenu          *m_toolbarsMenu     = nullptr;
     SymbolPackageStore m_symbolPackageStore;
     // Rename (F2) is a QAction owned by MainWindow itself (not m_view) with

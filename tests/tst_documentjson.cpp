@@ -15,6 +15,7 @@ QJsonObject asLegacy(QJsonObject root, int version)
     auto components = root["components"].toArray();
     for (int i = 0; i < components.size(); ++i) {
         auto c = components[i].toObject();
+        c.remove("propertyBlockJustification");
         if (c.contains("properties")) {
             for (const auto &p : c["properties"].toArray()) {
                 const auto entry = p.toObject();
@@ -101,7 +102,7 @@ void TstDocumentJson::rejectsInvalidAndRepairsStaleEndpoints()
     QVERIFY(!repaired.warnings.isEmpty());
     QCOMPARE(repaired.document->wires().first().vertices.first(), QPointF(20, 0));
 
-    root.insert(QStringLiteral("formatVersion"), 7);
+    root.insert(QStringLiteral("formatVersion"), 11);
     QVERIFY(!Document::fromJson(root).document);
 }
 
@@ -338,7 +339,7 @@ void TstDocumentJson::blackFillsEmbedAndLegacyStaysWhite()
     QVERIFY(document.useSymbol(symbol, &errors));
     QVERIFY(document.addComponent(symbol.id, {0,0}) != kInvalidComponentId);
     const auto root = document.toJson();
-    QCOMPARE(root["formatVersion"].toInt(), 6);
+    QCOMPARE(root["formatVersion"].toInt(), 10);
     const auto loaded = Document::fromJson(root);
     QVERIFY(loaded.document);
     QCOMPARE(loaded.document->symbol(symbol.id)->primitives[0].fillColor, PrimitiveFillColor::Black);
@@ -353,7 +354,7 @@ void TstDocumentJson::blackFillsEmbedAndLegacyStaysWhite()
     const auto old = Document::fromJson(legacy);
     QVERIFY(old.document);
     QCOMPARE(old.document->symbol(symbol.id)->primitives[0].fillColor, PrimitiveFillColor::White);
-    QCOMPARE(old.document->toJson()["formatVersion"].toInt(), 6);
+    QCOMPARE(old.document->toJson()["formatVersion"].toInt(), 10);
     QVERIFY(sameTerminalSignature(*old.document->symbol(symbol.id), symbol));
     Document presentation;
     presentation.addComponent(SymbolIds::Resistor, {});
@@ -375,7 +376,7 @@ void TstDocumentJson::writesV5AndRoundTripsMirroring()
     QVERIFY(d.setComponentMirrored(a, true));
     QVERIFY(d.addWire(makeTerminalEndpoint(a, 1), {}, makeTerminalEndpoint(b, 0)));
     const QJsonObject root = d.toJson();
-    QCOMPARE(root.value(QStringLiteral("formatVersion")).toInt(), 6);
+    QCOMPARE(root.value(QStringLiteral("formatVersion")).toInt(), 10);
     for (const QJsonValue &v : root.value(QStringLiteral("components")).toArray())
         QVERIFY(v.toObject().value(QStringLiteral("mirrored")).isBool());
     const DocumentLoadResult loaded = Document::fromJsonBytes(d.toJsonBytes());
@@ -393,7 +394,7 @@ void TstDocumentJson::loadsV1AsUnmirroredAndUpgradesOnSave()
     QVERIFY2(loaded.errors.isEmpty(), qPrintable(loaded.errors.join(QLatin1Char('\n'))));
     QVERIFY(loaded.document);
     QVERIFY(!loaded.document->component(a)->mirrored());
-    QCOMPARE(loaded.document->toJson().value(QStringLiteral("formatVersion")).toInt(), 6);
+    QCOMPARE(loaded.document->toJson().value(QStringLiteral("formatVersion")).toInt(), 10);
 }
 
 void TstDocumentJson::rejectsInvalidVersionAndMirroredCombinations()
@@ -407,7 +408,7 @@ void TstDocumentJson::rejectsInvalidVersionAndMirroredCombinations()
     QVERIFY(!Document::fromJson(withComponentField(v2, QStringLiteral("mirrored"), QJsonValue::Undefined)).document); // v2 requires it
     QVERIFY(!Document::fromJson(withComponentField(v2, QStringLiteral("mirrored"), 1)).document); // must be bool
     QVERIFY(!Document::fromJson(withComponentField(v2, QStringLiteral("mirrored"), QStringLiteral("true"))).document);
-    QJsonObject future = v2; future.insert(QStringLiteral("formatVersion"), 7);
+    QJsonObject future = v2; future.insert(QStringLiteral("formatVersion"), 11);
     QVERIFY(!Document::fromJson(future).document);
     QJsonObject v0 = v2; v0.insert(QStringLiteral("formatVersion"), 0);
     QVERIFY(!Document::fromJson(v0).document);
@@ -430,7 +431,7 @@ void TstDocumentJson::rejectsUnknownSymbolIdNamingIt()
     QVERIFY2(loaded.errors.first().contains(QStringLiteral("UnknownPart")), qPrintable(loaded.errors.first()));
 }
 
-void TstDocumentJson::loadsPreLibraryDocumentUnchanged()
+void TstDocumentJson::loadsV2DocumentWithCurrentSymbolsUnchanged()
 {
     // Expected positions are worked out by hand from the symbol terminal
     // offsets (rotation: (x,y)->(-y,x) for 90, (-x,-y) for 180; mirroring
@@ -443,7 +444,7 @@ void TstDocumentJson::loadsPreLibraryDocumentUnchanged()
     { "id": 2, "kind": "Capacitor",     "x": 100, "y": 0,   "rotation": 0,   "mirrored": false, "reference": "C1",   "value": "" },
     { "id": 3, "kind": "Diode",         "x": 200, "y": 0,   "rotation": 90,  "mirrored": false, "reference": "D1",   "value": "" },
     { "id": 4, "kind": "Ground",        "x": 200, "y": 60,  "rotation": 0,   "mirrored": false, "reference": "GND1", "value": "" },
-    { "id": 5, "kind": "OpAmp",         "x": 300, "y": 0,   "rotation": 0,   "mirrored": false, "reference": "U1",   "value": "" },
+    { "id": 5, "kind": "OpAmp.Grid10",         "x": 300, "y": 0,   "rotation": 0,   "mirrored": false, "reference": "U1",   "value": "" },
     { "id": 6, "kind": "Jack",          "x": 400, "y": 0,   "rotation": 0,   "mirrored": false, "reference": "J1",   "value": "" },
     { "id": 7, "kind": "Potentiometer", "x": 300, "y": 100, "rotation": 180, "mirrored": true,  "reference": "VR1",  "value": "100k" }
   ],
@@ -455,7 +456,7 @@ void TstDocumentJson::loadsPreLibraryDocumentUnchanged()
       "start": { "component": 2, "terminal": 1 }, "end": { "component": 3, "terminal": 0 } },
     { "id": 3, "points": [[200, 20], [200, 40]],
       "start": { "component": 3, "terminal": 1 }, "end": { "component": 4, "terminal": 0 } },
-    { "id": 4, "points": [[328, 0], [380, 0]],
+    { "id": 4, "points": [[330, 0], [380, 0]],
       "start": { "component": 5, "terminal": 2 }, "end": { "component": 6, "terminal": 0 } }
   ]
 })JSON";
@@ -475,7 +476,7 @@ void TstDocumentJson::loadsPreLibraryDocumentUnchanged()
     QCOMPARE(d.component(2)->symbolId(), SymbolIds::Capacitor);
     QCOMPARE(d.component(3)->symbolId(), SymbolIds::Diode);
     QCOMPARE(d.component(4)->symbolId(), SymbolIds::Ground);
-    QCOMPARE(d.component(5)->symbolId(), SymbolIds::OpAmp);
+    QCOMPARE(d.component(5)->symbolId(), SymbolIds::OpAmpGrid10);
     QCOMPARE(d.component(6)->symbolId(), SymbolIds::Jack);
     QCOMPARE(d.component(7)->symbolId(), SymbolIds::Potentiometer);
     QCOMPARE(d.component(1)->value(), QStringLiteral("10k"));
@@ -484,7 +485,7 @@ void TstDocumentJson::loadsPreLibraryDocumentUnchanged()
     QCOMPARE(d.terminalPosition(*d.component(3), 0), QPointF(200, -20)); // anode, rotated 90
     QCOMPARE(d.terminalPosition(*d.component(3), 1), QPointF(200, 20));  // cathode
     QCOMPARE(d.terminalPosition(*d.component(4), 0), QPointF(200, 40));
-    QCOMPARE(d.terminalPosition(*d.component(5), 2), QPointF(328, 0));
+    QCOMPARE(d.terminalPosition(*d.component(5), 2), QPointF(330, 0));
     QCOMPARE(d.terminalPosition(*d.component(6), 0), QPointF(380, 0));
     QCOMPARE(d.terminalPosition(*d.component(7), 0), QPointF(280, 100)); // mirrored, rotated 180
     QCOMPARE(d.terminalPosition(*d.component(7), 1), QPointF(320, 100));

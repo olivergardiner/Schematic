@@ -1,0 +1,85 @@
+{
+  "id": "ZenerDiode",
+  "name": "Zener Diode",
+  "category": "Semiconductors/Diodes",
+  "referencePrefix": "D",
+  "showsReference": true,
+  "primitives": [
+    {
+      "kind": "Line",
+      "points": [
+        [
+          -20,
+          0
+        ],
+        [
+          -5,
+          0
+        ]
+      ]
+    },
+    {
+      "kind": "Line",
+      "points": [
+        [
+          5,
+          0
+        ],
+        [
+          20,
+          0
+        ]
+      ]
+    },
+    {
+      "kind": "Polygon",
+      "points": [
+        [
+          -5,
+          -5
+        ],
+        [
+          -5,
+          5
+        ],
+        [
+          5,
+          0
+        ]
+      ]
+    },
+    {
+      "kind": "Polyline",
+      "points": [
+        [
+          2,
+          -7
+        ],
+        [
+          5,
+          -5
+        ],
+        [
+          5,
+          5
+        ],
+        [
+          8,
+          7
+        ]
+      ]
+    }
+  ],
+  "terminals": [
+    {
+      "name": "anode",
+      "x": -20,
+      "y": 0
+    },
+    {
+      "name": "cathode",
+      "x": 20,
+      "y": 0
+    }
+  ]
+}

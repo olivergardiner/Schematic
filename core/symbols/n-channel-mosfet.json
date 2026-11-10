@@ -1,0 +1,161 @@
+{
+  "id": "NChannelMOSFET.Compact30",
+  "name": "N Channel MOSFET",
+  "category": "Semiconductors/Transistors",
+  "referencePrefix": "Q",
+  "showsReference": true,
+  "primitives": [
+    {
+      "kind": "Line",
+      "points": [
+        [
+          -20,
+          0
+        ],
+        [
+          -5,
+          0
+        ]
+      ]
+    },
+    {
+      "kind": "Line",
+      "points": [
+        [
+          -5,
+          -10
+        ],
+        [
+          -5,
+          10
+        ]
+      ]
+    },
+    {
+      "kind": "Line",
+      "points": [
+        [
+          2,
+          -10
+        ],
+        [
+          2,
+          -6
+        ]
+      ]
+    },
+    {
+      "kind": "Line",
+      "points": [
+        [
+          2,
+          -2
+        ],
+        [
+          2,
+          2
+        ]
+      ]
+    },
+    {
+      "kind": "Line",
+      "points": [
+        [
+          2,
+          6
+        ],
+        [
+          2,
+          10
+        ]
+      ]
+    },
+    {
+      "kind": "Polyline",
+      "points": [
+        [
+          2,
+          -8
+        ],
+        [
+          10,
+          -8
+        ],
+        [
+          10,
+          -20
+        ]
+      ]
+    },
+    {
+      "kind": "Polyline",
+      "points": [
+        [
+          2,
+          8
+        ],
+        [
+          10,
+          8
+        ],
+        [
+          10,
+          20
+        ]
+      ]
+    },
+    {
+      "kind": "Polyline",
+      "points": [
+        [
+          2,
+          0
+        ],
+        [
+          10,
+          0
+        ],
+        [
+          10,
+          8
+        ]
+      ]
+    },
+    {
+      "kind": "Polygon",
+      "points": [
+        [
+          2,
+          0
+        ],
+        [
+          8,
+          -2.5
+        ],
+        [
+          8,
+          2.5
+        ]
+      ],
+      "filled": true,
+      "fillColor": "black"
+    }
+  ],
+  "terminals": [
+    {
+      "name": "gate",
+      "x": -20,
+      "y": 0
+    },
+    {
+      "name": "drain",
+      "x": 10,
+      "y": -20
+    },
+    {
+      "name": "source",
+      "x": 10,
+      "y": 20
+    }
+  ]
+}
