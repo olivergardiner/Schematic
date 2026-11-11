@@ -111,6 +111,21 @@
           ]
         }
       ]
+    },
+    {
+      "name": "Valves",
+      "symbols": [
+        "valve-triode-with-heaters.json",
+        "valve-triode-no-heaters.json",
+        "valve-pentode-with-heaters.json",
+        "valve-pentode-no-heaters.json",
+        "valve-pentode-cathode-suppressor-with-heaters.json",
+        "valve-pentode-cathode-suppressor-no-heaters.json",
+        "valve-beam-tetrode-with-heaters.json",
+        "valve-beam-tetrode-no-heaters.json",
+        "valve-diode-with-heaters.json",
+        "valve-diode-no-heaters.json"
+      ]
     }
   ]
 }

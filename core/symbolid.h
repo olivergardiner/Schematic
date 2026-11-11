@@ -74,6 +74,16 @@ inline const SymbolId BlockVariableHighPass{QStringLiteral("Block.VariableHighPa
 inline const SymbolId BlockVariableLowPass{QStringLiteral("Block.VariableLowPass")};
 inline const SymbolId BlockVariableBandPass{QStringLiteral("Block.VariableBandPass")};
 inline const SymbolId BlockVariableBandStop{QStringLiteral("Block.VariableBandStop")};
+inline const SymbolId ValveTriodeWithHeaters{QStringLiteral("Valve.Triode.WithHeaters")};
+inline const SymbolId ValveTriodeNoHeaters{QStringLiteral("Valve.Triode.NoHeaters")};
+inline const SymbolId ValvePentodeWithHeaters{QStringLiteral("Valve.Pentode.WithHeaters")};
+inline const SymbolId ValvePentodeNoHeaters{QStringLiteral("Valve.Pentode.NoHeaters")};
+inline const SymbolId ValvePentodeCathodeSuppressorWithHeaters{QStringLiteral("Valve.PentodeCathodeSuppressor.WithHeaters")};
+inline const SymbolId ValvePentodeCathodeSuppressorNoHeaters{QStringLiteral("Valve.PentodeCathodeSuppressor.NoHeaters")};
+inline const SymbolId ValveBeamTetrodeWithHeaters{QStringLiteral("Valve.BeamTetrode.WithHeaters")};
+inline const SymbolId ValveBeamTetrodeNoHeaters{QStringLiteral("Valve.BeamTetrode.NoHeaters")};
+inline const SymbolId ValveDiodeWithHeaters{QStringLiteral("Valve.Diode.WithHeaters")};
+inline const SymbolId ValveDiodeNoHeaters{QStringLiteral("Valve.Diode.NoHeaters")};
 } // namespace SymbolIds
 
 #endif // SYMBOLID_H

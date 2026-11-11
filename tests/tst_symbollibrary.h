@@ -33,6 +33,7 @@ private slots:
     void layoutSwitchingPreservesWiresAndRollsBack();
     void layoutPersistenceAndClipboardAreSelfContained();
     void diodeVariantsAndConnections();
+    void valveFamilyGeometryAndConnections();
     void transistorsShareTerminalLayoutAndConnections();
     void manifestCategoriesValidateAndKeepEmptyPaths();
     void nestedManifestValidatesHierarchyAndOrder();

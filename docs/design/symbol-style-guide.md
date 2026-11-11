@@ -1,6 +1,6 @@
 # Symbol style guide
 
-Status: **broader guidance remains a draft. The reviewed Grid 10 reference artwork and Block Schematics conventions below are approved.**
+Status: **broader guidance remains a draft. The reviewed Grid 10 reference artwork, Block Schematics conventions, and valve family layout below are approved.**
 
 This guide defines the visual family for symbols created for Schematic. It complements the [symbol import design](symbol-import.md), which defines supported SVG and metadata, and [DECISIONS.md](../../DECISIONS.md), which defines geometry and terminal compatibility. It does not change those contracts or authorize application changes.
 
@@ -66,6 +66,29 @@ Both hollow box plates and solid-black plates can now be represented. The user's
 The approved and implemented [black symbol fills design](black-symbol-fills.md) records support, compatibility, and verification. The current capacitor artwork is approved through the template refresh; later styling changes require review.
 
 ## 4. Component-specific guidance
+
+### Valves (approved family layout)
+
+- Category: **Valves**. Prefix: **V**. These are generic individual valve sections, not physical pinouts or multi-section packages.
+- Provide triode, pentode with separate suppressor, pentode with suppressor tied to cathode, beam tetrode with beam plates tied to cathode, and valve diode. Each has distinct With Heater Connections and No Heater Connections entries, using stable IDs `Valve.<type>.WithHeaters` and `Valve.<type>.NoHeaters`. Types are `Triode`, `Pentode`, `PentodeCathodeSuppressor`, `BeamTetrode`, and `Diode`.
+- All ten share a circular glass envelope centred at (0, 0), radius 35, with a white interior and the standard 1-unit black outline. Draw the envelope first so it masks underlying artwork without covering its electrodes.
+- Anode: horizontal bar from (-12, -23) to (12, -23), with a vertical lead to (0, -50). Cathode: shallow inverted-U from (-10, 17) through (-10, 20), (10, 20) to (10, 17); lead exits right via (20, 20) to (20, 40).
+- Grid electrodes are horizontal dash segments spanning x=-12 to 14, with 3-unit gaps. Control grid is at y=10, screen at y=0, suppressor at y=-10. Exposed grid leads enter from x=-50. Diodes omit grids; triodes have only g1; beam tetrodes have g1 and g2.
+- Internally tied pentodes connect the right end of g3 via (24, -10) and (24, 20) to the cathode lead at (20, 20). No separate g3 terminal is exposed.
+- Beam tetrodes use facing brackets at x=±17, from y=-14 to -6 with 4-unit inward returns. Their internal connection runs above the brackets at y=-19 and down x=24 to the cathode lead; it clears the anode and both grids. No separate beam-plate terminal is exposed.
+- The heater is **always visible**: a shallow chevron from (-10, 28) through (0, 24) to (10, 28), electrically separate from the cathode. Heater-connected variants add vertical leads to (-10, 50) and (10, 50). Unconnected variants omit only these external leads and terminals; they imply no hidden heater net.
+
+Terminal order is fixed as follows; append h1 then h2 only for heater-connected entries:
+
+| Type | Ordered non-heater terminals |
+|---|---|
+| Diode | anode (0, -50), cathode (20, 40) |
+| Triode | anode, cathode, g1 (-50, 10) |
+| Pentode, separate suppressor | anode, cathode, g1, g2 (-50, 0), g3 (-50, -10) |
+| Pentode, cathode-tied suppressor | anode, cathode, g1, g2 |
+| Beam tetrode, cathode-tied plates | anode, cathode, g1, g2 |
+
+Heater terminals are h1 (-10, 50), h2 (10, 50). Shared electrodes keep identical names and positions across the family. Internal ties are symbol artwork and a shared exposed cathode connection, not extra document terminals or inferred coordinate-based nets. Rotations and flips transform artwork and terminal identities together. This approved layout does not imply final visual approval of every rendered example.
 
 ### Resistors
 

@@ -123,6 +123,16 @@ void TstSymbolLibrary::builtinLibraryHasExpectedMetadata()
         {SymbolIds::BlockVariableLowPass, "Variable Low Pass Filter", "Block Schematics/Filters", "B", true},
         {SymbolIds::BlockVariableBandPass, "Variable Band Pass Filter", "Block Schematics/Filters", "B", true},
         {SymbolIds::BlockVariableBandStop, "Variable Band Stop Filter", "Block Schematics/Filters", "B", true},
+        {SymbolIds::ValveTriodeWithHeaters, "Triode (With Heater Connections)", "Valves", "V", true},
+        {SymbolIds::ValveTriodeNoHeaters, "Triode (No Heater Connections)", "Valves", "V", true},
+        {SymbolIds::ValvePentodeWithHeaters, "Pentode (Separate Suppressor) (With Heater Connections)", "Valves", "V", true},
+        {SymbolIds::ValvePentodeNoHeaters, "Pentode (Separate Suppressor) (No Heater Connections)", "Valves", "V", true},
+        {SymbolIds::ValvePentodeCathodeSuppressorWithHeaters, "Pentode (Suppressor to Cathode) (With Heater Connections)", "Valves", "V", true},
+        {SymbolIds::ValvePentodeCathodeSuppressorNoHeaters, "Pentode (Suppressor to Cathode) (No Heater Connections)", "Valves", "V", true},
+        {SymbolIds::ValveBeamTetrodeWithHeaters, "Beam Tetrode (Beam Plates to Cathode) (With Heater Connections)", "Valves", "V", true},
+        {SymbolIds::ValveBeamTetrodeNoHeaters, "Beam Tetrode (Beam Plates to Cathode) (No Heater Connections)", "Valves", "V", true},
+        {SymbolIds::ValveDiodeWithHeaters, "Valve Diode (With Heater Connections)", "Valves", "V", true},
+        {SymbolIds::ValveDiodeNoHeaters, "Valve Diode (No Heater Connections)", "Valves", "V", true},
     };
     const SymbolLibrary &library = builtinSymbolLibrary();
     QCOMPARE(library.size(), expected.size());
@@ -1571,4 +1581,58 @@ void TstSymbolLibrary::symbolJsonSerializationAndArtworkOnlyImportRoundTrip()
         QByteArrayLiteral("{\"svg\":\"../secret.svg\"}"), QStringLiteral("/symbols"),
         &resolved, &errors));
     QVERIFY(!errors.isEmpty());
+}
+
+void TstSymbolLibrary::valveFamilyGeometryAndConnections()
+{
+    for (const auto &family : {QString("Triode"), QString("Pentode"),
+                              QString("PentodeCathodeSuppressor"), QString("BeamTetrode"), QString("Diode")}) {
+        const auto *plain = builtinSymbolLibrary().find(SymbolId("Valve." + family + ".NoHeaters"));
+        const auto *heated = builtinSymbolLibrary().find(SymbolId("Valve." + family + ".WithHeaters"));
+        QVERIFY(plain); QVERIFY(heated);
+        QVector<ExpectedTerminal> expected{{"anode",0,-50}, {"cathode",20,40}};
+        if (family != "Diode") expected.append({"g1",-50,10});
+        if (family.startsWith("Pentode") || family == "BeamTetrode") expected.append({"g2",-50,0});
+        if (family == "Pentode") expected.append({"g3",-50,-10});
+        checkTerminals(plain->id, expected);
+        expected.append({"h1",-10,50}); expected.append({"h2",10,50});
+        checkTerminals(heated->id, expected);
+        if (QTest::currentTestFailed()) return;
+        QCOMPARE(plain->primitives[0].kind, PrimitiveKind::Circle);
+        QCOMPARE(plain->primitives[0].points, QVector<QPointF>({{0,0}}));
+        QCOMPARE(plain->primitives[0].radius, 35.0);
+        QVERIFY(primitiveIsFilled(plain->primitives[0]));
+        QCOMPARE(plain->primitives[0].fillColor, PrimitiveFillColor::White);
+        // Heater stays visible in the unconnected variant. Only two lead lines are appended.
+        QCOMPARE(plain->primitives[5].points, QVector<QPointF>({{-10,28},{0,24},{10,28}}));
+        QCOMPARE(heated->primitives.size(), plain->primitives.size() + 2);
+        for (int i=0; i<plain->primitives.size(); ++i) {
+            QCOMPARE(heated->primitives[i].kind, plain->primitives[i].kind);
+            QCOMPARE(heated->primitives[i].points, plain->primitives[i].points);
+            QCOMPARE(heated->primitives[i].radius, plain->primitives[i].radius);
+        }
+        if (family == "PentodeCathodeSuppressor")
+            QCOMPARE(plain->primitives.last().points, QVector<QPointF>({{14,-10},{24,-10},{24,20},{20,20}}));
+        if (family == "BeamTetrode")
+            QCOMPARE(plain->primitives[plain->primitives.size()-2].points,
+                     QVector<QPointF>({{-17,-14},{-17,-19},{24,-19},{24,20},{20,20}}));
+        for (const auto *symbol : {plain,heated}) {
+            Document document;
+            const auto a = document.addComponent(symbol->id, {});
+            const auto b = document.addComponent(symbol->id, {140,0});
+            for (int t=0; t<symbol->terminals.size(); ++t)
+                QVERIFY(document.addWire(makeTerminalEndpoint(a,t), {}, makeTerminalEndpoint(b,t)));
+            QVERIFY(document.moveComponent(b, {160,20}));
+            for (int t=0; t<symbol->terminals.size(); ++t) {
+                QCOMPARE(document.wires()[t].end, makeTerminalEndpoint(b,t));
+                QCOMPARE(document.wires()[t].vertices.last(), QPointF(160,20)+symbol->terminals[t].offset);
+            }
+            QVERIFY(document.transformSelection({a,b}, {}, {SelectionTransform::Kind::Rotate, {}, {}, 1}));
+            QVERIFY(document.transformSelection({a,b}, {}, {SelectionTransform::Kind::FlipHorizontal}));
+            QVERIFY(document.transformSelection({a,b}, {}, {SelectionTransform::Kind::FlipVertical}));
+            const auto loaded = Document::fromJsonBytes(document.toJsonBytes());
+            QVERIFY(loaded.document);
+            QCOMPARE(loaded.document->toJsonBytes(), document.toJsonBytes());
+        }
+    }
 }

@@ -14,6 +14,7 @@ class SymbolRendererTests : public QObject
 
 private slots:
     void monochromeFillPixels();
+    void valveHeatersRenderWithAndWithoutConnections();
     void previewFitsTargetAndPaintsArtwork();
     void previewPreservesNativeScaleAndShrinksLargeArtwork();
     void pathPrimitivesRenderCurvesFillAndFillRules();
@@ -179,6 +180,44 @@ void SymbolRendererTests::monochromeFillPixels()
     { QPainter painter(&image); SymbolRenderer::paintPreview(&painter, symbol, {0,0,48,48}); }
     QCOMPARE(image.pixelColor(16,16), QColor(Qt::black));
     QCOMPARE(image.pixelColor(24,24).alpha(), 0);
+}
+
+
+void SymbolRendererTests::valveHeatersRenderWithAndWithoutConnections()
+{
+    QImage sheet(1200, 520, QImage::Format_ARGB32_Premultiplied);
+    sheet.fill(Qt::white);
+    int column = 0;
+    for (const auto &family : {QString("Triode"), QString("Pentode"),
+                              QString("PentodeCathodeSuppressor"), QString("BeamTetrode"), QString("Diode")}) {
+        for (int row=0; row<2; ++row) {
+            const auto *symbol = builtinSymbolLibrary().find(SymbolId("Valve." + family +
+                (row == 0 ? ".WithHeaters" : ".NoHeaters")));
+            QVERIFY(symbol);
+            QImage image(120,120,QImage::Format_ARGB32_Premultiplied);
+            image.fill(Qt::white);
+            {
+                QPainter painter(&image);
+                painter.setPen(QPen(Qt::black, 1));
+                painter.translate(60,60);
+                for (const auto &primitive : SymbolRenderer::primitives(*symbol)) {
+                    painter.setBrush(SymbolRenderer::fillBrush(primitive));
+                    painter.drawPath(primitive.path);
+                }
+            }
+            // Always-visible heater apex, cathode, envelope; external heater lead only in row 0.
+            QVERIFY(image.pixelColor(60,84).lightness() < 128);
+            QVERIFY(image.pixelColor(60,80).lightness() < 128);
+            QVERIFY(image.pixelColor(95,60).lightness() < 128);
+            QCOMPARE(image.pixelColor(50,103).lightness() < 128, row == 0);
+            QPainter painter(&sheet);
+            painter.drawImage(QRect(column*240, row*260,240,240), image);
+        }
+        ++column;
+    }
+    // Optional review sheet uses precisely the application's primitive conversion and brushes.
+    const QString output = qEnvironmentVariable("SCHEMATIC_VALVE_REVIEW_IMAGE");
+    if (!output.isEmpty()) QVERIFY(sheet.save(output));
 }
 
 QTEST_GUILESS_MAIN(SymbolRendererTests)

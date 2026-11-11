@@ -73,6 +73,16 @@ qt_add_resources(schematiccore symbol_library
     BASE core/symbols
     FILES
         core/symbols/manifest.json
+        core/symbols/valve-triode-with-heaters.json
+        core/symbols/valve-triode-no-heaters.json
+        core/symbols/valve-pentode-with-heaters.json
+        core/symbols/valve-pentode-no-heaters.json
+        core/symbols/valve-pentode-cathode-suppressor-with-heaters.json
+        core/symbols/valve-pentode-cathode-suppressor-no-heaters.json
+        core/symbols/valve-beam-tetrode-with-heaters.json
+        core/symbols/valve-beam-tetrode-no-heaters.json
+        core/symbols/valve-diode-with-heaters.json
+        core/symbols/valve-diode-no-heaters.json
         core/symbols/resistor.json
         core/symbols/capacitor.json
         core/symbols/electrolytic-capacitor.json

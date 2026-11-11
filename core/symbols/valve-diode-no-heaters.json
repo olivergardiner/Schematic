@@ -1,0 +1,113 @@
+{
+  "id": "Valve.Diode.NoHeaters",
+  "name": "Valve Diode (No Heater Connections)",
+  "category": "Valves",
+  "referencePrefix": "V",
+  "showsReference": true,
+  "primitives": [
+    {
+      "kind": "Circle",
+      "points": [
+        [
+          0,
+          0
+        ]
+      ],
+      "radius": 35,
+      "filled": true
+    },
+    {
+      "kind": "Line",
+      "points": [
+        [
+          -12,
+          -23
+        ],
+        [
+          12,
+          -23
+        ]
+      ]
+    },
+    {
+      "kind": "Line",
+      "points": [
+        [
+          0,
+          -23
+        ],
+        [
+          0,
+          -50
+        ]
+      ]
+    },
+    {
+      "kind": "Polyline",
+      "points": [
+        [
+          -10,
+          17
+        ],
+        [
+          -10,
+          20
+        ],
+        [
+          10,
+          20
+        ],
+        [
+          10,
+          17
+        ]
+      ]
+    },
+    {
+      "kind": "Polyline",
+      "points": [
+        [
+          10,
+          20
+        ],
+        [
+          20,
+          20
+        ],
+        [
+          20,
+          40
+        ]
+      ]
+    },
+    {
+      "kind": "Polyline",
+      "points": [
+        [
+          -10,
+          28
+        ],
+        [
+          0,
+          24
+        ],
+        [
+          10,
+          28
+        ]
+      ]
+    }
+  ],
+  "terminals": [
+    {
+      "name": "anode",
+      "x": 0,
+      "y": -50
+    },
+    {
+      "name": "cathode",
+      "x": 20,
+      "y": 40
+    }
+  ]
+}
