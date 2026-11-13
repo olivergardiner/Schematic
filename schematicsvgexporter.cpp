@@ -46,6 +46,7 @@ QByteArray SchematicSvgExporter::render(const Document &document, QString *error
     if (!painter.begin(&generator)) return fail(QStringLiteral("Could not start SVG rendering."));
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setRenderHint(QPainter::TextAntialiasing, true);
+    painter.fillRect(target, Qt::white);
     scene.render(&painter, target, source, Qt::IgnoreAspectRatio);
     if (!painter.end() || bytes.isEmpty())
         return fail(QStringLiteral("Could not finish SVG rendering."));

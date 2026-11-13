@@ -29,7 +29,7 @@ class SchematicExportTests : public QObject
 private slots:
     void noteAppearanceExport();
     void wrappedNotesExportWithoutFrames();
-    void vectorLabelsFillsAndTransparency();
+    void vectorLabelsFillsAndWhiteBackground();
     void tightBoundsAndTransforms();
     void liveEditingStateIsExcluded();
     void fileFailuresPreserveExistingOutput();
@@ -86,7 +86,7 @@ void SchematicExportTests::wrappedNotesExportWithoutFrames()
     QVERIFY(image.save(QCoreApplication::applicationDirPath()+"/wrapped-note-export.png"));
 }
 
-void SchematicExportTests::vectorLabelsFillsAndTransparency()
+void SchematicExportTests::vectorLabelsFillsAndWhiteBackground()
 {
     Document doc;
     const auto a = doc.addComponent(SymbolIds::Resistor, {});
@@ -140,11 +140,12 @@ void SchematicExportTests::vectorLabelsFillsAndTransparency()
     QImage image(renderer.defaultSize() * 4, QImage::Format_ARGB32_Premultiplied);
     image.fill(Qt::transparent);
     { QPainter painter(&image); renderer.render(&painter); }
-    QCOMPARE(image.pixelColor(0,0).alpha(), 0);
+    QCOMPARE(image.pixelColor(0,0), QColor(Qt::white));
     int black = 0, white = 0;
     for (int y = 0; y < image.height(); ++y)
         for (int x = 0; x < image.width(); ++x) {
             const QColor pixel = image.pixelColor(x,y);
+            QCOMPARE(pixel.alpha(), 255);
             if (pixel == Qt::black) ++black;
             if (pixel == Qt::white) ++white;
         }
@@ -183,8 +184,8 @@ void SchematicExportTests::tightBoundsAndTransforms()
     QImage image(124,244,QImage::Format_ARGB32_Premultiplied);
     image.fill(Qt::transparent);
     { QPainter painter(&image); renderer.render(&painter); }
-    QVERIFY(image.pixelColor(62,102).alpha() > 0); // (100,-55), on the cathode bar
-    QCOMPARE(image.pixelColor(0,0).alpha(), 0);
+    QCOMPARE(image.pixelColor(62,102), QColor(Qt::black)); // (100,-55), on the cathode bar
+    QCOMPARE(image.pixelColor(0,0), QColor(Qt::white));
 }
 
 void SchematicExportTests::liveEditingStateIsExcluded()

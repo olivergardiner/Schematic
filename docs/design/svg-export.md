@@ -6,7 +6,7 @@ Approved scope: File > SVG Export, Ctrl+E, and one shared File-toolbar action wi
 
 - Export the complete committed document, including component artwork, visible reference/value/custom property rows, wrapped text notes, wires and derived junction dots. Preserve transforms, property-block placement and justification, line weights, black fills and opaque white symbol fills.
 - Use a separate, unselected `SchematicScene` bound to a document snapshot. This reuses the canvas geometry and label layout without reading or changing the live scene. The export scene stays in Select mode and has no background brush; canvas grid, terminal indicators, hover cues, selection colours and unfinished edits are excluded.
-- Fit the SVG viewBox to the rendered item bounds plus a 10-scene-unit margin on every side. Export is independent of canvas zoom, pan and document grid. The background is transparent. Drawing geometry remains vector; labels remain editable SVG text and use the canvas font settings. Other viewers need suitable fonts to reproduce text metrics.
+- Fit the SVG viewBox to the rendered item bounds plus a 10-scene-unit margin on every side. Export is independent of canvas zoom, pan and document grid. An opaque white rectangle covers the full viewBox beneath the schematic, including the margins. Drawing geometry remains vector; labels remain editable SVG text and use the canvas font settings. Other viewers need suitable fonts to reproduce text metrics.
 - Generate through Qt SVG in the application layer. `schematiccore` continues to depend on Qt Core only. Document and clipboard formats do not change.
 
 ## File and application behaviour
@@ -18,7 +18,7 @@ Approved scope: File > SVG Export, Ctrl+E, and one shared File-toolbar action wi
 
 ## Validation
 
-Focused exporter checks cover XML validity, vector paths rather than embedded images, editable/escaped text and hidden properties, monochrome fills, transparent margins, junction dots, tight bounds, rotated/mirrored artwork, exclusion of live selection/drafts, valid SVG reload and file-failure preservation. The window check covers a shared menu/toolbar action, icon, Ctrl+E, cancellation, the default suffix, and unchanged document/history/filename/selection.
+Focused exporter checks cover XML validity, vector paths rather than embedded images, editable/escaped text and hidden properties, monochrome fills, opaque white margins, junction dots, tight bounds, rotated/mirrored artwork, exclusion of live selection/drafts, valid SVG reload and file-failure preservation. The window check covers a shared menu/toolbar action, icon, Ctrl+E, cancellation, the default suffix, and unchanged document/history/filename/selection.
 
 ## Verification record (8 November 2026)
 
