@@ -1,7 +1,12 @@
 #include "../schematicsvgexporter.h"
+#include "../symbolrenderer.h"
+#include "../schematicfont.h"
+#include <QSettings>
+#include <QScopeGuard>
 #include "../schematicscene.h"
 #include "../schematicitems.h"
 #include "document.h"
+#include "documentloadresult.h"
 
 #include <QFile>
 #include <QGraphicsSceneMouseEvent>
@@ -27,6 +32,9 @@ class SchematicExportTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void globalFontsReachSvgAndNoteLayout();
+    void drawingOptionsExportAndReview();
+    void handDrawnExportMatchesSceneAndTopology();
     void noteAppearanceExport();
     void wrappedNotesExportWithoutFrames();
     void vectorLabelsFillsAndWhiteBackground();
@@ -235,3 +243,140 @@ void SchematicExportTests::fileFailuresPreserveExistingOutput()
 
 QTEST_MAIN(SchematicExportTests)
 #include "tst_schematicexport.moc"
+
+void SchematicExportTests::handDrawnExportMatchesSceneAndTopology()
+{
+    Document doc;
+    const auto a=doc.addComponent(SymbolIds::Resistor,{});
+    const auto b=doc.addComponent(SymbolIds::Resistor,{100,0});
+    const auto wire=doc.addWire(makeTerminalEndpoint(a,1),{},makeTerminalEndpoint(b,0)); QVERIFY(wire);
+    const auto vertices=doc.wire(*wire)->vertices;
+    const auto nets=doc.computeNets();
+    const auto standard=SchematicSvgExporter::render(doc);
+    QVERIFY(doc.setDrawingStyle(DrawingStyle::HandDrawn));
+    const auto bytes=SchematicSvgExporter::render(doc);
+    QVERIFY(bytes!=standard);
+    QCOMPARE(bytes,SchematicSvgExporter::render(doc));
+    QCOMPARE(doc.wire(*wire)->vertices,vertices);
+    const auto styledNets=doc.computeNets();
+    QCOMPARE(styledNets.size(),nets.size());
+    for(int i=0; i<nets.size(); ++i) QCOMPARE(styledNets[i].terminals,nets[i].terminals);
+    auto loaded=Document::fromJsonBytes(doc.toJsonBytes()); QVERIFY(loaded.document);
+    QCOMPARE(SchematicSvgExporter::render(*loaded.document),bytes);
+    SchematicScene scene; scene.bindDocument(&doc);
+    const QRectF source=scene.itemsBoundingRect().adjusted(-10,-10,10,10);
+    QSvgRenderer renderer(bytes); QVERIFY(renderer.isValid());
+    // QSvgGenerator serializes decimal coordinates with limited precision.
+    QVERIFY(qAbs(renderer.viewBoxF().width()-source.width())<0.001);
+    QVERIFY(qAbs(renderer.viewBoxF().height()-source.height())<0.001);
+    QImage canvas(800,400,QImage::Format_ARGB32_Premultiplied); canvas.fill(Qt::white);
+    QImage svg=canvas;
+    { QPainter p(&canvas); p.setRenderHint(QPainter::Antialiasing); scene.render(&p,QRectF(canvas.rect()),source,Qt::IgnoreAspectRatio); }
+    { QPainter p(&svg); renderer.render(&p,QRectF(svg.rect())); }
+    int black=0, disagreements=0;
+    for(int y=0; y<svg.height(); ++y) for(int x=0; x<svg.width(); ++x) {
+        const bool exported=svg.pixelColor(x,y).lightness()<128;
+        const bool displayed=canvas.pixelColor(x,y).lightness()<128;
+        if(exported) ++black;
+        if(exported!=displayed) ++disagreements;
+    }
+    QVERIFY(black>100);
+    QVERIFY2(disagreements<2000,qPrintable(QString::number(disagreements)));
+    QCOMPARE(svg.pixelColor(0,0),QColor(Qt::white));
+    QVERIFY(svg.save(QCoreApplication::applicationDirPath()+"/hand-drawn-export.png"));
+}
+
+void SchematicExportTests::drawingOptionsExportAndReview()
+{
+    // Double outlines must not cancel the filled body's hit area or its fill.
+    QPainterPath body; body.addRect(QRectF(5,5,30,30));
+    ComponentPrimitiveItem filled(body,SymbolRenderer::handDrawnPath(body,123));
+    filled.setBrush(Qt::white); filled.setPen(QPen(Qt::black,1));
+    QVERIFY(filled.shape().contains(QPointF(20,20)));
+    QImage probe(40,40,QImage::Format_ARGB32_Premultiplied); probe.fill(Qt::blue);
+    { QPainter p(&probe); QStyleOptionGraphicsItem option; filled.paint(&p,&option,nullptr); }
+    QCOMPARE(probe.pixelColor(20,20),QColor(Qt::white));
+    QCOMPARE(probe.pixelColor(0,0),QColor(Qt::blue));
+    QImage review(1200,640,QImage::Format_ARGB32_Premultiplied); review.fill(Qt::white);
+    QPainter sheet(&review);
+    for(int mode=0;mode<4;++mode) {
+        Document doc;
+        const auto a=doc.addComponent(SymbolIds::Capacitor,{});
+        const auto b=doc.addComponent(SymbolIds::Capacitor,{100,0});
+        QVERIFY(doc.addWire(makeTerminalEndpoint(a,1),{},makeTerminalEndpoint(b,0)));
+        doc.addComponent(SymbolIds::ValveTriodeWithHeaters,{160,0});
+        doc.addComponent(SymbolIds::OpAmpGrid10,{240,0});
+        doc.setDrawingStyle(DrawingStyle::HandDrawn);
+        doc.setDrawingVariation(mode%2 ? DrawingVariation::Consistent : DrawingVariation::Individual);
+        doc.setDrawingStrokes(mode/2+1);
+        doc.setDrawingLooseness(mode/2 ? 2.5 : 1.0);
+        const auto data=SchematicSvgExporter::render(doc); QVERIFY(!data.isEmpty());
+        QCOMPARE(data,SchematicSvgExporter::render(doc));
+        auto loaded=Document::fromJsonBytes(doc.toJsonBytes()); QVERIFY(loaded.document);
+        QCOMPARE(data,SchematicSvgExporter::render(*loaded.document));
+        QSvgRenderer renderer(data); QVERIFY(renderer.isValid());
+        const QRectF panel((mode%2)*600,(mode/2)*320,600,320);
+        sheet.setPen(Qt::black); sheet.drawText(panel.adjusted(15,5,-5,-5),Qt::AlignTop|Qt::AlignLeft,
+            QString(mode%2 ? "Consistent" : "Individual") + (mode/2 ? " / Double / 250%" : " / Single / 100%"));
+        renderer.render(&sheet,panel.adjusted(10,35,-10,-10));
+        if(mode==3) {
+            QImage image(900,360,QImage::Format_ARGB32_Premultiplied); image.fill(Qt::transparent);
+            { QPainter p(&image); renderer.render(&p); }
+            QCOMPARE(image.pixelColor(0,0),QColor(Qt::white));
+            SchematicScene scene; scene.bindDocument(&doc);
+            const auto bounds=scene.itemsBoundingRect().adjusted(-10,-10,10,10);
+            QVERIFY(qAbs(bounds.width()-renderer.viewBoxF().width())<0.001);
+            QVERIFY(qAbs(bounds.height()-renderer.viewBoxF().height())<0.001);
+            // The filled op-amp body stays opaque white with two unfilled outlines.
+            bool filled=false;
+            for(auto *item : scene.items()) if(auto *component=qgraphicsitem_cast<ComponentItem *>(item)) {
+                if(component->componentId()!=doc.components().last().id()) continue;
+                for(auto *child:component->childItems()) if(auto *p=qgraphicsitem_cast<QGraphicsPathItem *>(child)) {
+                    if(p->brush().color()==Qt::white && p->brush().style()!=Qt::NoBrush) filled=true;
+                }
+            }
+            QVERIFY(filled);
+        }
+    }
+    sheet.end(); QVERIFY(review.save(QCoreApplication::applicationDirPath()+"/drawing-options-review.png"));
+}
+
+void SchematicExportTests::globalFontsReachSvgAndNoteLayout()
+{
+    const auto oldOrg=QCoreApplication::organizationName(), oldApp=QCoreApplication::applicationName();
+    const auto oldFormat=QSettings::defaultFormat();
+    QTemporaryDir settingsDirectory; QVERIFY(settingsDirectory.isValid());
+    QCoreApplication::setOrganizationName("SchematicFontTests"); QCoreApplication::setApplicationName("Fonts");
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,settingsDirectory.path());
+    const auto restoreSettingsContext=qScopeGuard([&] {
+        QSettings::setDefaultFormat(oldFormat);
+        QCoreApplication::setOrganizationName(oldOrg); QCoreApplication::setApplicationName(oldApp);
+    });
+    QSettings settings;
+    const QStringList keys={"appearance/schematicFontFamily","appearance/labelFontSize","appearance/noteFontSize"};
+    QVariantList saved; for(const auto &key:keys) { saved.append(settings.value(key)); settings.remove(key); }
+    const auto cleanup=qScopeGuard([&] {
+        for(int i=0;i<keys.size();++i) { if(saved[i].isValid()) settings.setValue(keys[i],saved[i]); else settings.remove(keys[i]); }
+    });
+    Document doc; doc.addComponent(SymbolIds::Resistor,{});
+    const auto id=doc.addNote({0,40},"A longer wrapped note for font layout",100);
+    const auto before=doc.toJsonBytes();
+    const NoteItem normal(*doc.note(id)); const qreal oldHeight=normal.boundingRect().height();
+    settings.setValue(keys[0],"Courier New"); settings.setValue(keys[1],12); settings.setValue(keys[2],20);
+    NoteItem larger(*doc.note(id)); QVERIFY(larger.boundingRect().height()>oldHeight);
+    const auto bytes=SchematicSvgExporter::render(doc); QSvgRenderer renderer(bytes); QVERIFY(renderer.isValid());
+    QXmlStreamReader xml(bytes); bool family=false, labelSize=false, noteSize=false;
+    while(!xml.atEnd()) {
+        xml.readNext(); if(!xml.isStartElement())continue;
+        const auto attributes=xml.attributes();
+        if(attributes.value("font-family")==QStringLiteral("Courier New")) family=true;
+        if(attributes.value("font-size")==QStringLiteral("12")) labelSize=true;
+        if(attributes.value("font-size")==QStringLiteral("20")) noteSize=true;
+    }
+    QVERIFY(!xml.hasError()); QVERIFY(family); QVERIFY(labelSize); QVERIFY(noteSize);
+    QCOMPARE(doc.toJsonBytes(),before);
+    QImage image(renderer.defaultSize()*3,QImage::Format_ARGB32_Premultiplied); image.fill(Qt::white);
+    { QPainter p(&image); renderer.render(&p); }
+    QVERIFY(image.save(QCoreApplication::applicationDirPath()+"/font-export.png"));
+}

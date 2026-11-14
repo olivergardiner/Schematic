@@ -3,6 +3,7 @@
 
 #include "identifiers.h"
 #include "textnote.h"
+#include "schematicfont.h"
 
 #include <QGraphicsItemGroup>
 #include <QGraphicsPathItem>
@@ -50,13 +51,38 @@ private:
 class ComponentPrimitiveItem : public QGraphicsPathItem
 {
 public:
-    explicit ComponentPrimitiveItem(const QPainterPath &path) : QGraphicsPathItem(path) {}
+    explicit ComponentPrimitiveItem(const QPainterPath &path, const QPainterPath &secondary = {})
+        : QGraphicsPathItem(path), m_primary(path), m_doubleStroke(!secondary.isEmpty()) {
+        if (m_doubleStroke) { auto outlines = path; outlines.addPath(secondary); setPath(outlines); }
+    }
     void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override
     {
         QStyleOptionGraphicsItem appearance(*option);
         appearance.state &= ~QStyle::State_Selected;
-        QGraphicsPathItem::paint(painter, &appearance, widget);
+        if (!m_doubleStroke) {
+            QGraphicsPathItem::paint(painter, &appearance, widget);
+            return;
+        }
+        painter->save();
+        // Fill once using the primary outline; both strokes remain unfilled.
+        painter->setPen(Qt::NoPen); painter->setBrush(brush()); painter->drawPath(m_primary);
+        painter->setPen(pen()); painter->setBrush(Qt::NoBrush); painter->drawPath(path());
+        painter->restore();
     }
+    QPainterPath shape() const override
+    {
+        if (!m_doubleStroke) return QGraphicsPathItem::shape();
+        QPainterPathStroker stroker;
+        stroker.setWidth(pen().widthF() > 0 ? pen().widthF() : 1.0);
+        stroker.setCapStyle(pen().capStyle()); stroker.setJoinStyle(pen().joinStyle());
+        stroker.setMiterLimit(pen().miterLimit());
+        auto result = stroker.createStroke(path());
+        if (brush().style() != Qt::NoBrush) result = result.united(m_primary);
+        return result;
+    }
+private:
+    QPainterPath m_primary;
+    bool m_doubleStroke = false;
 };
 
 // A single upright drag target containing the visible property rows.
@@ -149,7 +175,7 @@ public:
     enum { Type = UserType + 5 };
     int type() const override { return Type; }
     explicit NoteItem(const TextNote &note) : m_id(note.id) {
-        QFont font; font.setPixelSize(10); setFont(font);
+        setFont(SchematicFont::notes());
         // Keep text clear of the box edge, including when right-aligned.
         document()->setDocumentMargin(4);
         auto option = document()->defaultTextOption();

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.19)
-project(Schematic LANGUAGES CXX)
+project(Schematic VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -155,6 +155,8 @@ qt_add_executable(Schematic
     preferencesdialog.h
 )
 
+target_compile_definitions(Schematic PRIVATE SCHEMATIC_VERSION="${PROJECT_VERSION}")
+
 target_link_libraries(Schematic
     PRIVATE
         Qt6::Core
@@ -176,9 +178,18 @@ install(TARGETS Schematic
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
 
+set(_schematic_runtime_deploy_options)
+if(MSVC)
+    # Collect app-local CRT DLLs without requiring VCINSTALLDIR in the shell.
+    include(InstallRequiredSystemLibraries)
+    set(_schematic_runtime_deploy_options NO_COMPILER_RUNTIME)
+endif()
 qt_generate_deploy_app_script(
     TARGET Schematic
     OUTPUT_SCRIPT deploy_script
     NO_UNSUPPORTED_PLATFORM_ERROR
+    ${_schematic_runtime_deploy_options}
 )
 install(SCRIPT ${deploy_script})
+
+include(cmake/Packaging.cmake)

@@ -135,3 +135,84 @@ void SymbolRenderer::paintPreview(QPainter *painter, const LibrarySymbol &symbol
     }
     painter->restore();
 }
+
+QPainterPath SymbolRenderer::handDrawnPath(const QPainterPath &path, quint32 seed, qreal looseness)
+{
+    if (looseness == 0) return path;
+    QPainterPath result;
+    result.setFillRule(path.fillRule());
+    // Fixed integer mixing avoids platform-dependent random generators.
+    const auto variation = [&seed]() {
+        seed = seed * 1664525u + 1013904223u;
+        return qreal(seed & 0xffffu) / 65535.0 * 2.0 - 1.0;
+    };
+    QPointF current, start;
+    constexpr qreal pi = 3.14159265358979323846;
+    for (int i = 0; i < path.elementCount(); ++i) {
+        const auto element = path.elementAt(i);
+        const QPointF end(element.x, element.y);
+        if (element.isMoveTo()) {
+            result.moveTo(end); current = start = end;
+        } else if (element.isLineTo()) {
+            const QPointF delta = end - current;
+            const qreal length = std::hypot(delta.x(), delta.y());
+            if (length > 0) {
+                const QPointF normal(-delta.y()/length, delta.x()/length);
+                const qreal amplitude = std::min(qreal(0.65), length * 0.035) * looseness;
+                const qreal phase = variation() * pi;
+                const int count = int(std::clamp(std::ceil(length / 16.0), 1.0, 256.0));
+                const auto offset = [&](qreal t) { return amplitude * std::sin(pi*t) * std::sin(2*pi*t+phase); };
+                const auto tangent = [&](qreal t) {
+                    return delta + normal * (amplitude*pi*(std::cos(pi*t)*std::sin(2*pi*t+phase)
+                                             + 2*std::sin(pi*t)*std::cos(2*pi*t+phase)));
+                };
+                for (int j=0; j<count; ++j) {
+                    const qreal a=qreal(j)/count, b=qreal(j+1)/count, step=(b-a)/3;
+                    const QPointF from = j == 0 ? current : current + delta*a + normal*offset(a);
+                    const QPointF to = j+1 == count ? end : current + delta*b + normal*offset(b);
+                    result.cubicTo(from+tangent(a)*step, to-tangent(b)*step, to);
+                }
+            }
+            current = end;
+            if (end == start) result.closeSubpath();
+        } else if (element.type == QPainterPath::CurveToElement && i+2 < path.elementCount()) {
+            const auto c2 = path.elementAt(i+1), last = path.elementAt(i+2);
+            // Perturb controls, retaining the original curve anchors and closure.
+            const qreal dx = variation()*0.45*looseness;
+            const qreal dy = variation()*0.45*looseness;
+            const QPointF shift(dx, dy);
+            result.cubicTo(end+shift, QPointF(c2.x,c2.y)+shift, QPointF(last.x,last.y));
+            current = QPointF(last.x,last.y); i += 2;
+            if (current == start) result.closeSubpath();
+        }
+    }
+    return result;
+}
+
+QVector<RenderedSymbolPrimitive> SymbolRenderer::handDrawnPrimitives(
+    const LibrarySymbol &symbol, quint32 instanceId, bool consistent, int strokes, qreal looseness)
+{
+    quint32 seed = instanceId * 2654435761u;
+    if (consistent) {
+        // FNV-1a over UTF-8: stable across processes and Qt hash randomization.
+        seed = 2166136261u;
+        for (const auto byte : symbol.id.value().toUtf8()) {
+            seed ^= static_cast<unsigned char>(byte);
+            seed *= 16777619u;
+        }
+    }
+    auto result = primitives(symbol);
+    for (auto &primitive : result) {
+        const auto original = primitive.path;
+        primitive.path = handDrawnPath(original, ++seed, looseness);
+        if (strokes == 2) primitive.secondaryPath = handDrawnPath(original, seed ^ 0x9e3779b9u, looseness);
+    }
+    return result;
+}
+
+QPainterPath SymbolRenderer::handDrawnWire(const QPainterPath &path, quint32 seed, int strokes, qreal looseness)
+{
+    auto result = handDrawnPath(path, seed, looseness);
+    if (strokes == 2) result.addPath(handDrawnPath(path, seed ^ 0x9e3779b9u, looseness));
+    return result;
+}

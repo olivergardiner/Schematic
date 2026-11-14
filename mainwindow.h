@@ -120,6 +120,7 @@ private:
 
     QLabel *m_positionLabel = nullptr;
     QLabel *m_zoomLabel     = nullptr;
+    QComboBox *m_drawingStyleCombo = nullptr;
     QDoubleSpinBox *m_gridSpacingSpin  = nullptr;
     QAction        *m_selectAction     = nullptr;
     QAction        *m_drawWireAction   = nullptr;

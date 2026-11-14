@@ -1,6 +1,7 @@
 #include "schematicscene.h"
 #include "schematicitems.h"
 #include "symbolrenderer.h"
+#include "schematicfont.h"
 
 #include "component.h"
 #include "document.h"
@@ -49,7 +50,6 @@ constexpr qreal kWirePreviewZ = 4.0;
 // not a screen-fixed-size UI.
 constexpr qreal kLineWidth      = 1.0;
 constexpr qreal kJunctionRadius = 2.5;
-constexpr qreal kLabelPixelSize = 8.0;
 constexpr qreal kLabelGap       = 4.0; // Gap between a component's local
                                        // bounding box and its labels.
 
@@ -281,6 +281,8 @@ void SchematicScene::addWireItems(const WireRoute &route)
         path.lineTo(route.vertices[i]);
 
     auto *item = new WireItem(route.id);
+    if (m_document && m_document->drawingStyle() == DrawingStyle::HandDrawn)
+        path = SymbolRenderer::handDrawnWire(path, route.id, m_document->drawingStrokes(), m_document->drawingLooseness());
     item->setPath(path);
     item->setPen(QPen(Qt::black, kLineWidth));
     item->setFlag(QGraphicsItem::ItemIsSelectable, true);
@@ -309,8 +311,12 @@ void SchematicScene::addComponentItems(const Component &component, const Documen
     // rotate-then-translate contract (see component.h/component.cpp
     // rotateOffset()).
     auto *artwork = new ComponentItem(component.id());
-    for (const RenderedSymbolPrimitive &primitive : SymbolRenderer::primitives(def)) {
-        auto *primitiveItem = new ComponentPrimitiveItem(primitive.path);
+    const auto primitives = document.drawingStyle() == DrawingStyle::HandDrawn
+        ? SymbolRenderer::handDrawnPrimitives(def, component.id(),
+            document.drawingVariation() == DrawingVariation::Consistent, document.drawingStrokes(), document.drawingLooseness())
+        : SymbolRenderer::primitives(def);
+    for (const RenderedSymbolPrimitive &primitive : primitives) {
+        auto *primitiveItem = new ComponentPrimitiveItem(primitive.path, primitive.secondaryPath);
         primitiveItem->setPen(QPen(Qt::black, kLineWidth));
         primitiveItem->setBrush(SymbolRenderer::fillBrush(primitive));
         artwork->addToGroup(primitiveItem);
@@ -326,8 +332,7 @@ void SchematicScene::addComponentItems(const Component &component, const Documen
     // retain property/owner IDs for selection and inspector navigation.
     const QRectF bounds = artwork->sceneBoundingRect();
 
-    QFont font;
-    font.setPixelSize(static_cast<int>(kLabelPixelSize));
+    const QFont font = SchematicFont::labels();
 
     auto *block = new PropertyBlockItem(component.id());
     block->setZValue(kLabelZ); addItem(block);

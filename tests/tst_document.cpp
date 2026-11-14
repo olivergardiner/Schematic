@@ -20,7 +20,7 @@ void TstDocument::notesV9RoundTripAndLegacy()
     QCOMPARE(doc.note(id)->justification,PropertyJustification::Right);
     QVERIFY(doc.components().isEmpty()); QVERIFY(doc.computeNets().isEmpty());
     const auto json = doc.toJson();
-    QCOMPARE(json["formatVersion"].toInt(), 10);
+    QCOMPARE(json["formatVersion"].toInt(), 13);
     QCOMPARE(json["notes"].toArray().size(), 1);
     auto loaded = Document::fromJson(json);
     QVERIFY2(loaded.document, qPrintable(loaded.errors.join('\n')));
@@ -41,7 +41,7 @@ void TstDocument::notesV9RoundTripAndLegacy()
     auto legacy = json; legacy["formatVersion"] = 8; legacy.remove("notes");
     auto old = Document::fromJson(legacy);
     QVERIFY(old.document); QVERIFY(old.document->notes().isEmpty());
-    auto future = json; future["formatVersion"] = 11;
+    auto future = json; future["formatVersion"] = 14;
     QVERIFY(!Document::fromJson(future).document);
     for (const auto &key : {"id", "x", "y", "text", "width", "justification", "fillColor", "outlineColor"}) {
         auto invalid = json;

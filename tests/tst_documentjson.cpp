@@ -102,7 +102,7 @@ void TstDocumentJson::rejectsInvalidAndRepairsStaleEndpoints()
     QVERIFY(!repaired.warnings.isEmpty());
     QCOMPARE(repaired.document->wires().first().vertices.first(), QPointF(20, 0));
 
-    root.insert(QStringLiteral("formatVersion"), 11);
+    root.insert(QStringLiteral("formatVersion"), 14);
     QVERIFY(!Document::fromJson(root).document);
 }
 
@@ -339,7 +339,7 @@ void TstDocumentJson::blackFillsEmbedAndLegacyStaysWhite()
     QVERIFY(document.useSymbol(symbol, &errors));
     QVERIFY(document.addComponent(symbol.id, {0,0}) != kInvalidComponentId);
     const auto root = document.toJson();
-    QCOMPARE(root["formatVersion"].toInt(), 10);
+    QCOMPARE(root["formatVersion"].toInt(), 13);
     const auto loaded = Document::fromJson(root);
     QVERIFY(loaded.document);
     QCOMPARE(loaded.document->symbol(symbol.id)->primitives[0].fillColor, PrimitiveFillColor::Black);
@@ -354,7 +354,7 @@ void TstDocumentJson::blackFillsEmbedAndLegacyStaysWhite()
     const auto old = Document::fromJson(legacy);
     QVERIFY(old.document);
     QCOMPARE(old.document->symbol(symbol.id)->primitives[0].fillColor, PrimitiveFillColor::White);
-    QCOMPARE(old.document->toJson()["formatVersion"].toInt(), 10);
+    QCOMPARE(old.document->toJson()["formatVersion"].toInt(), 13);
     QVERIFY(sameTerminalSignature(*old.document->symbol(symbol.id), symbol));
     Document presentation;
     presentation.addComponent(SymbolIds::Resistor, {});
@@ -376,7 +376,7 @@ void TstDocumentJson::writesV5AndRoundTripsMirroring()
     QVERIFY(d.setComponentMirrored(a, true));
     QVERIFY(d.addWire(makeTerminalEndpoint(a, 1), {}, makeTerminalEndpoint(b, 0)));
     const QJsonObject root = d.toJson();
-    QCOMPARE(root.value(QStringLiteral("formatVersion")).toInt(), 10);
+    QCOMPARE(root.value(QStringLiteral("formatVersion")).toInt(), 13);
     for (const QJsonValue &v : root.value(QStringLiteral("components")).toArray())
         QVERIFY(v.toObject().value(QStringLiteral("mirrored")).isBool());
     const DocumentLoadResult loaded = Document::fromJsonBytes(d.toJsonBytes());
@@ -394,7 +394,7 @@ void TstDocumentJson::loadsV1AsUnmirroredAndUpgradesOnSave()
     QVERIFY2(loaded.errors.isEmpty(), qPrintable(loaded.errors.join(QLatin1Char('\n'))));
     QVERIFY(loaded.document);
     QVERIFY(!loaded.document->component(a)->mirrored());
-    QCOMPARE(loaded.document->toJson().value(QStringLiteral("formatVersion")).toInt(), 10);
+    QCOMPARE(loaded.document->toJson().value(QStringLiteral("formatVersion")).toInt(), 13);
 }
 
 void TstDocumentJson::rejectsInvalidVersionAndMirroredCombinations()
@@ -408,7 +408,7 @@ void TstDocumentJson::rejectsInvalidVersionAndMirroredCombinations()
     QVERIFY(!Document::fromJson(withComponentField(v2, QStringLiteral("mirrored"), QJsonValue::Undefined)).document); // v2 requires it
     QVERIFY(!Document::fromJson(withComponentField(v2, QStringLiteral("mirrored"), 1)).document); // must be bool
     QVERIFY(!Document::fromJson(withComponentField(v2, QStringLiteral("mirrored"), QStringLiteral("true"))).document);
-    QJsonObject future = v2; future.insert(QStringLiteral("formatVersion"), 11);
+    QJsonObject future = v2; future.insert(QStringLiteral("formatVersion"), 14);
     QVERIFY(!Document::fromJson(future).document);
     QJsonObject v0 = v2; v0.insert(QStringLiteral("formatVersion"), 0);
     QVERIFY(!Document::fromJson(v0).document);
@@ -562,4 +562,67 @@ void TstDocumentJson::rejectsMalformedSnapshots()
     const auto ordered = source.toJson().value(QStringLiteral("symbols")).toArray();
     QCOMPARE(ordered[0].toObject().value(QStringLiteral("id")).toString(), QStringLiteral("Diode"));
     QCOMPARE(ordered[1].toObject().value(QStringLiteral("id")).toString(), QStringLiteral("Resistor"));
+}
+
+void TstDocumentJson::drawingStyleRoundTripAndLegacy()
+{
+    Document doc;
+    QCOMPARE(doc.drawingStyle(), DrawingStyle::Standard);
+    QVERIFY(doc.setDrawingStyle(DrawingStyle::HandDrawn));
+    auto root = doc.toJson();
+    auto loaded = Document::fromJson(root);
+    QVERIFY(loaded.document);
+    QCOMPARE(loaded.document->drawingStyle(), DrawingStyle::HandDrawn);
+    QCOMPARE(loaded.document->toJsonBytes(), doc.toJsonBytes());
+    for (const auto &value : {QJsonValue(), QJsonValue(1), QJsonValue("unknown")}) {
+        auto invalid = root; invalid["drawingStyle"] = value;
+        auto rejected = Document::fromJson(invalid);
+        QVERIFY(!rejected.document); QVERIFY(rejected.errors.join(' ').contains("drawingStyle"));
+    }
+    root["formatVersion"] = 10; root.remove("drawingStyle");
+    loaded = Document::fromJson(root); QVERIFY(loaded.document);
+    QCOMPARE(loaded.document->drawingStyle(), DrawingStyle::Standard);
+}
+
+void TstDocumentJson::drawingOptionsRoundTripAndLegacy()
+{
+    Document doc;
+    QCOMPARE(doc.drawingVariation(), DrawingVariation::Individual); QCOMPARE(doc.drawingStrokes(),1);
+    QVERIFY(doc.setDrawingVariation(DrawingVariation::Consistent)); QVERIFY(doc.setDrawingStrokes(2));
+    QVERIFY(doc.setDrawingStyle(DrawingStyle::HandDrawn));
+    const auto saved=doc.toJson(); auto loaded=Document::fromJson(saved); QVERIFY(loaded.document);
+    QCOMPARE(loaded.document->toJsonBytes(),doc.toJsonBytes());
+    QVERIFY(!doc.setDrawingStrokes(0)); QVERIFY(!doc.setDrawingStrokes(3));
+    QVERIFY(!doc.setDrawingVariation(static_cast<DrawingVariation>(99)));
+    QCOMPARE(doc.toJson(),saved);
+    for(const auto &value : {QJsonValue(),QJsonValue("2"),QJsonValue(1.5),QJsonValue(0),QJsonValue(3),QJsonValue(true)}) {
+        auto invalid=saved; invalid["drawingStrokes"]=value; QVERIFY(!Document::fromJson(invalid).document);
+    }
+    for(const auto &value : {QJsonValue(),QJsonValue(1),QJsonValue("random")}) {
+        auto invalid=saved; invalid["drawingVariation"]=value; QVERIFY(!Document::fromJson(invalid).document);
+    }
+    auto legacy=saved; legacy["formatVersion"]=11; legacy.remove("drawingVariation"); legacy.remove("drawingStrokes");
+    loaded=Document::fromJson(legacy); QVERIFY(loaded.document);
+    QCOMPARE(loaded.document->drawingStyle(),DrawingStyle::HandDrawn);
+    QCOMPARE(loaded.document->drawingVariation(),DrawingVariation::Individual); QCOMPARE(loaded.document->drawingStrokes(),1);
+    const auto a=doc.addComponent(SymbolIds::Capacitor,{});
+    Document destination; destination.setDrawingStrokes(2); destination.setDrawingVariation(DrawingVariation::Consistent);
+    QVERIFY(destination.pasteFragment(doc.copyFragment({a},{}),{}));
+    QCOMPARE(destination.drawingStrokes(),2); QCOMPARE(destination.drawingVariation(),DrawingVariation::Consistent);
+}
+
+void TstDocumentJson::drawingLoosenessRoundTrip()
+{
+    Document doc; QCOMPARE(doc.drawingLooseness(),1.0);
+    QVERIFY(doc.setDrawingLooseness(2.75)); const auto saved=doc.toJson();
+    auto loaded=Document::fromJson(saved); QVERIFY(loaded.document);
+    QCOMPARE(loaded.document->toJsonBytes(),doc.toJsonBytes());
+    for(const auto &value : {QJsonValue(),QJsonValue("1"),QJsonValue(-0.1),QJsonValue(3.1),QJsonValue(true)}) {
+        auto bad=saved; bad["drawingLooseness"]=value; QVERIFY(!Document::fromJson(bad).document);
+    }
+    QVERIFY(!doc.setDrawingLooseness(qInf())); QVERIFY(!doc.setDrawingLooseness(qQNaN()));
+    QCOMPARE(doc.toJson(),saved);
+    auto legacy=saved; legacy["formatVersion"]=12; legacy.remove("drawingLooseness");
+    loaded=Document::fromJson(legacy); QVERIFY(loaded.document); QCOMPARE(loaded.document->drawingLooseness(),1.0);
+    QVERIFY(doc.setDrawingLooseness(0)); QVERIFY(doc.setDrawingLooseness(3));
 }

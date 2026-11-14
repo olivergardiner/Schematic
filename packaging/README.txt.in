@@ -1,0 +1,18 @@
+Schematic @PROJECT_VERSION@
+
+Windows: extract the ZIP completely, then run bin\Schematic.exe.
+The installer creates a Start-menu shortcut and an uninstaller.
+Qt libraries, plugins and the compiler runtime are included.
+
+The ZIP needs no installation, but preferences and user symbol packages still
+use the normal per-user Schematic locations; it is not a separate portable profile.
+Upgrades and uninstall leave your drawings, preferences and user symbol library alone.
+File associations and automatic updates are not included in this release.
+
+Application source is licensed under Apache 2.0; see share/Schematic/licenses.
+Qt and its bundled dependencies retain their own licenses. License texts and
+available Qt SPDX dependency metadata are included in that directory.
+Qt version: @Qt6_VERSION@. Upstream sources: https://download.qt.io/archive/qt/
+
+SVG exports reference installed fonts. Other machines may substitute fonts that
+are not installed; font files are not bundled with Schematic or embedded in SVG.

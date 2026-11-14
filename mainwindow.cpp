@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "propertiespanel.h"
 #include "preferencesdialog.h"
+#include "schematicfont.h"
 #include "schematicsvgexporter.h"
 #include "schematicscene.h"
 #include "schematicview.h"
@@ -766,6 +767,20 @@ void MainWindow::createToolBar()
     connect(m_gridSpacingSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
             this, &MainWindow::onGridSpacingChanged);
     viewToolBar->addWidget(m_gridSpacingSpin);
+    viewToolBar->addSeparator();
+    viewToolBar->addWidget(new QLabel(tr("Drawing style:"), this));
+    m_drawingStyleCombo = new QComboBox(this);
+    m_drawingStyleCombo->setObjectName("drawingStyleCombo");
+    m_drawingStyleCombo->setAccessibleName(tr("Drawing style"));
+    m_drawingStyleCombo->addItems({tr("Standard"), tr("Hand-drawn")});
+    m_drawingStyleCombo->setToolTip(tr("Drawing style for this schematic"));
+    viewToolBar->addWidget(m_drawingStyleCombo);
+    connect(m_drawingStyleCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index) {
+        m_editController->commit(tr("Change drawing style"), [this, index] {
+            return m_document.setDrawingStyle(index == 1 ? DrawingStyle::HandDrawn : DrawingStyle::Standard);
+        });
+    });
+
 }
 
 void MainWindow::restoreWindowLayout()
@@ -1004,6 +1019,8 @@ void MainWindow::updateWindowTitle()
 
 void MainWindow::syncGridControls()
 {
+    const QSignalBlocker styleBlocker(m_drawingStyleCombo);
+    m_drawingStyleCombo->setCurrentIndex(m_document.drawingStyle() == DrawingStyle::HandDrawn ? 1 : 0);
     // The spin box rounds to its displayed precision and clamps to its
     // range, so a loaded spacing outside that (still valid in the file) must
     // not travel back through valueChanged() into the document. Block the
@@ -1425,10 +1442,23 @@ void MainWindow::clipboardEdit(const QString &operation)
 
 void MainWindow::onPreferences()
 {
+    const QFont previousLabels = SchematicFont::labels(), previousNotes = SchematicFont::notes();
     PreferencesDialog dialog(this);
+    dialog.setDrawingOptions(m_document);
     if (dialog.exec() == QDialog::Accepted) {
+        m_editController->commit(tr("Change hand-drawn appearance"), [this, &dialog] {
+            return m_document.setDrawingVariation(dialog.drawingVariation())
+                && m_document.setDrawingStrokes(dialog.drawingStrokes())
+                && m_document.setDrawingLooseness(dialog.drawingLooseness());
+        });
         m_scene->setPropertyBlockGridSpacing(dialog.propertyBlockGridSpacing());
         m_view->setCadStyleMouseWheel(dialog.cadStyleMouseWheel());
         m_scene->setKeepPlacingSymbols(dialog.keepPlacingSymbols());
+        if (previousLabels != SchematicFont::labels() || previousNotes != SchematicFont::notes()) {
+            for (auto *widget : QApplication::topLevelWidgets()) {
+                if (auto *window = qobject_cast<MainWindow *>(widget))
+                    window->m_scene->restoreAfterDocumentChange(window->m_scene->selection());
+            }
+        }
     }
 }

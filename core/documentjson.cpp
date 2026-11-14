@@ -47,7 +47,11 @@ QJsonObject endpointJson(const WireEndpoint &endpoint)
 QJsonObject Document::toJson() const
 {
     QJsonObject root;
-    root.insert(QStringLiteral("formatVersion"), 10);
+    root.insert(QStringLiteral("formatVersion"), 13);
+    root.insert("drawingStyle", m_drawingStyle == DrawingStyle::HandDrawn ? "hand-drawn" : "standard");
+    root.insert("drawingVariation", m_drawingVariation == DrawingVariation::Consistent ? "consistent" : "individual");
+    root.insert("drawingStrokes", m_drawingStrokes);
+    root.insert("drawingLooseness", m_drawingLooseness);
     QJsonArray notes;
     for (const auto &note : m_notes)
         notes.append(QJsonObject{{"id", double(note.id)}, {"x", note.position.x()}, {"y", note.position.y()},
@@ -128,8 +132,8 @@ DocumentLoadResult Document::fromJson(const QJsonObject &root)
     DocumentLoadResult result;
     const QJsonValue versionValue = root.value(QStringLiteral("formatVersion"));
     const int formatVersion = versionValue.isDouble() ? versionValue.toInt(-1) : -1;
-    if (versionValue.toDouble(-1) != formatVersion || formatVersion < 1 || formatVersion > 10) {
-        result.errors.append(QStringLiteral("Unsupported or missing formatVersion (expected 1-10)"));
+    if (versionValue.toDouble(-1) != formatVersion || formatVersion < 1 || formatVersion > 13) {
+        result.errors.append(QStringLiteral("Unsupported or missing formatVersion (expected 1-13)"));
         return result;
     }
     auto error = [&result](const QString &message) { result.errors.append(message); };
@@ -341,6 +345,32 @@ DocumentLoadResult Document::fromJson(const QJsonObject &root)
 
     Document doc;
     doc.m_gridSpacing = spacing;
+    if (formatVersion >= 11) {
+        const auto style = root.value("drawingStyle").toString();
+        if (style != "standard" && style != "hand-drawn") {
+            error("drawingStyle must be standard or hand-drawn");
+            return result;
+        }
+        doc.m_drawingStyle = style == "hand-drawn" ? DrawingStyle::HandDrawn : DrawingStyle::Standard;
+    }
+    if (formatVersion >= 12) {
+        const auto variation = root.value("drawingVariation").toString();
+        const auto strokes = root.value("drawingStrokes");
+        if ((variation != "individual" && variation != "consistent") || !strokes.isDouble()
+            || (strokes.toDouble() != 1 && strokes.toDouble() != 2)) {
+            error("Invalid drawingVariation or drawingStrokes (expected individual/consistent and 1/2)");
+            return result;
+        }
+        doc.m_drawingVariation = variation == "consistent" ? DrawingVariation::Consistent : DrawingVariation::Individual;
+        doc.m_drawingStrokes = strokes.toInt();
+    }
+    if (formatVersion >= 13) {
+        qreal looseness = 0;
+        if (!number(root.value("drawingLooseness"), &looseness) || !doc.setDrawingLooseness(looseness)) {
+            error("drawingLooseness must be a number from 0 to 3");
+            return result;
+        }
+    }
     QStringList used;
     for (const auto &item : parsedComponents) if (!used.contains(item.kind.value())) used.append(item.kind.value());
     QStringList closureErrors;

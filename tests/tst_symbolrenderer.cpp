@@ -13,6 +13,9 @@ class SymbolRendererTests : public QObject
     Q_OBJECT
 
 private slots:
+    void loosenessScalesWithoutMovingAnchors();
+    void consistentAndDoubleStrokes();
+    void handDrawnAnchorsAndReview();
     void monochromeFillPixels();
     void valveHeatersRenderWithAndWithoutConnections();
     void previewFitsTargetAndPaintsArtwork();
@@ -222,3 +225,78 @@ void SymbolRendererTests::valveHeatersRenderWithAndWithoutConnections()
 
 QTEST_GUILESS_MAIN(SymbolRendererTests)
 #include "tst_symbolrenderer.moc"
+
+void SymbolRendererTests::handDrawnAnchorsAndReview()
+{
+    QPainterPath path; path.moveTo(0,0); path.lineTo(60,0); path.lineTo(60,40);
+    const auto styled = SymbolRenderer::handDrawnPath(path, 17);
+    QCOMPARE(styled, SymbolRenderer::handDrawnPath(path, 17));
+    QVERIFY(styled != path);
+    QVERIFY(styled != SymbolRenderer::handDrawnPath(path, 18));
+    QCOMPARE(styled.currentPosition(), QPointF(60,40));
+    bool corner = false;
+    for (int i=0; i<styled.elementCount(); ++i) {
+        const auto e=styled.elementAt(i);
+        if (e.x==60 && e.y==0) corner=true;
+    }
+    QVERIFY(corner);
+    QImage sheet(1000,400,QImage::Format_ARGB32_Premultiplied); sheet.fill(Qt::white);
+    QPainter painter(&sheet); painter.setRenderHint(QPainter::Antialiasing);
+    const QStringList ids = {"Resistor", "Capacitor", "Diode", "Valve.Triode.WithHeaters", "Valve.Pentode.WithHeaters"};
+    int column=0;
+    for (const auto &id : ids) {
+        const auto *symbol=builtinSymbolLibrary().find(SymbolId(id)); QVERIFY2(symbol,qPrintable(id));
+        for(int row=0; row<2; ++row) {
+            painter.save(); painter.translate(column*200+100,row*200+100); painter.scale(2,2);
+            painter.setPen(QPen(Qt::black,1));
+            for(const auto &p : SymbolRenderer::primitives(*symbol)) {
+                const auto output=row ? SymbolRenderer::handDrawnPath(p.path,17) : p.path;
+                QCOMPARE(output.fillRule(),p.path.fillRule());
+                QCOMPARE(output.currentPosition(),p.path.currentPosition());
+                painter.setBrush(SymbolRenderer::fillBrush(p)); painter.drawPath(output);
+            }
+            painter.restore();
+        }
+        ++column;
+    }
+    painter.end();
+    QVERIFY(sheet.save(QCoreApplication::applicationDirPath()+"/drawing-style-review.png"));
+}
+
+void SymbolRendererTests::consistentAndDoubleStrokes()
+{
+    const auto *symbol=builtinSymbolLibrary().find(SymbolIds::Capacitor); QVERIFY(symbol);
+    const auto a=SymbolRenderer::handDrawnPrimitives(*symbol,1,true,2);
+    const auto b=SymbolRenderer::handDrawnPrimitives(*symbol,999,true,2);
+    const auto individual=SymbolRenderer::handDrawnPrimitives(*symbol,1,false,1);
+    const auto other=SymbolRenderer::handDrawnPrimitives(*symbol,999,false,1);
+    const auto original=SymbolRenderer::primitives(*symbol);
+    QCOMPARE(a.size(),original.size()); bool differs=false;
+    for(int i=0;i<a.size();++i) {
+        QCOMPARE(a[i].path,b[i].path); QCOMPARE(a[i].secondaryPath,b[i].secondaryPath);
+        QVERIFY(!a[i].secondaryPath.isEmpty()); QVERIFY(a[i].secondaryPath!=a[i].path);
+        QCOMPARE(a[i].path.currentPosition(),original[i].path.currentPosition());
+        QCOMPARE(a[i].secondaryPath.currentPosition(),original[i].path.currentPosition());
+        QCOMPARE(individual[i].path,SymbolRenderer::handDrawnPath(original[i].path,1u*2654435761u+i+1));
+        QVERIFY(individual[i].secondaryPath.isEmpty());
+        if(individual[i].path!=other[i].path) differs=true;
+    }
+    QVERIFY(differs);
+    QPainterPath wire; wire.moveTo(0,0); wire.lineTo(100,0);
+    const auto single=SymbolRenderer::handDrawnWire(wire,1,1);
+    const auto dual=SymbolRenderer::handDrawnWire(wire,1,2);
+    QVERIFY(dual.elementCount()>single.elementCount()); QCOMPARE(dual.currentPosition(),QPointF(100,0));
+}
+
+void SymbolRendererTests::loosenessScalesWithoutMovingAnchors()
+{
+    QPainterPath path; path.moveTo(0,0); path.lineTo(60,0); path.cubicTo(70,0,70,20,60,20);
+    QCOMPARE(SymbolRenderer::handDrawnPath(path,17,0),path);
+    const auto normal=SymbolRenderer::handDrawnPath(path,17);
+    QCOMPARE(normal,SymbolRenderer::handDrawnPath(path,17,1));
+    const auto loose=SymbolRenderer::handDrawnPath(path,17,3);
+    QVERIFY(loose!=normal); QCOMPARE(loose.currentPosition(),path.currentPosition());
+    QCOMPARE(loose,SymbolRenderer::handDrawnPath(path,17,3));
+    // The first generated line control's lateral offset scales exactly.
+    QVERIFY(qAbs(loose.elementAt(1).y-normal.elementAt(1).y*3)<1e-10);
+}

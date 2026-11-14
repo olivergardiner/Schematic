@@ -7,6 +7,9 @@ class TstDocumentJson : public QObject
 {
     Q_OBJECT
 private slots:
+    void drawingLoosenessRoundTrip();
+    void drawingOptionsRoundTripAndLegacy();
+    void drawingStyleRoundTripAndLegacy();
     void embedsSnapshotsAndReportsConflicts();
     void rejectsMalformedSnapshots();
     // Stable round trips must preserve topology and visible route geometry.

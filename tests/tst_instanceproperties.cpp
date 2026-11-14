@@ -129,7 +129,7 @@ void TstInstanceProperties::v5ValidationAndLegacyMigration()
     QVERIFY(document.editProperties({id}, {{Kind::SetValue,"value",{},"Ground"},
                                          {Kind::Add,"note","Note","Star point",true}}));
     const auto current = document.toJson();
-    QCOMPARE(current["formatVersion"].toInt(), 10);
+    QCOMPARE(current["formatVersion"].toInt(), 13);
     const auto loaded = Document::fromJson(current); QVERIFY(loaded.document);
     QCOMPARE(loaded.document->toJson(),current);
     for (int version = 1; version <= 4; ++version) {
@@ -144,7 +144,7 @@ void TstInstanceProperties::v5ValidationAndLegacyMigration()
         QCOMPARE(old.document->component(id)->value(),QString("Ground"));
         QVERIFY(!old.document->component(id)->property("reference")->visible);
         QVERIFY(old.document->component(id)->property("value")->visible);
-        QCOMPARE(old.document->toJson()["formatVersion"].toInt(), 10);
+        QCOMPARE(old.document->toJson()["formatVersion"].toInt(), 13);
     }
     for (int problem = 0; problem < 7; ++problem) {
         auto root = current; auto entries = root["components"].toArray(); auto entry = entries[0].toObject();

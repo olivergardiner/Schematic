@@ -43,7 +43,12 @@
             "options": {
                 "shell": {
                     "executable": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
-                    "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
+                    "args": [
+                        "-NoProfile",
+                        "-ExecutionPolicy",
+                        "Bypass",
+                        "-Command"
+                    ]
                 }
             },
             "group": "build",
@@ -60,7 +65,12 @@
             "options": {
                 "shell": {
                     "executable": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
-                    "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
+                    "args": [
+                        "-NoProfile",
+                        "-ExecutionPolicy",
+                        "Bypass",
+                        "-Command"
+                    ]
                 }
             },
             "group": "build",
@@ -68,6 +78,30 @@
                 "reveal": "always",
                 "panel": "shared"
             },
+            "problemMatcher": []
+        },
+        {
+            "label": "Configure Windows Packages",
+            "type": "shell",
+            "command": "cmake --preset local-msvc -B build-package -DBUILD_TESTING=OFF",
+            "problemMatcher": []
+        },
+        {
+            "label": "Build Windows Package App",
+            "type": "shell",
+            "command": "cmake --build build-package --config Release --target Schematic",
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "Package Windows Release",
+            "type": "shell",
+            "command": "cpack --config build-package/CPackConfig.cmake -C Release",
+            "dependsOrder": "sequence",
+            "dependsOn": [
+                "Configure Windows Packages",
+                "Build Windows Package App"
+            ],
+            "group": "build",
             "problemMatcher": []
         }
     ]

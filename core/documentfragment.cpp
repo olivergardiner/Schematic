@@ -76,7 +76,10 @@ bool Document::pasteFragmentImpl(const QByteArray &bytes, QPointF displacement, 
             && root.value("document").toObject().value("formatVersion").toDouble(-1) != 7
             && root.value("document").toObject().value("formatVersion").toDouble(-1) != 8
             && root.value("document").toObject().value("formatVersion").toDouble(-1) != 9
-            && root.value("document").toObject().value("formatVersion").toDouble(-1) != 10))
+            && root.value("document").toObject().value("formatVersion").toDouble(-1) != 10
+            && root.value("document").toObject().value("formatVersion").toDouble(-1) != 11
+            && root.value("document").toObject().value("formatVersion").toDouble(-1) != 12
+            && root.value("document").toObject().value("formatVersion").toDouble(-1) != 13))
         return fail("Unsupported or malformed schematic clipboard data.");
     auto loaded = fromJson(root.value("document").toObject());
     if (!loaded.document || !loaded.warnings.isEmpty())

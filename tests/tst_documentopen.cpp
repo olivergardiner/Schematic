@@ -16,6 +16,10 @@
 #include <QDialog>
 #include <QDoubleSpinBox>
 #include "../preferencesdialog.h"
+#include "../schematicfont.h"
+#include <QFontComboBox>
+#include <QSpinBox>
+#include "../schematicitems.h"
 #include <QDialogButtonBox>
 #include <QTabWidget>
 #include <QFile>
@@ -51,6 +55,9 @@ class DocumentOpenTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void globalFontPreferences();
+    void drawingOptionsControls();
+    void drawingStyleControlUndoAndLoad();
     void textNotesPlacementPropertiesClipboard();
     void recentFilesReopenPersistAndClear();
     void recentFilesLimitAndSuccessfulSaves();
@@ -1403,3 +1410,135 @@ void DocumentOpenTests::textNotesPlacementPropertiesClipboard()
 
 QTEST_MAIN(DocumentOpenTests)
 #include "tst_documentopen.moc"
+
+void DocumentOpenTests::drawingStyleControlUndoAndLoad()
+{
+    MainWindow window;
+    auto *combo=window.findChild<QComboBox *>("drawingStyleCombo"); QVERIFY(combo);
+    QCOMPARE(combo->currentIndex(),0);
+    combo->setCurrentIndex(1);
+    QCOMPARE(window.m_document.drawingStyle(),DrawingStyle::HandDrawn);
+    window.m_editController->undoStack()->undo(); QCOMPARE(combo->currentIndex(),0);
+    window.m_editController->undoStack()->redo(); QCOMPARE(combo->currentIndex(),1);
+    window.m_document.setDrawingStyle(DrawingStyle::Standard);
+    window.syncGridControls(); QCOMPARE(combo->currentIndex(),0);
+    QTemporaryDir directory; QVERIFY(directory.isValid());
+    Document handDrawn; handDrawn.setDrawingStyle(DrawingStyle::HandDrawn);
+    QFile file(directory.filePath("style.schematic")); QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(handDrawn.toJsonBytes()); file.close();
+    window.m_editController->resetHistory();
+    QVERIFY(window.openDocumentFrom(file.fileName())); QCOMPARE(combo->currentIndex(),1);
+    window.onNew(); QCOMPARE(combo->currentIndex(),0);
+    window.m_editController->resetHistory();
+}
+
+void DocumentOpenTests::drawingOptionsControls()
+{
+    MainWindow window;
+    QVERIFY(!window.findChild<QComboBox *>("drawingVariationCombo"));
+    QVERIFY(!window.findChild<QComboBox *>("drawingStrokesCombo"));
+    auto *style=window.findChild<QComboBox *>("drawingStyleCombo"); QVERIFY(style);
+    style->setCurrentIndex(1);
+    const auto before=window.m_document.toJsonBytes();
+    auto changeOptions=[&](bool accept) {
+        bool found=false;
+        QTimer::singleShot(0,&window,[&] {
+            auto *dialog=qobject_cast<PreferencesDialog *>(QApplication::activeModalWidget());
+            if(!dialog) return;
+            auto *tabs=dialog->findChild<QTabWidget *>(); tabs->setCurrentIndex(1);
+            auto *variation=dialog->findChild<QComboBox *>("drawingVariationCombo");
+            auto *strokes=dialog->findChild<QComboBox *>("drawingStrokesCombo");
+            auto *looseness=dialog->findChild<QDoubleSpinBox *>("drawingLooseness");
+            found=variation && strokes && looseness && variation->isEnabled();
+            if(found) {
+                variation->setCurrentIndex(1); strokes->setCurrentIndex(1); looseness->setValue(200);
+                found = dialog->grab().save(QCoreApplication::applicationDirPath()+"/hand-drawn-preferences.png");
+            }
+            auto *buttons=dialog->findChild<QDialogButtonBox *>();
+            buttons->button(accept ? QDialogButtonBox::Ok : QDialogButtonBox::Cancel)->click();
+        });
+        window.onPreferences(); QVERIFY(found);
+    };
+    changeOptions(false); QCOMPARE(window.m_document.toJsonBytes(),before);
+    changeOptions(true);
+    QCOMPARE(window.m_document.drawingVariation(),DrawingVariation::Consistent);
+    QCOMPARE(window.m_document.drawingStrokes(),2); QCOMPARE(window.m_document.drawingLooseness(),2.0);
+    window.m_editController->undoStack()->undo(); QCOMPARE(window.m_document.toJsonBytes(),before);
+    window.m_editController->undoStack()->redo(); QCOMPARE(window.m_document.drawingLooseness(),2.0);
+    PreferencesDialog reopened; reopened.setDrawingOptions(window.m_document);
+    QCOMPARE(reopened.drawingLooseness(),2.0); QCOMPARE(reopened.drawingStrokes(),2);
+    window.m_document.setDrawingLooseness(1.234567); reopened.setDrawingOptions(window.m_document);
+    QCOMPARE(reopened.drawingLooseness(),1.234567);
+    window.m_document.setDrawingStyle(DrawingStyle::Standard); reopened.setDrawingOptions(window.m_document);
+    QVERIFY(!reopened.findChild<QComboBox *>("drawingVariationCombo")->isEnabled());
+    window.m_editController->resetHistory();
+}
+
+void DocumentOpenTests::globalFontPreferences()
+{
+    const auto oldOrg=QCoreApplication::organizationName(), oldApp=QCoreApplication::applicationName();
+    const auto oldFormat=QSettings::defaultFormat();
+    QTemporaryDir settingsDirectory; QVERIFY(settingsDirectory.isValid());
+    QCoreApplication::setOrganizationName("SchematicFontTests"); QCoreApplication::setApplicationName("Fonts");
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,settingsDirectory.path());
+    const auto restoreSettingsContext=qScopeGuard([&] {
+        QSettings::setDefaultFormat(oldFormat);
+        QCoreApplication::setOrganizationName(oldOrg); QCoreApplication::setApplicationName(oldApp);
+    });
+    QSettings settings;
+    const QStringList keys={"appearance/schematicFontFamily","appearance/labelFontSize","appearance/noteFontSize"};
+    QVariantList saved; for(const auto &key:keys) { saved.append(settings.value(key)); settings.remove(key); }
+    const auto cleanup=qScopeGuard([&] {
+        for(int i=0;i<keys.size();++i) { if(saved[i].isValid()) settings.setValue(keys[i],saved[i]); else settings.remove(keys[i]); }
+    });
+    MainWindow window, other;
+    const auto id=window.m_document.addComponent(SymbolIds::Resistor,{});
+    window.m_document.addNote({0,40},"A wrapped schematic note",100);
+    window.m_scene->restoreAfterDocumentChange({{id},{}});
+    other.m_document.addComponent(SymbolIds::Capacitor,{}); other.m_scene->restoreAfterDocumentChange({});
+    const auto before=window.m_document.toJsonBytes();
+    const int history=window.m_editController->undoStack()->index();
+    QString chosen;
+    const auto change=[&](bool accept) {
+        bool found=false;
+        QTimer::singleShot(0,&window,[&] {
+            auto *dialog=qobject_cast<PreferencesDialog *>(QApplication::activeModalWidget()); if(!dialog)return;
+            dialog->findChild<QTabWidget *>()->setCurrentIndex(1);
+            auto *family=dialog->findChild<QFontComboBox *>("schematicFontFamily");
+            auto *labels=dialog->findChild<QSpinBox *>("labelFontSize");
+            auto *notes=dialog->findChild<QSpinBox *>("noteFontSize");
+            found=family && labels && notes;
+            if(found) {
+                family->setCurrentFont(QFont("Courier New")); chosen=family->currentFont().family();
+                labels->setValue(12); notes->setValue(15);
+                found=dialog->grab().save(QCoreApplication::applicationDirPath()+"/font-preferences.png");
+            }
+            dialog->findChild<QDialogButtonBox *>()->button(accept?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();
+        });
+        window.onPreferences(); QVERIFY(found);
+    };
+    change(false); QCOMPARE(SchematicFont::labels().pixelSize(),8); QCOMPARE(SchematicFont::notes().pixelSize(),10);
+    change(true); QCOMPARE(SchematicFont::labels().family(),chosen);
+    QCOMPARE(SchematicFont::labels().pixelSize(),12); QCOMPARE(SchematicFont::notes().pixelSize(),15);
+    for(auto *current : {&window,&other}) {
+        bool label=false;
+        for(auto *item:current->m_scene->items()) {
+            if(auto *text=qgraphicsitem_cast<ComponentLabelItem *>(item)) {
+                QCOMPARE(text->font(),SchematicFont::labels()); label=true;
+            }
+            if(auto *note=qgraphicsitem_cast<NoteItem *>(item)) QCOMPARE(note->font(),SchematicFont::notes());
+        }
+        QVERIFY(label);
+    }
+    QCOMPARE(window.m_document.toJsonBytes(),before);
+    QCOMPARE(window.m_editController->undoStack()->index(),history);
+    QCOMPARE(window.m_scene->selection().components,QVector<ComponentId>{id});
+    PreferencesDialog reopened;
+    QCOMPARE(reopened.findChild<QSpinBox *>("labelFontSize")->value(),12);
+    QCOMPARE(reopened.findChild<QSpinBox *>("noteFontSize")->value(),15);
+    for(const auto &value : {QVariant("bad"),QVariant(0),QVariant(73)}) {
+        settings.setValue("appearance/labelFontSize",value); QCOMPARE(SchematicFont::labels().pixelSize(),8);
+    }
+    window.m_editController->resetHistory(); other.m_editController->resetHistory();
+}

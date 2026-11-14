@@ -883,7 +883,7 @@ void TstSymbolLibrary::layoutPersistenceAndClipboardAreSelfContained()
     Document document;
     const auto id = document.addComponent(SymbolIds::OTANoSuppliesVerticalBias, {});
     const auto json = document.toJson();
-    QCOMPARE(json["formatVersion"].toInt(), 10);
+    QCOMPARE(json["formatVersion"].toInt(), 13);
     QCOMPARE(json["symbols"].toArray().size(), 2);
     const auto clipboard = document.copyFragment({id}, {});
     const auto installed = applicationSymbolLibrary();

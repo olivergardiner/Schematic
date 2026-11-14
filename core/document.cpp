@@ -165,6 +165,34 @@ bool Document::setSymbolLayout(ComponentId id, const QString &controlKey, const 
     return true;
 }
 
+bool Document::setDrawingStyle(DrawingStyle style)
+{
+    if (style != DrawingStyle::Standard && style != DrawingStyle::HandDrawn) return false;
+    m_drawingStyle = style;
+    return true;
+}
+
+bool Document::setDrawingVariation(DrawingVariation variation)
+{
+    if (variation != DrawingVariation::Individual && variation != DrawingVariation::Consistent) return false;
+    m_drawingVariation = variation;
+    return true;
+}
+
+bool Document::setDrawingStrokes(int strokes)
+{
+    if (strokes != 1 && strokes != 2) return false;
+    m_drawingStrokes = strokes;
+    return true;
+}
+
+bool Document::setDrawingLooseness(qreal looseness)
+{
+    if (!std::isfinite(looseness) || looseness < 0 || looseness > 3) return false;
+    m_drawingLooseness = looseness;
+    return true;
+}
+
 bool Document::setGridSpacing(qreal spacing)
 {
     if (!std::isfinite(spacing) || spacing <= 0.0)

@@ -7,6 +7,8 @@ class TstDocumentEditController : public QObject
     Q_OBJECT
 
 private slots:
+    void drawingOptionsUndoRedo();
+    void drawingStyleUndoRedo();
     void fillArtworkUndoRoundTrip();
     void snapshotUndoRedoAndCleanIndex();
     void rejectedAndNoOpEditsDoNotEnterHistory();
@@ -173,3 +175,31 @@ void TstDocumentEditController::fillArtworkUndoRoundTrip()
 
 QTEST_GUILESS_MAIN(TstDocumentEditController)
 #include "tst_documenteditcontroller.moc"
+
+void TstDocumentEditController::drawingStyleUndoRedo()
+{
+    Document doc; DocumentEditController edits(&doc);
+    QVERIFY(edits.commit("Style", [&] { return doc.setDrawingStyle(DrawingStyle::HandDrawn); }));
+    QCOMPARE(doc.drawingStyle(), DrawingStyle::HandDrawn);
+    QVERIFY(!edits.undoStack()->isClean());
+    edits.undoStack()->undo(); QCOMPARE(doc.drawingStyle(), DrawingStyle::Standard);
+    QVERIFY(edits.undoStack()->isClean());
+    edits.undoStack()->redo(); QCOMPARE(doc.drawingStyle(), DrawingStyle::HandDrawn);
+    QVERIFY(!edits.commit("Style", [&] { return doc.setDrawingStyle(DrawingStyle::HandDrawn); }));
+}
+
+void TstDocumentEditController::drawingOptionsUndoRedo()
+{
+    Document doc; DocumentEditController edits(&doc);
+    QVERIFY(edits.commit("Variation",[&] { return doc.setDrawingVariation(DrawingVariation::Consistent); }));
+    QVERIFY(edits.commit("Strokes",[&] { return doc.setDrawingStrokes(2); }));
+    edits.undoStack()->undo(); QCOMPARE(doc.drawingStrokes(),1);
+    QCOMPARE(doc.drawingVariation(),DrawingVariation::Consistent);
+    edits.undoStack()->undo(); QCOMPARE(doc.drawingVariation(),DrawingVariation::Individual);
+    QVERIFY(edits.undoStack()->isClean());
+    edits.undoStack()->redo(); edits.undoStack()->redo(); QCOMPARE(doc.drawingStrokes(),2);
+    QVERIFY(!edits.commit("Strokes",[&] { return doc.setDrawingStrokes(2); }));
+    QVERIFY(edits.commit("Looseness",[&] { return doc.setDrawingLooseness(2.5); }));
+    edits.undoStack()->undo(); QCOMPARE(doc.drawingLooseness(),1.0);
+    edits.undoStack()->redo(); QCOMPARE(doc.drawingLooseness(),2.5);
+}

@@ -18,6 +18,9 @@
 
 struct DocumentLoadResult;
 
+enum class DrawingStyle { Standard, HandDrawn };
+enum class DrawingVariation { Individual, Consistent };
+
 enum class FlipAxis { Horizontal, Vertical };
 
 struct SelectionTransform
@@ -55,6 +58,14 @@ public:
     bool setSymbolLayout(ComponentId id, const QString &controlKey, const QString &choiceKey,
                          QStringList *errors = nullptr);
     bool canSetSymbolLayout(ComponentId id, const QString &controlKey, const QString &choiceKey) const;
+    DrawingStyle drawingStyle() const { return m_drawingStyle; }
+    bool setDrawingStyle(DrawingStyle style);
+    DrawingVariation drawingVariation() const { return m_drawingVariation; }
+    bool setDrawingVariation(DrawingVariation variation);
+    int drawingStrokes() const { return m_drawingStrokes; }
+    bool setDrawingStrokes(int strokes);
+    qreal drawingLooseness() const { return m_drawingLooseness; }
+    bool setDrawingLooseness(qreal looseness);
     qreal gridSpacing() const { return m_gridSpacing; }
     bool setGridSpacing(qreal spacing);
 
@@ -164,9 +175,8 @@ public:
     QVector<Net> computeNets() const;
     QVector<QPointF> junctionPoints() const;
 
-    // Version-9 JSON adds plain text notes to embedded symbols, components,
-    // nodes and wire routes. Versions 1-8 remain readable. Nets, junctions
-    // and note layout heights are derived, never serialized.
+    // Version 13 adds drawing looseness. Versions 1-12 remain readable.
+    // Nets, junctions and note layout heights are derived, never serialized.
     QJsonObject toJson() const;
     QByteArray toJsonBytes() const;
     static DocumentLoadResult fromJson(const QJsonObject &root);
@@ -207,6 +217,10 @@ private:
     static bool idsAvailable(quint32 nextId, int count);
 
     SymbolLibrary m_symbols;
+    DrawingStyle m_drawingStyle = DrawingStyle::Standard;
+    DrawingVariation m_drawingVariation = DrawingVariation::Individual;
+    int m_drawingStrokes = 1;
+    qreal m_drawingLooseness = 1.0;
     qreal m_gridSpacing = 10.0;
     ComponentId m_nextComponentId = 1;
     WireId m_nextWireId = 1;
