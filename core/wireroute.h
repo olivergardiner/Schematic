@@ -6,6 +6,14 @@
 #include <QPointF>
 #include <QVector>
 
+struct WireSegmentRef
+{
+    WireId wire = kInvalidWireId;
+    int segment = -1;
+    bool operator==(const WireSegmentRef &other) const
+    { return wire == other.wire && segment == other.segment; }
+};
+
 struct WireRoute
 {
     WireId id = kInvalidWireId;

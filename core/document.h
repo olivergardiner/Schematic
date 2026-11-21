@@ -142,6 +142,9 @@ public:
     // Endpoints (including shared nodes) stay fixed; end
     // segments acquire connecting bends. Invalid/no-op edits return false.
     bool moveWireSegment(WireId id, int segment, qreal coordinate);
+    QVector<WireSegmentRef> wireRun(WireSegmentRef hit) const;
+    bool moveWireSegments(const QVector<WireSegmentRef> &segments, QPointF displacement,
+                          QVector<WireSegmentRef> *result = nullptr);
     std::optional<NodeId> branchWireAt(WireId id, QPointF point);
 
     // Atomic wire completion: resolves each endpoint (materializing any

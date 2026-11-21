@@ -15,6 +15,8 @@ private slots:
     // reference prefix and reference visibility.
     void builtinLibraryHasExpectedMetadata();
     void packagedArtworkMatchesTemplates();
+    void inductorGeometry();
+    void connectorJackTerminals();
     void blockSymbolsGeometryAndConnectedPersistence();
 
     // Released terminal order, names and positions are frozen: saved wires

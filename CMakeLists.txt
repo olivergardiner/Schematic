@@ -110,9 +110,19 @@ qt_add_resources(schematiccore symbol_library
         core/symbols/ota-no-supplies.json
         core/symbols/ota-no-supplies-bias-above.json
         core/symbols/darlington-buffer-lm13700.json
+        core/symbols/switched-capacitor-inverter.json
+        core/symbols/switched-capacitor-inverter-no-pin-numbers.json
+        core/symbols/three-terminal-regulator.json
         core/symbols/potentiometer.json
         core/symbols/preset-resistor.json
+        core/symbols/inductor.json
         core/symbols/jack.json
+        core/symbols/barrel-jack-55.json
+        core/symbols/barrel-jack-55-switched.json
+        core/symbols/mono-jack-635.json
+        core/symbols/mono-jack-635-switched.json
+        core/symbols/stereo-jack-635.json
+        core/symbols/stereo-jack-635-switched.json
         core/symbols/block-high-pass.json
         core/symbols/block-low-pass.json
         core/symbols/block-band-pass.json

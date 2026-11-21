@@ -115,6 +115,7 @@ void SchematicScene::bindDocument(Document *document)
     // Component IDs are only meaningful within one Document, so a newly bound
     // (or unbound) document must never inherit the previous selection.
     clearSelection();
+    showSelectedSegments(nullptr, {});
     m_document = document;
     rebuild();
 }
@@ -127,6 +128,7 @@ void SchematicScene::setEditMode(EditMode mode)
     emit selectionGestureReset();
     cancelPendingWire();
     clearSelection();
+    showSelectedSegments(nullptr, {});
     m_mode = mode;
     update();
     emit editModeChanged(m_mode);
@@ -262,6 +264,7 @@ void SchematicScene::rebuild(const Selection *selectionOverride)
 void SchematicScene::renderDocument(const Document &document, const Selection &retained)
 {
     clear();
+    m_segmentHighlight = nullptr;
     m_wirePreviewItem = nullptr; // clear() already deleted the item itself.
     for (const auto &note : document.notes()) addItem(new NoteItem(note));
     for (const WireRoute &route : document.wires())
@@ -270,7 +273,10 @@ void SchematicScene::renderDocument(const Document &document, const Selection &r
         addJunctionItem(point);
     for (const Component &component : document.components())
         addComponentItems(component, document);
-    restoreSelection(retained);
+    Selection objects = retained;
+    objects.segments.clear();
+    restoreSelection(objects);
+    showSelectedSegments(&document, retained.segments);
 }
 
 void SchematicScene::addWireItems(const WireRoute &route)
@@ -306,10 +312,6 @@ void SchematicScene::addComponentItems(const Component &component, const Documen
     const LibrarySymbol &def = *symbol;
     const qreal degrees = static_cast<qreal>(static_cast<int>(component.rotation()));
 
-    // Symbol artwork is one rotated/translated group - a single Qt transform
-    // handles rotating every primitive together, matching Component's own
-    // rotate-then-translate contract (see component.h/component.cpp
-    // rotateOffset()).
     auto *artwork = new ComponentItem(component.id());
     const auto primitives = document.drawingStyle() == DrawingStyle::HandDrawn
         ? SymbolRenderer::handDrawnPrimitives(def, component.id(),
@@ -322,8 +324,11 @@ void SchematicScene::addComponentItems(const Component &component, const Documen
         artwork->addToGroup(primitiveItem);
     }
     artwork->setPos(component.position());
-    artwork->setTransform(QTransform::fromScale(component.mirrored() ? -1.0 : 1.0, 1.0));
-    artwork->setRotation(degrees);
+    // Match Component::terminalPosition: mirror in symbol coordinates, then rotate.
+    QTransform transform;
+    transform.rotate(degrees);
+    transform.scale(component.mirrored() ? -1.0 : 1.0, 1.0);
+    artwork->setTransform(transform);
     artwork->setZValue(kSymbolZ);
     artwork->setFlag(QGraphicsItem::ItemIsSelectable, true);
     addItem(artwork);
@@ -556,6 +561,7 @@ ComponentItem *SchematicScene::componentItemAt(QPointF scenePos) const
 SchematicScene::Selection SchematicScene::selection() const
 {
     Selection result;
+    result.segments = m_selectedSegments;
     for (QGraphicsItem *item : selectedItems()) {
         if (auto *component = qgraphicsitem_cast<ComponentItem *>(item))
             result.components.append(component->componentId());
@@ -571,12 +577,34 @@ SchematicScene::Selection SchematicScene::selection() const
 
 void SchematicScene::restoreSelection(const Selection &selection)
 {
+    showSelectedSegments(m_document, selection.segments);
     for (QGraphicsItem *item : items()) {
         if (auto *component = qgraphicsitem_cast<ComponentItem *>(item))
             component->setSelected(selection.components.contains(component->componentId()));
         if (auto *wire = qgraphicsitem_cast<WireItem *>(item))
             wire->setSelected(selection.wires.contains(wire->wireId()));
         if (auto *note = qgraphicsitem_cast<NoteItem *>(item)) note->setSelected(selection.notes.contains(note->noteId()));
+    }
+}
+
+void SchematicScene::showSelectedSegments(const Document *document, const QVector<WireSegmentRef> &segments)
+{
+    delete m_segmentHighlight;
+    m_segmentHighlight = nullptr;
+    m_selectedSegments.clear();
+    if (!document) return;
+    QPainterPath highlight;
+    for (const auto &segment : segments) {
+        const auto *route = document->wire(segment.wire);
+        if (!route || segment.segment < 0 || segment.segment >= route->vertices.size() - 1) continue;
+        m_selectedSegments.append(segment);
+        highlight.moveTo(route->vertices[segment.segment]);
+        highlight.lineTo(route->vertices[segment.segment + 1]);
+    }
+    if (!highlight.isEmpty()) {
+        m_segmentHighlight = addPath(highlight, QPen(Qt::red, kLineWidth));
+        m_segmentHighlight->setZValue(kWireZ + 0.1);
+        m_segmentHighlight->setAcceptedMouseButtons(Qt::NoButton);
     }
 }
 
@@ -590,6 +618,7 @@ bool SchematicScene::canStartSelectionBox(QPointF position) const
 void SchematicScene::selectInBox(const QRectF &rect, bool crossing,
                                  const Selection &baseline)
 {
+    showSelectedSegments(nullptr, {});
     // Group::shape() is its bounding rectangle. Gather primitive shapes
     // individually to avoid selecting empty space between artwork parts.
     QHash<ComponentId, QPainterPath> shapes;
@@ -632,6 +661,7 @@ void SchematicScene::beginDrag(ComponentItem *item, QPointF scenePos)
     m_dragNoteId = kInvalidNoteId;
     m_noteResizeSide = 0;
     m_dragWireId = kInvalidWireId;
+    m_segmentClickWire = kInvalidWireId;
     m_dragSegment = -1;
     m_dragging = true;
     m_dragThresholdPassed = false;
@@ -669,6 +699,27 @@ void SchematicScene::updateDrag(QPointF scenePos)
         m_dragCandidateValid = m_dragDisplacement.isNull()
             || candidate.setNote(m_dragNoteId, m_noteResizePosition, original->text, m_noteResizeWidth);
         renderDocument(m_dragCandidateValid ? candidate : *m_dragOriginal, m_dragSelection);
+        return;
+    }
+    if (!m_dragSelection.segments.isEmpty()) {
+        m_dragDisplacement = snapToGrid(pointerDelta);
+        bool hasHorizontal = false, hasVertical = false;
+        for (const auto &segment : m_dragSelection.segments) {
+            const auto &points = m_dragOriginal->wire(segment.wire)->vertices;
+            const bool horizontal = closeEnough(points[segment.segment].y(), points[segment.segment + 1].y());
+            hasHorizontal |= horizontal;
+            hasVertical |= !horizontal;
+        }
+        if (!hasHorizontal) m_dragDisplacement.setY(0);
+        if (!hasVertical) m_dragDisplacement.setX(0);
+        Document candidate = *m_dragOriginal;
+        Selection preview = m_dragSelection;
+        m_dragCandidateValid = m_dragDisplacement.isNull()
+            || candidate.moveWireSegments(m_dragSelection.segments, m_dragDisplacement, &preview.segments);
+        renderDocument(m_dragCandidateValid ? candidate : *m_dragOriginal,
+                       m_dragCandidateValid ? preview : m_dragSelection);
+        emit statusMessage(m_dragCandidateValid ? QString{}
+            : tr("That move would create an invalid wire route. Choose another position or press Escape."));
         return;
     }
     if (m_dragWireId != kInvalidWireId) {
@@ -719,10 +770,14 @@ void SchematicScene::endDrag()
     if (!m_dragging)
         return;
     const bool shouldCommit = m_dragThresholdPassed && m_dragCandidateValid;
-    const auto retained = m_dragSelection;
+    auto retained = m_dragSelection;
     const QPointF delta = m_dragDisplacement;
     m_dragging = false;
     m_dragOriginal.reset();
+    if (!m_dragThresholdPassed && m_segmentClickWire != kInvalidWireId) {
+        retained.segments.clear();
+        retained.wires = {m_segmentClickWire};
+    }
     if (shouldCommit && !delta.isNull() && m_dragNoteId && m_noteResizeSide) {
         const auto id = m_dragNoteId;
         const auto position = m_noteResizePosition;
@@ -730,6 +785,13 @@ void SchematicScene::endDrag()
         commitEdit(tr("Resize text note"), [this,id,position,width] {
             return m_document->setNote(id, position, m_document->note(id)->text, width);
         });
+    } else if (shouldCommit && !delta.isNull() && !retained.segments.isEmpty()) {
+        Selection after = retained;
+        const auto segments = retained.segments;
+        showSelectedSegments(m_document, segments);
+        if (commitEdit(tr("Move wire segments"), [this, &after, segments, delta] {
+            return m_document->moveWireSegments(segments, delta, &after.segments);
+        }, [&after] { return after; })) retained = after;
     } else if (shouldCommit && !delta.isNull() && m_dragWireId != kInvalidWireId) {
         const auto id = m_dragWireId;
         const int segment = m_dragSegment;
@@ -955,6 +1017,32 @@ void SchematicScene::mousePressEvent(QGraphicsSceneMouseEvent *event)
             ComponentItem *hit = noteHit ? nullptr : componentItemAt(event->scenePos());
             QGraphicsItem *target = noteHit ? static_cast<QGraphicsItem *>(noteHit) : hit;
             const auto wireHit = hitTestWireSegment(event->scenePos());
+            const bool alt = event->modifiers().testFlag(Qt::AltModifier);
+            const bool control = event->modifiers().testFlag(Qt::ControlModifier);
+            if (!target && wireHit.kind != HitKind::None) {
+                const WireSegmentRef segment{wireHit.wire, wireHit.segment};
+                const auto run = m_document->wireRun(segment);
+                const bool selected = m_selectedSegments.contains(segment);
+                if (alt && !run.isEmpty()) {
+                    auto segments = control || selected ? m_selectedSegments : QVector<WireSegmentRef>{};
+                    for (const auto &part : run) {
+                        if (control && selected) segments.removeAll(part);
+                        else if (!segments.contains(part)) segments.append(part);
+                    }
+                    clearSelection();
+                    showSelectedSegments(m_document, segments);
+                    if (!control) beginDrag(nullptr, event->scenePos());
+                    event->accept();
+                    return;
+                }
+                if (selected && event->modifiers() == Qt::NoModifier) {
+                    beginDrag(nullptr, event->scenePos());
+                    m_segmentClickWire = wireHit.wire;
+                    event->accept();
+                    return;
+                }
+            }
+            showSelectedSegments(nullptr, {});
             if (!target) {
                 for (auto *item : items()) {
                     if (auto *wire = qgraphicsitem_cast<WireItem *>(item))
@@ -1138,7 +1226,9 @@ void SchematicScene::restoreAfterDocumentChange(const Selection &selection)
 void SchematicScene::keyPressEvent(QKeyEvent *event)
 {
     if (event->key() == Qt::Key_Escape) {
+        const bool wasDragging = m_dragging;
         cancelMove();
+        if (!wasDragging) showSelectedSegments(nullptr, {});
         setEditMode(EditMode::Select);
         event->accept();
         return;

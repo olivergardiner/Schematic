@@ -41,7 +41,7 @@ void TstGroupTransformModel::branchesMoveOrAnchorByIdentity()
     const auto left = original.addComponent(SymbolIds::Resistor, {0, 0});
     const auto right = original.addComponent(SymbolIds::Resistor, {100, 0});
     const auto branch = original.addComponent(SymbolIds::Resistor, {50, 70}, Rotation::Deg90);
-    const auto straight = original.addWire(makeTerminalEndpoint(left, 1), {}, makeTerminalEndpoint(right, 0));
+    const auto straight = original.addWire(makeTerminalEndpoint(left, 1), {{40, 0}}, makeTerminalEndpoint(right, 0));
     QVERIFY(straight);
     const auto leg = original.addWireBranching(BranchSite{*straight, {50, 0}}, {},
                                                makeTerminalEndpoint(branch, 0));
@@ -57,16 +57,31 @@ void TstGroupTransformModel::branchesMoveOrAnchorByIdentity()
     QCOMPARE(full.nodes().value(node), QPointF(50, 10));
     QCOMPARE(full.junctionPoints(), QVector<QPointF>{QPointF(50, 10)});
     for (const auto &route : original.wires()) {
-        QCOMPARE(full.wire(route.id)->vertices.size(), route.vertices.size());
-        for (int i = 0; i < route.vertices.size(); ++i)
-            QCOMPARE(full.wire(route.id)->vertices[i], route.vertices[i] + QPointF(0, 10));
+        QCOMPARE(full.wire(route.id)->vertices,
+                 QVector<QPointF>({route.vertices.first() + QPointF(0, 10),
+                                   route.vertices.last() + QPointF(0, 10)}));
     }
     Document partial = original;
     QVERIFY(partial.transformSelection({left, right}, horizontalWires, {Kind::Translate, {0, 10}}));
-    QCOMPARE(partial.nodes().value(node), QPointF(50, 0));
+    QCOMPARE(partial.nodes().value(node), QPointF(50, 10));
+    QCOMPARE(partial.junctionPoints(), QVector<QPointF>{QPointF(50, 10)});
     QCOMPARE(partial.component(branch)->position(), original.component(branch)->position());
-    QCOMPARE(partial.wire(*leg)->vertices, original.wire(*leg)->vertices);
+    QCOMPARE(partial.wire(*leg)->vertices, QVector<QPointF>({{50, 10}, {50, 50}}));
     QCOMPARE(partial.computeNets().first().terminals, original.computeNets().first().terminals);
+    Document movingBranch = original;
+    QVERIFY(movingBranch.transformSelection({branch}, {*leg}, {Kind::Translate, {20, 10}}));
+    QCOMPARE(movingBranch.junctionPoints(), (QVector<QPointF>{{50, 0}}));
+    for (const WireId id : horizontalWires)
+        QCOMPARE(movingBranch.wire(id)->vertices, original.wire(id)->vertices);
+    QCOMPARE(movingBranch.wire(*leg)->vertices, (QVector<QPointF>{{50, 0}, {70, 0}, {70, 60}}));
+    QCOMPARE(movingBranch.computeNets().first().terminals, original.computeNets().first().terminals);
+
+    Document movingSegment = original;
+    QVERIFY(movingSegment.moveWireSegment(*leg, 0, 70));
+    QCOMPARE(movingSegment.junctionPoints(), (QVector<QPointF>{{50, 0}}));
+    for (const WireId id : horizontalWires)
+        QCOMPARE(movingSegment.wire(id)->vertices, original.wire(id)->vertices);
+    QCOMPARE(movingSegment.wire(*leg)->vertices, (QVector<QPointF>{{50, 0}, {70, 0}, {70, 50}, {50, 50}}));
     const auto loaded = Document::fromJsonBytes(partial.toJsonBytes());
     QVERIFY(loaded.document);
     QCOMPARE(loaded.document->toJsonBytes(), partial.toJsonBytes());

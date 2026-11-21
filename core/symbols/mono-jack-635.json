@@ -1,0 +1,16 @@
+{
+  "id": "MonoJack635",
+  "name": "6.35 mm Mono Jack (TS)",
+  "category": "Connectors",
+  "referencePrefix": "J",
+  "showsReference": true,
+  "primitives": [
+    {"kind":"Polygon","points":[[-25,-25],[-17,-25],[-17,25],[-25,25]],"filled":true},
+    {"kind":"Polyline","points":[[2,-20],[7,-15],[12,-20],[30,-20]]},
+    {"kind":"Polyline","points":[[-14,20],[-9,15],[-4,20],[30,20]]}
+  ],
+  "terminals": [
+    {"name":"tip","x":30,"y":-20},
+    {"name":"sleeve","x":30,"y":20}
+  ]
+}

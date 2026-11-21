@@ -1052,6 +1052,7 @@ void DocumentOpenTests::paletteReflowsWithAvailableWidth()
     MainWindow window;
     window.populateSymbolGrid(QStringLiteral("Passives"));
     QVERIFY(window.m_symbolActions.contains(SymbolIds::ElectrolyticCapacitor));
+    QVERIFY(window.m_symbolActions.contains(SymbolId("Inductor")));
     QVERIFY(window.m_symbolActions.contains(SymbolIds::OpAmpGrid10));
     QVERIFY(!window.m_categoryItems.contains(QStringLiteral("Compatibility")));
     QVERIFY(!window.m_categoryItems.contains(QStringLiteral("Compatibility/Legacy Symbols")));
@@ -1059,7 +1060,7 @@ void DocumentOpenTests::paletteReflowsWithAvailableWidth()
     QVERIFY(window.grab().save(QCoreApplication::applicationDirPath() + "/packaged-library-palette.png"));
     auto *flow = window.m_symbolSectionsLayout->itemAt(0)->layout();
     QVERIFY(flow);
-    QCOMPARE(flow->count(), 5);
+    QCOMPARE(flow->count(), 6);
     QVERIFY(flow->hasHeightForWidth());
     QVERIFY(flow->heightForWidth(150) > flow->heightForWidth(320));
     flow->setGeometry(QRect(0, 0, 150, 200));
@@ -1097,6 +1098,8 @@ void DocumentOpenTests::paletteReflowsWithAvailableWidth()
     QVERIFY(diodes);
     QCOMPARE(diodes->count(), 4);
     QVERIFY(window.grab().save(QCoreApplication::applicationDirPath() + "/packaged-diodes-palette.png"));
+    window.populateSymbolGrid(QStringLiteral("Connectors"));
+    QCOMPARE(window.m_symbolSectionsLayout->itemAt(0)->layout()->count(), 7);
 }
 
 void DocumentOpenTests::categoryCollapseReleasesPaletteObjects()

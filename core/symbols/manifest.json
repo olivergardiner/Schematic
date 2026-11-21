@@ -7,7 +7,8 @@
         "capacitor.json",
         "electrolytic-capacitor.json",
         "potentiometer.json",
-        "preset-resistor.json"
+        "preset-resistor.json",
+        "inductor.json"
       ]
     },
     {
@@ -52,6 +53,14 @@
               "symbols": [
                 "darlington-buffer-lm13700.json"
               ]
+            },
+            {
+              "name": "Power Management",
+              "symbols": [
+                "switched-capacitor-inverter.json",
+                "switched-capacitor-inverter-no-pin-numbers.json",
+                "three-terminal-regulator.json"
+              ]
             }
           ]
         }
@@ -87,7 +96,13 @@
     {
       "name": "Connectors",
       "symbols": [
-        "jack.json"
+        "jack.json",
+        "barrel-jack-55.json",
+        "barrel-jack-55-switched.json",
+        "mono-jack-635.json",
+        "mono-jack-635-switched.json",
+        "stereo-jack-635.json",
+        "stereo-jack-635-switched.json"
       ]
     },
     {

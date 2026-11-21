@@ -1,0 +1,20 @@
+{
+  "id": "BarrelJack55.Switched",
+  "name": "5.5 mm DC Barrel Jack (Switched)",
+  "category": "Connectors",
+  "referencePrefix": "J",
+  "showsReference": true,
+  "primitives": [
+    {"kind":"Path","segments":[["M",0,-14],["L",-13,-14],["C",-19,-14,-19,-6,-13,-6],["L",0,-6]]},
+    {"kind":"Polygon","points":[[0,-16],[4,-16],[4,-4],[0,-4]],"filled":true},
+    {"kind":"Line","points":[[4,-10],[30,-10]]},
+    {"kind":"Polyline","points":[[-18,10],[-13,5],[-8,10],[30,10]]},
+    {"kind":"Polyline","points":[[30,20],[5,20],[5,14]]},
+    {"kind":"Polygon","points":[[5,10],[3,15],[7,15]],"filled":true}
+  ],
+  "terminals": [
+    {"name":"centre","x":30,"y":-10},
+    {"name":"sleeve","x":30,"y":10},
+    {"name":"sleeve_break","x":30,"y":20}
+  ]
+}

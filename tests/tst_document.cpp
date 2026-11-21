@@ -343,21 +343,19 @@ void TstDocument::segmentMovementPreservesEndpointsAndTopology()
     QVERIFY(node);
     QVERIFY(doc.addWire(makeNodeEndpoint(*node), {}, makeTerminalEndpoint(c,0)));
     const auto leg = doc.wires().first().id;
-    const auto nodes = doc.nodes();
-    const auto dots = doc.junctionPoints();
-    const auto other = doc.wires()[1].vertices;
+    const auto other = doc.wires()[1].id;
     QVERIFY(doc.moveWireSegment(leg, 1, 60));
-    QCOMPARE(doc.wire(leg)->vertices, QVector<QPointF>({{20,0},{60,0},{60,50},{50,50}}));
-    QCOMPARE(doc.nodes(), nodes);
-    QCOMPARE(doc.junctionPoints(), dots);
-    QCOMPARE(doc.wires()[1].vertices, other);
+    QCOMPARE(doc.wire(leg)->vertices, QVector<QPointF>({{20,0},{60,0},{60,50}}));
+    QCOMPARE(doc.nodes().value(*node), QPointF(60,50));
+    QCOMPARE(doc.junctionPoints(), QVector<QPointF>({{60,50}}));
+    QCOMPARE(doc.wire(other)->vertices, QVector<QPointF>({{60,50},{50,50},{50,100},{80,100}}));
     const auto nets = doc.computeNets();
     QCOMPARE(netContaining(nets, {a,1}), netContaining(nets, {b,0}));
     QCOMPARE(netContaining(nets, {a,1}), netContaining(nets, {c,0}));
     const auto loaded = Document::fromJsonBytes(doc.toJsonBytes());
     QVERIFY(loaded.document);
     QCOMPARE(loaded.document->wire(leg)->vertices, doc.wire(leg)->vertices);
-    QCOMPARE(loaded.document->nodes(), nodes);
+    QCOMPARE(loaded.document->nodes(), doc.nodes());
 }
 
 void TstDocument::segmentMovementRejectsInvalidCandidates()
@@ -809,10 +807,10 @@ void TstDocument::movementRejectsCollinearReversal()
     QCOMPARE(document.component(b)->position(), QPointF(100, 0));
     QCOMPARE(document.wire(*id)->vertices, before);
 
-    // A move that keeps the same direction is still accepted.
+    // A move that keeps the same direction merges the straight segments.
     QVERIFY(document.moveComponent(b, QPointF(110, 0)));
     QCOMPARE(document.wire(*id)->vertices,
-             QVector<QPointF>({QPointF(20, 0), QPointF(60, 0), QPointF(90, 0)}));
+             QVector<QPointF>({QPointF(20, 0), QPointF(90, 0)}));
 }
 
 void TstDocument::addWireBranchingRejectsReversalWithoutSideEffects()

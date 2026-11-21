@@ -155,6 +155,13 @@ Heater terminals are h1 (-10, 50), h2 (10, 50). Shared electrodes keep identical
 
 Use `Semiconductors/Diodes`, `Semiconductors/Transistors`, and IC subcategories `Semiconductors/ICs/Op Amps`, `Semiconductors/ICs/Buffers`. The six transistor entries below belong directly to Transistors, without subcategories. Library manifest metadata can also declare empty categories without placeholder symbols. The existing op-amp moves into Op Amps without changing its ID or terminals.
 
+### Rectangular ICs (approved)
+
+- Use a centred rectangular body sized to its pins and labels, with an opaque white fill and a 1-unit black outline. Use straight, 10-unit leads with tips on the 10-unit grid. Place pin names inside the nearest edge using 5-unit-high uppercase stroke geometry. When useful for a specific pinout, place package pin numbers outside the body beside their corresponding leads. Place the editable part value and visible `U` reference outside the body.
+- Put both initial entries in `Semiconductors/ICs/Power Management`.
+- [Switched-Capacitor Inverter](../../core/symbols/switched-capacitor-inverter.json), ID `SwitchedCapacitorInverter`, has an 80 × 80 body and defaults to the value `ICL7660S`. Pin numbers are shown by default and can be hidden per instance in Properties. Both display options share the same ordered terminal positions. The [ICL7660S](https://www.renesas.com/en/document/dst/icl7660s-icl7660a-datasheet) and [MAX1044](https://www.analog.com/media/en/technical-documentation/data-sheets/ICL7660-MAX1044.pdf) share this pinout. Terminal order follows pins 1–8: BOOST (50, -30), CAP+ (-50, -30), GND (0, 50), CAP− (-50, 30), VOUT (50, -10), LV (50, 10), OSC (50, 30), V+ (0, -50).
+- [Three-Terminal Regulator](../../core/symbols/three-terminal-regulator.json), ID `ThreeTerminalRegulator`, has a 40 × 40 body and uses functional pin names without package numbers. Ordered terminals are IN (-30, 0), OUT (30, 0), and GND (0, 30).
+
 ### Transistors (approved)
 
 - Put all six initial variants directly in `Semiconductors/Transistors`. Use no enclosing circle, the common 1-unit stroke, filled black arrowheads, prefix `Q`, and references visible by default.
@@ -166,6 +173,18 @@ Use `Semiconductors/Diodes`, `Semiconductors/Transistors`, and IC subcategories 
 - Polarity conventions can be compared with the BJT, JFET and MOSFET figures in [Toshiba's transistor reference](https://toshiba.semicon-storage.com/content/dam/toshiba-ss-v3/master/en/semiconductor/knowledge/e-learning/discrete/discrete-basic-chap3_en.pdf). The dimensions, shared layout, and omission of circles follow this project's approved design.
 - The revised terminal layout uses new `.Compact30` IDs and replaces the original six palette entries; the previous IDs are not aliases for the new geometry.
 - Depletion-mode MOSFETs, four-terminal devices and other variants require separate approval and distinct IDs. Released terminal names, order and positions remain immutable under each ID.
+
+### Jack connectors (approved)
+
+- Put the 5.5 mm DC barrel and 6.35 mm TS and TRS jack families in `Connectors`, with a visible `J` reference. Draw the plug entry on the left and terminate every lead at x = 30 on the 10-unit grid. Give the barrel jack a rounded centre pin with a collar and a V-shaped sleeve contact. Give the audio jacks a rectangular socket outline and staggered V-shaped contacts.
+- Show break contacts in the unplugged state. A perpendicular arrow from the break lead touches its associated conductor and indicates a contact that opens on insertion. Attached wires refer to each terminal independently.
+- The barrel jack exposes `centre` at y = -10 and `sleeve` at y = 10. The switched variant appends `sleeve_break` at y = 20. Use the part value or a note for polarity and centre-pin diameter.
+- TS exposes `tip` at y = -20 and `sleeve` at y = 20. TRS adds `ring` at y = 0 between those entries. Switched TS and TRS append `tip_break` at y = -10, and switched TRS appends `ring_break` at y = 10.
+
+### Inductors
+
+- Use a horizontal four-arch coil with a 32-unit body span and short straight leads to terminals `1` at (-20, 0) and `2` at (20, 0). The [Inductor](../../core/symbols/inductor.json) uses prefix `L` and belongs in `Passives`.
+- Give future transformer symbols their own `Transformers` palette category, separate from `Passives`.
 
 ### Potentiometers and preset resistors (approved)
 
@@ -210,7 +229,7 @@ Add a short subsection and an approved example before creating a new family. At 
 
 | Family | Choices to settle before authoring |
 |---|---|
-| Jacks and switches | Contact depiction, normally open/closed state, switched contacts, and logical terminal names. |
+| Standalone switches | Contact depiction, normally open/closed state, and logical terminal names. |
 | Valves and specialised amplifiers | Envelope/body treatment, electrode geometry, explicit supply/heater terminals, and size exceptions. |
 
 Do not silently choose a new convention because an external SVG library happens to use it. Bring the candidate geometry and terminal proposal to review first.

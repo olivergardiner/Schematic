@@ -262,7 +262,7 @@ void SchematicView::mouseReleaseEvent(QMouseEvent *event)
     if (m_boxPending && event->button() == Qt::LeftButton) {
         updateSelectionBox(event->pos());
         if (!m_boxActive && !m_boxAdditive)
-            scene()->clearSelection();
+            static_cast<SchematicScene *>(scene())->restoreSelection({});
         m_boxPending = m_boxActive = false;
         viewport()->update();
         event->accept();

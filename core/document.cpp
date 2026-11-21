@@ -7,6 +7,7 @@
 #include <limits>
 #include <QSet>
 #include <QRegularExpression>
+#include <QLineF>
 
 namespace {
 
@@ -28,6 +29,85 @@ bool pointOnSegment(const QPointF &p, const QPointF &a, const QPointF &b)
     if (near(a.y(), b.y()))
         return near(p.y(), a.y()) && p.x() >= std::min(a.x(), b.x()) - kRouteGeometryEpsilon
             && p.x() <= std::max(a.x(), b.x()) + kRouteGeometryEpsilon;
+    return false;
+}
+
+QVector<QPointF> compactRoute(const QVector<QPointF> &points)
+{
+    QVector<QPointF> cleaned;
+    for (const QPointF &point : points) {
+        if (!cleaned.isEmpty() && samePoint(cleaned.last(), point)) continue;
+        while (cleaned.size() >= 2) {
+            const QPointF u = cleaned.last() - cleaned[cleaned.size() - 2];
+            const QPointF v = point - cleaned.last();
+            const bool collinear = (near(u.x(), 0) && near(v.x(), 0))
+                                || (near(u.y(), 0) && near(v.y(), 0));
+            if (!collinear || QPointF::dotProduct(u, v) <= 0) break;
+            cleaned.removeLast();
+        }
+        cleaned.append(point);
+    }
+    return cleaned;
+}
+
+bool hasStationaryThroughRun(const QVector<WireRoute> &routes, NodeId node, const QSet<WireId> &moving)
+{
+    const auto endpoint = makeNodeEndpoint(node);
+    bool left = false, right = false, up = false, down = false;
+    const auto recordDirection = [&](QPointF from, QPointF to) {
+        if (near(from.y(), to.y())) {
+            left |= to.x() < from.x();
+            right |= to.x() > from.x();
+        } else {
+            up |= to.y() < from.y();
+            down |= to.y() > from.y();
+        }
+    };
+    for (const WireRoute &route : routes) {
+        if (moving.contains(route.id)) continue;
+        const auto &points = route.vertices;
+        if (route.start == endpoint) recordDirection(points[0], points[1]);
+        if (route.end == endpoint) recordDirection(points.last(), points[points.size() - 2]);
+        if ((left && right) || (up && down)) return true;
+    }
+    return false;
+}
+
+bool fitRouteEndpoints(QVector<QPointF> &route, QPointF start, QPointF end,
+                       bool allowAlternateCorner)
+{
+    const bool startChanged = !samePoint(route.first(), start);
+    const bool endChanged = !samePoint(route.last(), end);
+    auto base = route;
+    base.first() = start;
+    base.last() = end;
+    if (startChanged) {
+        while (base.size() > 2 && samePoint(base[0], base[1])) base.removeAt(1);
+    }
+    if (endChanged) {
+        while (base.size() > 2 && samePoint(base.last(), base[base.size() - 2]))
+            base.removeAt(base.size() - 2);
+    }
+    const auto insertCorner = [](QVector<QPointF> &points, bool atStart, bool alternate) {
+        const QPointF endpoint = atStart ? points.first() : points.last();
+        const QPointF adjacent = atStart ? points[1] : points[points.size() - 2];
+        if (!near(endpoint.x(), adjacent.x()) && !near(endpoint.y(), adjacent.y())) {
+            points.insert(atStart ? 1 : points.size() - 1,
+                          alternate ? QPointF(adjacent.x(), endpoint.y())
+                                    : QPointF(endpoint.x(), adjacent.y()));
+        }
+    };
+    const int attempts = allowAlternateCorner ? 4 : 1;
+    for (int choice = 0; choice < attempts; ++choice) {
+        auto points = base;
+        if (startChanged) insertCorner(points, true, choice & 1);
+        if (endChanged) insertCorner(points, false, choice & 2);
+        points = compactRoute(points);
+        if (validateRouteGeometry(points) == RouteGeometryError::None) {
+            route = std::move(points);
+            return true;
+        }
+    }
     return false;
 }
 
@@ -55,6 +135,7 @@ bool moveRouteEndpoint(WireRoute *route, bool start, QPointF position)
         if (!near(endpoint.x(), adjacent.x()) && !near(endpoint.y(), adjacent.y()))
             points.insert(points.size() - 1, QPointF(endpoint.x(), adjacent.y()));
     }
+    points = compactRoute(points);
     return validateRouteGeometry(points) == RouteGeometryError::None;
 }
 
@@ -452,46 +533,53 @@ bool Document::transformSelection(const QVector<ComponentId> &componentIds,
         if (!finite(item.position())) return false;
     }
     for (auto node = candidate.m_nodes.begin(); node != candidate.m_nodes.end(); ++node) {
-        bool incident = false;
+        bool anyMoving = false;
         bool allMoving = true;
         for (const WireRoute &route : m_wires) {
             if ((isNode(route.start) && std::get<NodeId>(route.start) == node.key())
                 || (isNode(route.end) && std::get<NodeId>(route.end) == node.key())) {
-                incident = true;
+                anyMoving |= movingRoutes.contains(route.id);
                 allMoving &= movingRoutes.contains(route.id);
             }
         }
-        if (incident && allMoving) node.value() = map(node.value());
+        if (anyMoving && (allMoving || (transform.kind == SelectionTransform::Kind::Translate
+            && !hasStationaryThroughRun(m_wires, node.key(), movingRoutes))))
+            node.value() = map(node.value());
         if (!finite(node.value())) return false;
     }
     for (WireRoute &route : candidate.m_wires) {
-        if (movingRoutes.contains(route.id)) {
+        const bool moving = movingRoutes.contains(route.id);
+        if (moving) {
+            route.vertices = compactRoute(route.vertices);
             for (QPointF &point : route.vertices) point = map(point);
         }
         QPointF start, end;
         if (!candidate.endpointPosition(route.start, &start)
             || !candidate.endpointPosition(route.end, &end)) return false;
-        const bool startChanged = !samePoint(route.vertices.first(), start);
-        const bool endChanged = !samePoint(route.vertices.last(), end);
-        // Stage BOTH identity-derived endpoints before corner insertion or
-        // validation. Intermediate single-end states need not be valid.
         auto &points = route.vertices;
-        points.first() = start;
-        points.last() = end;
-        if (startChanged) {
-            while (points.size() > 2 && samePoint(points[0], points[1])) points.removeAt(1);
+        const bool startChanged = !samePoint(points.first(), start);
+        const bool endChanged = !samePoint(points.last(), end);
+        if (!moving && !startChanged && !endChanged) continue;
+        if (moving && points.size() == 2 && transform.kind == SelectionTransform::Kind::Translate) {
+            // Preserve the translated straight run where it meets a fixed endpoint.
+            const bool horizontal = near(points.first().y(), points.last().y());
+            const auto connector = [horizontal](QPointF fixed, QPointF translated) {
+                return horizontal ? QPointF(fixed.x(), translated.y())
+                                  : QPointF(translated.x(), fixed.y());
+            };
+            const QPointF startCorner = connector(start, points.first());
+            const QPointF endCorner = connector(end, points.last());
+            if (!samePoint(start, startCorner)) {
+                points.first() = startCorner;
+                points.prepend(start);
+            }
+            if (!samePoint(end, endCorner)) {
+                points.last() = endCorner;
+                points.append(end);
+            }
         }
-        if (endChanged) {
-            while (points.size() > 2 && samePoint(points.last(), points[points.size() - 2]))
-                points.removeAt(points.size() - 2);
-        }
-        if (startChanged && !near(points[0].x(), points[1].x())
-            && !near(points[0].y(), points[1].y()))
-            points.insert(1, QPointF(points[0].x(), points[1].y()));
-        if (endChanged && !near(points.last().x(), points[points.size() - 2].x())
-            && !near(points.last().y(), points[points.size() - 2].y()))
-            points.insert(points.size() - 1, QPointF(points.last().x(), points[points.size() - 2].y()));
-        if (validateRouteGeometry(points) != RouteGeometryError::None) return false;
+        if (!fitRouteEndpoints(points, start, end, isNode(route.start) || isNode(route.end)))
+            return false;
     }
     m_components = std::move(candidate.m_components);
     m_notes = std::move(candidate.m_notes);
@@ -640,60 +728,134 @@ std::optional<WireId> Document::addWire(const WireEndpoint &start,
     return id;
 }
 
-bool Document::moveWireSegment(WireId id, int segment, qreal coordinate)
+QVector<WireSegmentRef> Document::wireRun(WireSegmentRef hit) const
 {
-    auto it = std::find_if(m_wires.begin(), m_wires.end(),
-                          [id](const WireRoute &route) { return route.id == id; });
-    if (it == m_wires.end() || segment < 0 || segment >= it->vertices.size() - 1
-        || !std::isfinite(coordinate))
-        return false;
-
-    const auto &original = it->vertices;
-    const bool horizontal = near(original[segment].y(), original[segment + 1].y());
-    if (near(coordinate, horizontal ? original[segment].y() : original[segment].x()))
-        return false;
-    // Saved routes may contain redundant vertices along one straight run.
-    // Treat that run as one segment rather than creating diagonal neighbours.
-    int first = segment, last = segment + 1;
+    const auto *route = wire(hit.wire);
+    if (!route || hit.segment < 0 || hit.segment >= route->vertices.size() - 1) return {};
+    const auto &points = route->vertices;
+    const bool horizontal = near(points[hit.segment].y(), points[hit.segment + 1].y());
     const auto onAxis = [horizontal](QPointF a, QPointF b) {
         return horizontal ? near(a.y(), b.y()) : near(a.x(), b.x());
     };
-    while (first > 0 && onAxis(original[first - 1], original[first])) --first;
-    while (last + 1 < original.size() && onAxis(original[last], original[last + 1])) ++last;
-    QPointF a = original[first], b = original[last];
-    if (horizontal) { a.setY(coordinate); b.setY(coordinate); }
-    else { a.setX(coordinate); b.setX(coordinate); }
+    int first = hit.segment, last = hit.segment;
+    while (first > 0 && onAxis(points[first - 1], points[first])) --first;
+    while (last + 2 < points.size() && onAxis(points[last + 1], points[last + 2])) ++last;
+    QVector<WireSegmentRef> run;
+    for (int i = first; i <= last; ++i) run.append({hit.wire, i});
+    return run;
+}
 
-    // Interior corners move with the segment. Only fixed route endpoints
-    // need an extra perpendicular connector at the start/end.
-    QVector<QPointF> points;
-    for (int i = 0; i < first; ++i) points.append(original[i]);
-    if (first == 0) points.append(original.first());
-    points.append(a);
-    points.append(b);
-    if (last == original.size() - 1) points.append(original.last());
-    for (int i = last + 1; i < original.size(); ++i) points.append(original[i]);
+bool Document::moveWireSegment(WireId id, int segment, qreal coordinate)
+{
+    const auto *route = wire(id);
+    if (!route || segment < 0 || segment >= route->vertices.size() - 1) return false;
+    const auto &points = route->vertices;
+    const bool horizontal = near(points[segment].y(), points[segment + 1].y());
+    return moveWireSegments({{id, segment}}, horizontal ? QPointF(0, coordinate - points[segment].y())
+                                                       : QPointF(coordinate - points[segment].x(), 0));
+}
 
-    // Collapse vanishing neighbours and same-direction collinear corners.
-    // Never normalize a reversal into a different path: reject it instead.
-    QVector<QPointF> cleaned;
-    for (const QPointF &point : points) {
-        if (!cleaned.isEmpty() && samePoint(cleaned.last(), point)) continue;
-        while (cleaned.size() >= 2) {
-            const QPointF u = cleaned.last() - cleaned[cleaned.size() - 2];
-            const QPointF v = point - cleaned.last();
-            const bool collinear = (near(u.x(), 0) && near(v.x(), 0))
-                                || (near(u.y(), 0) && near(v.y(), 0));
-            if (!collinear || QPointF::dotProduct(u, v) <= 0) break;
-            cleaned.removeLast();
-        }
-        cleaned.append(point);
+bool Document::moveWireSegments(const QVector<WireSegmentRef> &segments, QPointF displacement,
+                                QVector<WireSegmentRef> *result)
+{
+    if (!std::isfinite(displacement.x()) || !std::isfinite(displacement.y())) return false;
+    const auto segmentDelta = [displacement](QPointF a, QPointF b) {
+        return near(a.y(), b.y()) ? QPointF(0, displacement.y()) : QPointF(displacement.x(), 0);
+    };
+    QHash<WireId, QSet<int>> runs;
+    bool changed = false;
+    for (const auto &hit : segments) {
+        const auto run = wireRun(hit);
+        if (run.isEmpty()) return false;
+        const auto &points = wire(hit.wire)->vertices;
+        changed |= !samePoint(segmentDelta(points[hit.segment], points[hit.segment + 1]), {});
+        for (const auto &part : run) runs[part.wire].insert(part.segment);
     }
-    if (validateRouteGeometry(cleaned) != RouteGeometryError::None
-        || !samePoint(cleaned.first(), original.first())
-        || !samePoint(cleaned.last(), original.last()))
-        return false;
-    it->vertices = std::move(cleaned);
+    if (!changed) return false;
+
+    struct JunctionMove { QPointF delta; QSet<WireId> movingLegs; };
+    QHash<NodeId, JunctionMove> junctions;
+    Document candidate = *this;
+    for (WireRoute &route : candidate.m_wires) {
+        const auto found = runs.constFind(route.id);
+        if (found == runs.cend()) continue;
+        const auto &original = wire(route.id)->vertices;
+        auto &points = route.vertices;
+        for (int i : found.value()) {
+            const QPointF delta = segmentDelta(original[i], original[i + 1]);
+            if (delta.x() != 0) {
+                points[i].setX(original[i].x() + delta.x());
+                points[i + 1].setX(original[i + 1].x() + delta.x());
+            }
+            if (delta.y() != 0) {
+                points[i].setY(original[i].y() + delta.y());
+                points[i + 1].setY(original[i + 1].y() + delta.y());
+            }
+        }
+        const auto record = [&](const WireEndpoint &endpoint, QPointF delta) {
+            if (!isNode(endpoint)) return;
+            auto &junction = junctions[std::get<NodeId>(endpoint)];
+            junction.movingLegs.insert(route.id);
+            if (delta.x() != 0) junction.delta.setX(delta.x());
+            if (delta.y() != 0) junction.delta.setY(delta.y());
+        };
+        if (found->contains(0)) record(route.start, points.first() - original.first());
+        if (found->contains(original.size() - 2)) record(route.end, points.last() - original.last());
+    }
+    for (auto entry = junctions.cbegin(); entry != junctions.cend(); ++entry) {
+        if (!hasStationaryThroughRun(m_wires, entry.key(), entry->movingLegs))
+            candidate.m_nodes[entry.key()] += entry->delta;
+    }
+
+    QVector<WireSegmentRef> remapped;
+    for (WireRoute &route : candidate.m_wires) {
+        QPointF start, end;
+        if (!candidate.endpointPosition(route.start, &start)
+            || !candidate.endpointPosition(route.end, &end)) return false;
+        const auto found = runs.constFind(route.id);
+        auto &points = route.vertices;
+        if (found == runs.cend() && samePoint(points.first(), start)
+                               && samePoint(points.last(), end)) continue;
+
+        QVector<QLineF> selectedRuns;
+        if (found != runs.cend()) {
+            const auto &original = wire(route.id)->vertices;
+            const auto anchor = [&](bool atStart, QPointF fixed, const WireEndpoint &endpoint) {
+                QPointF &tip = atStart ? points.first() : points.last();
+                const QPointF originalTip = atStart ? original.first() : original.last();
+                const QPointF adjacent = atStart ? original[1] : original[original.size() - 2];
+                const bool horizontal = near(originalTip.y(), adjacent.y());
+                const bool aligns = horizontal ? near(tip.y(), fixed.y()) : near(tip.x(), fixed.x());
+                if (isNode(endpoint) && aligns) tip = fixed;
+            };
+            if (found->contains(0)) anchor(true, start, route.start);
+            if (found->contains(original.size() - 2)) anchor(false, end, route.end);
+            if (result) {
+                for (int i : found.value()) selectedRuns.append(QLineF(points[i], points[i + 1]));
+            }
+            if (found->contains(0) && !samePoint(points.first(), start)) points.prepend(start);
+            if (found->contains(original.size() - 2) && !samePoint(points.last(), end)) points.append(end);
+        }
+        if (!fitRouteEndpoints(points, start, end, found == runs.cend())) return false;
+        for (int i = 0; i + 1 < points.size() && !selectedRuns.isEmpty(); ++i) {
+            const auto overlaps = [&](const QLineF &run) {
+                const QPointF a = points[i], b = points[i + 1], c = run.p1(), d = run.p2();
+                const auto positiveOverlap = [](qreal a, qreal b, qreal c, qreal d) {
+                    return std::min(std::max(a, b), std::max(c, d))
+                         - std::max(std::min(a, b), std::min(c, d)) > kRouteGeometryEpsilon;
+                };
+                return (near(a.y(), b.y()) && near(a.y(), c.y()) && near(a.y(), d.y())
+                        && positiveOverlap(a.x(), b.x(), c.x(), d.x()))
+                    || (near(a.x(), b.x()) && near(a.x(), c.x()) && near(a.x(), d.x())
+                        && positiveOverlap(a.y(), b.y(), c.y(), d.y()));
+            };
+            if (std::any_of(selectedRuns.cbegin(), selectedRuns.cend(), overlaps))
+                remapped.append({route.id, i});
+        }
+    }
+    m_nodes = std::move(candidate.m_nodes);
+    m_wires = std::move(candidate.m_wires);
+    if (result) *result = std::move(remapped);
     return true;
 }
 

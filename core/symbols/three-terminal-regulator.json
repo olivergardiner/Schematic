@@ -1,0 +1,27 @@
+{
+  "id": "ThreeTerminalRegulator",
+  "name": "Three-Terminal Regulator",
+  "category": "Semiconductors/ICs/Power Management",
+  "referencePrefix": "U",
+  "showsReference": true,
+  "terminals": [
+    {"name":"IN","x":-30,"y":0},
+    {"name":"OUT","x":30,"y":0},
+    {"name":"GND","x":0,"y":30}
+  ],
+  "primitives": [
+    {"kind":"Polygon","points":[[-20,-20],[20,-20],[20,20],[-20,20]],"filled":true},
+    {"kind":"Line","points":[[-30,0],[-20,0]]},
+    {"kind":"Line","points":[[30,0],[20,0]]},
+    {"kind":"Line","points":[[0,30],[0,20]]},
+    {"kind":"Line","points":[[-15.5,-2.5],[-15.5,2.5]]},
+    {"kind":"Polyline","points":[[-12.5,2.5],[-12.5,-2.5],[-9.5,2.5],[-9.5,-2.5]]},
+    {"kind":"Polyline","points":[[6,-2.5],[7,-2.5],[8,-1.5],[8,1.5],[7,2.5],[6,2.5],[5,1.5],[5,-1.5],[6,-2.5]]},
+    {"kind":"Polyline","points":[[9.5,-2.5],[9.5,1.5],[10.5,2.5],[11.5,2.5],[12.5,1.5],[12.5,-2.5]]},
+    {"kind":"Line","points":[[14,-2.5],[17,-2.5]]},
+    {"kind":"Line","points":[[15.5,-2.5],[15.5,2.5]]},
+    {"kind":"Polyline","points":[[-3,11.5],[-5,11.5],[-6,12.5],[-6,15.5],[-5,16.5],[-3,16.5],[-3,14],[-4,14]]},
+    {"kind":"Polyline","points":[[-1.5,16.5],[-1.5,11.5],[1.5,16.5],[1.5,11.5]]},
+    {"kind":"Polyline","points":[[3,16.5],[3,11.5],[5,11.5],[6,12.5],[6,15.5],[5,16.5],[3,16.5]]}
+  ]
+}

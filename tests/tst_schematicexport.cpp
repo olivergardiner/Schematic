@@ -39,6 +39,8 @@ private slots:
     void wrappedNotesExportWithoutFrames();
     void vectorLabelsFillsAndWhiteBackground();
     void tightBoundsAndTransforms();
+    void powerManagementLeadTipsRender();
+    void potentiometerArtworkTracksTerminals();
     void liveEditingStateIsExcluded();
     void fileFailuresPreserveExistingOutput();
 };
@@ -194,6 +196,87 @@ void SchematicExportTests::tightBoundsAndTransforms()
     { QPainter painter(&image); renderer.render(&painter); }
     QCOMPARE(image.pixelColor(62,102), QColor(Qt::black)); // (100,-55), on the cathode bar
     QCOMPARE(image.pixelColor(0,0), QColor(Qt::white));
+}
+
+void SchematicExportTests::potentiometerArtworkTracksTerminals()
+{
+    for (const Rotation rotation : {Rotation::Deg0, Rotation::Deg90,
+                                      Rotation::Deg180, Rotation::Deg270}) {
+        Document document;
+        const auto id = document.addComponent(SymbolIds::Potentiometer, {100, -50}, rotation);
+        QVERIFY(document.setComponentMirrored(id, true));
+        const Component &component = *document.component(id);
+        const LibrarySymbol &symbol = *document.symbol(component.symbolId());
+        ExportScene scene;
+        scene.bindDocument(&document);
+        const ComponentItem *artwork = nullptr;
+        for (auto *item : scene.items()) {
+            if (auto *candidate = qgraphicsitem_cast<ComponentItem *>(item))
+                artwork = candidate;
+        }
+        QVERIFY(artwork);
+        for (TerminalId terminal = 0; terminal < symbol.terminals.size(); ++terminal) {
+            QCOMPARE(artwork->mapToScene(symbol.terminals[terminal].offset),
+                     document.terminalPosition(component, terminal));
+        }
+    }
+}
+
+void SchematicExportTests::powerManagementLeadTipsRender()
+{
+    struct Pin {
+        QString name;
+        QPointF position;
+    };
+    const QMap<QString, QVector<Pin>> symbols{
+        {"SwitchedCapacitorInverter", {{"BOOST", {50, -30}}, {"CAP+", {-50, -30}},
+            {"GND", {0, 50}}, {"CAP-", {-50, 30}}, {"VOUT", {50, -10}},
+            {"LV", {50, 10}}, {"OSC", {50, 30}}, {"V+", {0, -50}}}},
+        {"ThreeTerminalRegulator", {{"IN", {-30, 0}}, {"OUT", {30, 0}}, {"GND", {0, 30}}}},
+    };
+    for (auto entry = symbols.cbegin(); entry != symbols.cend(); ++entry) {
+        const SymbolId symbolId(entry.key());
+        Document document;
+        const auto id = document.addComponent(symbolId, {});
+        const LibrarySymbol *symbol = document.symbol(symbolId);
+        QVERIFY(symbol);
+        QCOMPARE(symbol->terminals.size(), entry->size());
+        const auto *component = document.component(id);
+        QVERIFY(component);
+        SchematicScene scene;
+        scene.bindDocument(&document);
+        const QRectF source = scene.itemsBoundingRect().adjusted(-10, -10, 10, 10);
+        QSvgRenderer renderer(SchematicSvgExporter::render(document));
+        QVERIFY(renderer.isValid());
+        QCOMPARE(renderer.viewBoxF().size(), source.size());
+        QImage canvas((source.size() * 4).toSize(), QImage::Format_RGB32);
+        canvas.fill(Qt::white);
+        QImage svg = canvas;
+        { QPainter painter(&canvas); scene.render(&painter, QRectF(canvas.rect()), source); }
+        { QPainter painter(&svg); renderer.render(&painter, QRectF(svg.rect())); }
+        for (int i = 0; i < entry->size(); ++i) {
+            const auto &pin = entry->at(i);
+            QCOMPARE(symbol->terminals[i].name, pin.name);
+            QCOMPARE(document.terminalPosition(*component, i), pin.position);
+            const QPoint pixel = ((pin.position - source.topLeft()) * 4).toPoint();
+            QCOMPARE(canvas.pixelColor(pixel), QColor(Qt::black));
+            QCOMPARE(svg.pixelColor(pixel), QColor(Qt::black));
+        }
+        if (entry.key() == "SwitchedCapacitorInverter") {
+            const QByteArray numbered = SchematicSvgExporter::render(document);
+            QVERIFY(document.setSymbolLayout(id, "pin_numbers", "hidden"));
+            QCOMPARE(document.component(id)->symbolId(), SymbolId("SwitchedCapacitorInverter.NoPinNumbers"));
+            for (int i = 0; i < entry->size(); ++i)
+                QCOMPARE(document.terminalPosition(*document.component(id), i), entry->at(i).position);
+            const QByteArray unnumbered = SchematicSvgExporter::render(document);
+            QVERIFY(unnumbered != numbered);
+            auto loaded = Document::fromJsonBytes(document.toJsonBytes());
+            QVERIFY(loaded.document);
+            QCOMPARE(SchematicSvgExporter::render(*loaded.document), unnumbered);
+            QVERIFY(loaded.document->setSymbolLayout(id, "pin_numbers", "shown"));
+            QCOMPARE(SchematicSvgExporter::render(*loaded.document), numbered);
+        }
+    }
 }
 
 void SchematicExportTests::liveEditingStateIsExcluded()

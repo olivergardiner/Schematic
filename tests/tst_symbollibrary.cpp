@@ -88,6 +88,7 @@ void TstSymbolLibrary::builtinLibraryHasExpectedMetadata()
         {SymbolIds::ElectrolyticCapacitor, "Electrolytic Capacitor", "Passives", "C", true},
         {SymbolIds::Potentiometer, "Potentiometer",     "Passives",   "VR",  true},
         {SymbolIds::PresetResistor, "Preset Resistor", "Passives", "VR", true},
+        {SymbolId("Inductor"), "Inductor", "Passives", "L", true},
         {SymbolIds::Diode,         "Diode",             "Semiconductors/Diodes", "D", true},
         {SymbolIds::SchottkyDiode, "Schottky Diode", "Semiconductors/Diodes", "D", true},
         {SymbolIds::ZenerDiode, "Zener Diode", "Semiconductors/Diodes", "D", true},
@@ -105,6 +106,9 @@ void TstSymbolLibrary::builtinLibraryHasExpectedMetadata()
         {SymbolIds::OTANoSuppliesVerticalBias, "OTA (No Supplies)", "Semiconductors/ICs/Op Amps", "U", true},
         {SymbolIds::OTANoSuppliesBiasAbove, "OTA (No Supplies, Bias Above)", "Semiconductors/ICs/Op Amps", "U", true},
         {SymbolIds::DarlingtonBufferLM13700, "Darlington Buffer (LM13700)", "Semiconductors/ICs/Buffers", "U", true},
+        {SymbolId("SwitchedCapacitorInverter"), "Switched-Capacitor Inverter (ICL7660S / MAX1044)", "Semiconductors/ICs/Power Management", "U", true},
+        {SymbolId("SwitchedCapacitorInverter.NoPinNumbers"), "Switched-Capacitor Inverter (ICL7660S / MAX1044)", "Semiconductors/ICs/Power Management", "U", true},
+        {SymbolId("ThreeTerminalRegulator"), "Three-Terminal Regulator", "Semiconductors/ICs/Power Management", "U", true},
         {SymbolIds::RailVCC, "Power Rail", "Signals/Power Rails", "PWR", false},
         {SymbolIds::Ground, "Earth", "Signals/Grounds", "GND", false},
         {SymbolIds::GroundChassis, "Chassis Ground", "Signals/Grounds", "GND", false},
@@ -113,6 +117,12 @@ void TstSymbolLibrary::builtinLibraryHasExpectedMetadata()
         {SymbolIds::PortOutput, "Output", "Signals/Ports", "PORT", false},
         {SymbolIds::PortBidirectional, "Bidirectional", "Signals/Ports", "PORT", false},
         {SymbolIds::Jack,          "Input/Output Jack", "Connectors", "J",   true},
+        {SymbolId("BarrelJack55"), "5.5 mm DC Barrel Jack", "Connectors", "J", true},
+        {SymbolId("BarrelJack55.Switched"), "5.5 mm DC Barrel Jack (Switched)", "Connectors", "J", true},
+        {SymbolId("MonoJack635"), "6.35 mm Mono Jack (TS)", "Connectors", "J", true},
+        {SymbolId("MonoJack635.Switched"), "6.35 mm Mono Jack (TS) (Switched)", "Connectors", "J", true},
+        {SymbolId("StereoJack635"), "6.35 mm Stereo Jack (TRS)", "Connectors", "J", true},
+        {SymbolId("StereoJack635.Switched"), "6.35 mm Stereo Jack (TRS) (Switched)", "Connectors", "J", true},
         {SymbolIds::BlockBuffer, "Buffer", "Block Schematics", "B", true},
         {SymbolIds::BlockSummingNode, "Summing Node", "Block Schematics", "B", true},
         {SymbolIds::BlockHighPass, "High Pass Filter", "Block Schematics/Filters", "B", true},
@@ -145,6 +155,43 @@ void TstSymbolLibrary::builtinLibraryHasExpectedMetadata()
         QCOMPARE(symbol.showsReference, expected[i].shows);
         QVERIFY(validateLibrarySymbol(symbol).isEmpty());
     }
+}
+
+void TstSymbolLibrary::connectorJackTerminals()
+{
+    const QMap<QString, QVector<ExpectedTerminal>> connectors{
+        {"BarrelJack55", {{"centre", 30, -10}, {"sleeve", 30, 10}}},
+        {"BarrelJack55.Switched", {{"centre", 30, -10}, {"sleeve", 30, 10}, {"sleeve_break", 30, 20}}},
+        {"MonoJack635", {{"tip", 30, -20}, {"sleeve", 30, 20}}},
+        {"MonoJack635.Switched", {{"tip", 30, -20}, {"sleeve", 30, 20}, {"tip_break", 30, -10}}},
+        {"StereoJack635", {{"tip", 30, -20}, {"ring", 30, 0}, {"sleeve", 30, 20}}},
+        {"StereoJack635.Switched", {{"tip", 30, -20}, {"ring", 30, 0}, {"sleeve", 30, 20}, {"tip_break", 30, -10}, {"ring_break", 30, 10}}},
+    };
+    for (auto entry = connectors.cbegin(); entry != connectors.cend(); ++entry) {
+        const SymbolId id(entry.key());
+        checkTerminals(id, entry.value());
+        if (QTest::currentTestFailed()) return;
+        const auto *symbol = builtinSymbolLibrary().find(id);
+        for (const auto &terminal : symbol->terminals) {
+            QVERIFY(std::any_of(symbol->primitives.cbegin(), symbol->primitives.cend(),
+                [&terminal](const SymbolPrimitive &primitive) {
+                    return (primitive.kind == PrimitiveKind::Line || primitive.kind == PrimitiveKind::Polyline)
+                        && (primitive.points.first() == terminal.offset || primitive.points.last() == terminal.offset);
+                }));
+        }
+    }
+}
+
+void TstSymbolLibrary::inductorGeometry()
+{
+    const SymbolId id("Inductor");
+    checkTerminals(id, {{"1", -20, 0}, {"2", 20, 0}});
+    checkKinds(id, {PrimitiveKind::Line, PrimitiveKind::Path, PrimitiveKind::Line});
+    if (QTest::currentTestFailed()) return;
+    const auto &primitives = builtinSymbolLibrary().find(id)->primitives;
+    QCOMPARE(primitives[0].points, QVector<QPointF>({{-20, 0}, {-16, 0}}));
+    QCOMPARE(primitives[1].segments.size(), 5);
+    QCOMPARE(primitives[2].points, QVector<QPointF>({{16, 0}, {20, 0}}));
 }
 
 void TstSymbolLibrary::packagedArtworkMatchesTemplates()

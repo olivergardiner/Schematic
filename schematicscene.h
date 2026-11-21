@@ -164,6 +164,7 @@ private:
     NoteItem *noteItemAt(QPointF scenePos) const;
 
     void beginDrag(ComponentItem *item, QPointF scenePos);
+    void showSelectedSegments(const Document *document, const QVector<WireSegmentRef> &segments);
     void updateDrag(QPointF scenePos);
     void endDrag();
 
@@ -187,6 +188,7 @@ private:
     QPointF m_noteResizePosition;
     qreal m_noteResizeWidth = 160;
     WireId m_dragWireId = kInvalidWireId;
+    WireId m_segmentClickWire = kInvalidWireId;
     int m_dragSegment = -1;
     bool m_dragSegmentHorizontal = false;
     QPointF m_propertyOriginalOffset;
@@ -198,6 +200,8 @@ private:
     QPointF m_dragDisplacement;
     Selection m_dragSelection;
     std::optional<Document> m_dragOriginal;
+    QVector<WireSegmentRef> m_selectedSegments;
+    QGraphicsPathItem *m_segmentHighlight = nullptr;
 
     // DrawWire-mode pending-wire state. m_pendingVertices always starts
     // with the resolved start point; m_pendingStart is only meaningful

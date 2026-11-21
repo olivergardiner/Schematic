@@ -52,6 +52,7 @@ private slots:
     void branchPreviewAndCommitSnapToTargetWire();
     void wireSegmentDragPreviewUndoAndCancel();
     void wireSegmentDragRejectsInvalidRelease();
+    void selectedRailSegmentsMoveTogether();
     void propertyBlockDragResetAndCancel();
     void propertyJustificationAnchors();
     void propertyLabelsFollowVisibilityAndTransforms();
@@ -507,6 +508,69 @@ void GroupSelectionTests::wireSegmentDragPreviewUndoAndCancel()
     view.release(horizontal + QPoint(13,-23));
     QCOMPARE(document.wire(*id)->vertices, QVector<QPointF>({{20,0},{20,-20},{70,-20},{70,100},{80,100}}));
     QCOMPARE(edits.undoStack()->count(), 2);
+}
+
+void GroupSelectionTests::selectedRailSegmentsMoveTogether()
+{
+    Document document;
+    const auto left = document.addComponent(SymbolIds::Resistor, {});
+    const auto right = document.addComponent(SymbolIds::Resistor, {100, 0});
+    const auto branch = document.addComponent(SymbolIds::Resistor, {50, 70}, Rotation::Deg90);
+    const auto trunk = document.addWire(makeTerminalEndpoint(left, 1), {}, makeTerminalEndpoint(right, 0));
+    QVERIFY(trunk);
+    const auto leg = document.addWireBranching(BranchSite{*trunk, {50, 0}}, {},
+                                               makeTerminalEndpoint(branch, 0));
+    QVERIFY(leg);
+    SchematicScene scene;
+    scene.bindDocument(&document);
+    DocumentEditController edits(&document);
+    connectEdits(scene, edits);
+    SelectionView view;
+    view.setScene(&scene);
+    view.resize(800, 600);
+    view.show();
+    view.centerOn(50, 20);
+
+    const QPoint first = view.mapFromScene(35, 0);
+    const QPoint second = view.mapFromScene(65, 0);
+    view.press(first, Qt::AltModifier);
+    view.release(first);
+    QCOMPARE(scene.selection().segments.size(), 1);
+    QVERIFY(scene.selection().wires.isEmpty());
+    view.press(second, Qt::ControlModifier | Qt::AltModifier);
+    view.release(second);
+    const auto selected = scene.selection().segments;
+    QCOMPARE(selected.size(), 2);
+    view.press(second, Qt::ControlModifier | Qt::AltModifier);
+    view.release(second);
+    QCOMPARE(scene.selection().segments.size(), 1);
+    view.press(second, Qt::ControlModifier | Qt::AltModifier);
+    view.release(second);
+    const auto before = document.toJsonBytes();
+    QKeyEvent deleteKey(QEvent::KeyPress, Qt::Key_Delete, Qt::NoModifier);
+    view.keyPressEvent(&deleteKey);
+    QCOMPARE(document.toJsonBytes(), before);
+
+    view.press(first);
+    view.move(first + QPoint(0, 20));
+    QCOMPARE(document.toJsonBytes(), before);
+    view.release(first + QPoint(0, 20));
+    QCOMPARE(document.junctionPoints(), (QVector<QPointF>{{50, 20}}));
+    QCOMPARE(document.wire(*leg)->vertices, (QVector<QPointF>{{50, 20}, {50, 50}}));
+    QCOMPARE(edits.undoStack()->count(), 1);
+    const auto moved = scene.selection().segments;
+    QCOMPARE(moved.size(), 2);
+    for (const auto &segment : moved) {
+        const auto &points = document.wire(segment.wire)->vertices;
+        QCOMPARE(points[segment.segment].y(), 20.0);
+        QCOMPARE(points[segment.segment + 1].y(), 20.0);
+    }
+    edits.undoStack()->undo();
+    QCOMPARE(document.toJsonBytes(), before);
+    QCOMPARE(scene.selection().segments, selected);
+    edits.undoStack()->redo();
+    QCOMPARE(scene.selection().segments, moved);
+    QCOMPARE(document.junctionPoints(), (QVector<QPointF>{{50, 20}}));
 }
 
 void GroupSelectionTests::wireSegmentDragRejectsInvalidRelease()

@@ -1,0 +1,24 @@
+{
+  "id": "StereoJack635.Switched",
+  "name": "6.35 mm Stereo Jack (TRS) (Switched)",
+  "category": "Connectors",
+  "referencePrefix": "J",
+  "showsReference": true,
+  "primitives": [
+    {"kind":"Polygon","points":[[-25,-25],[-17,-25],[-17,25],[-25,25]],"filled":true},
+    {"kind":"Polyline","points":[[2,-20],[7,-15],[12,-20],[30,-20]]},
+    {"kind":"Polyline","points":[[-14,20],[-9,15],[-4,20],[30,20]]},
+    {"kind":"Polyline","points":[[-6,0],[-1,5],[4,0],[30,0]]},
+    {"kind":"Polyline","points":[[30,-10],[17,-10],[17,-16]]},
+    {"kind":"Polygon","points":[[17,-20],[15,-15],[19,-15]],"filled":true},
+    {"kind":"Polyline","points":[[30,10],[9,10],[9,4]]},
+    {"kind":"Polygon","points":[[9,0],[7,5],[11,5]],"filled":true}
+  ],
+  "terminals": [
+    {"name":"tip","x":30,"y":-20},
+    {"name":"ring","x":30,"y":0},
+    {"name":"sleeve","x":30,"y":20},
+    {"name":"tip_break","x":30,"y":-10},
+    {"name":"ring_break","x":30,"y":10}
+  ]
+}
